@@ -60,7 +60,9 @@ function ConfigGunActionInfo_PassToGame(state)
   shot.draw = state.action_draw_many_count
 end
 
-function ConfigGunShotEffects_PassToGame() end
+function ConfigGunShotEffects_PassToGame(effects)
+  if rec then rec.cast.recoil = effects.recoil_knockback end
+end
 function SetProjectileConfigs() end
 function ActionUsed() end
 function LogAction() end
@@ -148,6 +150,50 @@ function sim_set_flags_all(value)
   __world.flags_all = value
 end
 
+-- One trigger pull on the given frame with the wand's current mana; the deck carries over between calls.
+function sim_cast(frame, wand_mana)
+  __world.frame = frame
+  local cast = { frame = frame, mana_before = wand_mana, played = {}, slots = {}, uses = {}, events = {}, no_mana = 0 }
+  rec = { stack = { new_shot() }, proj_stack = {}, cast = cast }
+
+  _start_shot(wand_mana)
+  for _, id in ipairs(sim.always) do _play_permanent_card(id) end
+  _draw_actions_for_shot(true)
+
+  cast.mana_after = mana
+  cast.shot = rec.stack[1]
+  rec = nil
+
+  -- Cast delay accumulates over every shot registered during the cast, payloads included
+  -- (a Bomb inside a trigger still costs its cast delay). The wand's base delay lives in the root state.
+  local delay = total_fire_rate_wait(cast.shot)
+  cast.cast_delay = delay
+  local nf = frame + math.max(delay, 0)
+  if cast.reload then nf = math.max(nf, frame + math.max(cast.reload, 0)) end
+  cast.next_frame = math.max(nf, frame + 1)
+  return cast
+end
+
+-- Where every deck card is after the last cast (inventory ids in draw order) and its remaining charges.
+function sim_deck_state()
+  local function ids(list)
+    local out = {}
+    for i, a in ipairs(list) do out[i] = a.inventoryitem_id end
+    return out
+  end
+  local uses = {}
+  for _, list in ipairs({ deck, hand, discarded }) do
+    for _, a in ipairs(list) do uses[#uses + 1] = { inv = a.inventoryitem_id, uses = a.uses_remaining } end
+  end
+  return { deck = ids(deck), discarded = ids(discarded), uses = uses }
+end
+
+-- Live play: one cast plus the deck afterwards, as JSON.
+function sim_cast_json(frame, wand_mana)
+  local cast = sim_cast(frame, wand_mana)
+  return json_encode({ cast = cast, deck = sim_deck_state(), missing = __world.missing })
+end
+
 -- Fires up to max_casts casts (stopping after the first recharge when stop_on_reload).
 function sim_run(max_casts, stop_on_reload)
   local casts = {}
@@ -160,28 +206,11 @@ function sim_run(max_casts, stop_on_reload)
       wand_mana = math.min(sim.mana_max, wand_mana + sim.mana_charge * (next_frame - frame) / 60)
       frame = next_frame
     end
-    __world.frame = frame
 
-    local cast = { index = i, frame = frame, mana_before = wand_mana, played = {}, slots = {}, uses = {}, events = {}, no_mana = 0 }
-    rec = { stack = { new_shot() }, proj_stack = {}, cast = cast }
-
-    _start_shot(wand_mana)
-    for _, id in ipairs(sim.always) do _play_permanent_card(id) end
-    _draw_actions_for_shot(true)
-
-    wand_mana = mana
-    cast.mana_after = wand_mana
-    cast.shot = rec.stack[1]
-    rec = nil
-
-    -- Cast delay accumulates over every shot registered during the cast, payloads included
-    -- (a Bomb inside a trigger still costs its cast delay). The wand's base delay lives in the root state.
-    local delay = total_fire_rate_wait(cast.shot)
-    cast.cast_delay = delay
-    local nf = frame + math.max(delay, 0)
-    if cast.reload then nf = math.max(nf, frame + math.max(cast.reload, 0)) end
-    next_frame = math.max(nf, frame + 1)
-    cast.next_frame = next_frame
+    local cast = sim_cast(frame, wand_mana)
+    cast.index = i
+    wand_mana = cast.mana_after
+    next_frame = cast.next_frame
 
     casts[#casts + 1] = cast
     if stop_on_reload and cast.reload then break end

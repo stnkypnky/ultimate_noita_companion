@@ -202,7 +202,27 @@ export class RangeRenderer {
       ctx.fillStyle = f.self ? '#ff5a5a' : f.crit ? '#ffd23f' : '#ffffff';
       ctx.fillText(f.self ? `-${f.text}` : f.text, f.x, f.y);
     }
+    ctx.globalAlpha = 1;
+    this.hud(w);
     ctx.restore();
+  }
+
+  /** Top-right bars like the game's HUD: mana, then recharge and cast delay while they run. */
+  private hud(w: RangeWorld) {
+    const wand = w.wand;
+    if (!wand?.equipped) return;
+    const ctx = this.ctx;
+    const x = W - 8 - HUD_BAR_W;
+    let y = 8;
+    const starved = w.frame - wand.noManaFrame < 24 && (w.frame - wand.noManaFrame) % 8 < 4;
+    hudBar(ctx, x, y, wand.manaMax > 0 ? wand.mana / wand.manaMax : 0, HUD.mana, starved);
+    y += 6;
+    if (w.frame < wand.reloadEnd) {
+      hudBar(ctx, x, y, 1 - wand.reloadProgress(w.frame), HUD.reload, false);
+      y += 6;
+    }
+    // Long cast delays (bombs, payloads) get their own bar; short ones would only flicker.
+    if (w.frame < wand.delayEnd && wand.delayEnd - wand.delayStart > 6) hudBar(ctx, x, y, 1 - wand.delayProgress(w.frame), HUD.delay, false);
   }
 
   /** Feet-anchored sprite, optionally mirrored, with a hit flash. */
@@ -219,6 +239,20 @@ export class RangeRenderer {
     }
     ctx.restore();
   }
+}
+
+/** HUD colours from data/ui_gfx/hud/colors_*.png. */
+const HUD = { mana: '#42a8e2', reload: '#fc8a43', delay: '#ffdd88', flash: '#fc4355', bg: '#72483e7d' };
+const HUD_BAR_W = 40;
+
+function hudBar(ctx: CanvasRenderingContext2D, x: number, y: number, fill: number, color: string, flash: boolean) {
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = '#000000aa';
+  ctx.fillRect(x - 1, y - 1, HUD_BAR_W + 2, 4);
+  ctx.fillStyle = flash ? HUD.flash : HUD.bg;
+  ctx.fillRect(x, y, HUD_BAR_W, 2);
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, Math.round(HUD_BAR_W * Math.max(0, Math.min(1, fill))), 2);
 }
 
 function line(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, color: string, width: number, alpha: number) {

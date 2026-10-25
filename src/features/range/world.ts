@@ -8,6 +8,7 @@
 import type { EntityVisual, Projectile } from '@/data/types';
 import { CRIT_MULT, projectileDamage } from '@/sim/analyze';
 import type { ShotState, SimCast, SimShot } from '@/sim/types';
+import type { WandRuntime } from './wand';
 
 export const W = 420;
 export const H = 236;
@@ -173,9 +174,19 @@ export class RangeWorld {
   selfDamage = 0;
   castsFired = 0;
 
-  private casts: SimCast[] = [];
-  private cycleFrames = 0;
-  private cycleStart = 0;
+  /** The wand in hand; it fires through fire() while the trigger is held. */
+  wand: WandRuntime | null = null;
+  /** Trigger held (mouse, touch or key). */
+  trigger = false;
+  /** Auto-fire: hold the trigger and aim at the dummy. */
+  auto = true;
+  /** Where the player aims, in world pixels (manual mode). */
+  aim: { x: number; y: number } | null = null;
+
+  /** Auto mode puts teleported or swapped actors back after each recharge, so the range stays usable. */
+  private homeAfterReload = false;
+  /** A press since the last frame, so a click shorter than a frame still pulls the trigger. */
+  private tapped = false;
   private nextId = 1;
   private lastArc: Proj | null = null;
 
@@ -193,13 +204,19 @@ export class RangeWorld {
     return { x: this.player.x + f * 10, y: this.player.y - 11 };
   }
 
-  get facing() {
-    return this.dummy.x >= this.player.x ? 1 : -1;
+  private get manual() {
+    return !this.auto && this.aim;
   }
 
-  /** Aim at the dummy's upper chest so gravity-affected shots arc into it rather than skimming the floor. */
+  get facing() {
+    const tx = this.manual ? this.aim!.x : this.dummy.x;
+    return tx >= this.player.x ? 1 : -1;
+  }
+
+  /** Manual: at the cursor. Auto: the dummy's upper chest, so gravity-affected shots arc into it rather than skimming the floor. */
   get aimAngle() {
     const m = this.muzzle;
+    if (this.manual) return Math.atan2(this.aim!.y - m.y, this.aim!.x - m.x);
     return Math.atan2(this.dummy.y - this.dummy.h * 0.8 - m.y, this.dummy.x - m.x);
   }
 
@@ -334,20 +351,28 @@ export class RangeWorld {
 
   // ---------- casting ----------
 
-  /** Replace the wand's cast cycle (from the cast simulator). Keeps terrain; clears projectiles in flight. */
-  setCycle(casts: SimCast[]) {
-    this.casts = casts;
-    const first = casts[0];
-    const last = casts.at(-1);
-    this.cycleFrames = first && last ? Math.max(1, last.next_frame - first.frame) : 0;
-    // step() advances the frame before scheduling, so the first cast lands on the very next step.
-    this.cycleStart = this.frame + 1;
+  /** Press or release the trigger. */
+  setTrigger(down: boolean) {
+    this.trigger = down;
+    if (down) this.tapped = true;
+  }
+
+  /** A different wand: projectiles in flight go away, terrain stays. */
+  clearShots() {
     this.projectiles = [];
     this.lastArc = null;
     this.unsupported.clear();
   }
 
-  private fire(cast: SimCast) {
+  /** Put both actors back on their marks. */
+  resetActors() {
+    for (const a of this.actors) this.moveActor(a, a.homeX, this.groundBelow(a.homeX));
+  }
+
+  /** The wand cast: its projectiles leave the muzzle along the aim. */
+  fire(cast: SimCast) {
+    if (this.auto && this.homeAfterReload && this.displaced()) this.resetActors();
+    this.homeAfterReload = cast.reload !== undefined;
     this.castsFired++;
     const m = this.muzzle;
     for (let i = 0; i < 6; i++) this.spark(m.x, m.y, '#ffd27a', true, 12);
@@ -477,17 +502,8 @@ export class RangeWorld {
 
   step() {
     this.frame++;
-    if (this.cycleFrames > 0) {
-      let t = this.frame - this.cycleStart;
-      if (t >= this.cycleFrames) {
-        this.cycleStart += this.cycleFrames;
-        t -= this.cycleFrames;
-      }
-      // Teleports and swaps are undone at the start of each cycle so the range stays usable.
-      if (t === 0 && this.displaced()) for (const a of this.actors) this.moveActor(a, a.homeX, this.groundBelow(a.homeX));
-      const f0 = this.casts[0]!.frame;
-      for (const c of this.casts) if (c.frame - f0 === t) this.fire(c);
-    }
+    this.wand?.tick(this.frame, this.auto || this.trigger || this.tapped);
+    this.tapped = false;
 
     this.beams = [];
     // Copy: updates may spawn new projectiles (they start moving next frame).

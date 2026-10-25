@@ -62,7 +62,6 @@ export function WandPage() {
       /* storage unavailable: the choice just isn't remembered */
     }
   }, [view]);
-  const rangeCasts = useMemo(() => sim.casts.map((c) => c.cast), [sim.casts]);
 
   const flash = useCallback((msg: string) => {
     setToast(msg);
@@ -275,7 +274,7 @@ export function WandPage() {
     >
       {view === 'preview' ? (
         <div className="space-y-3">
-          <RangePreview casts={rangeCasts} active />
+          <RangePreview wand={wand} options={options} active />
           {sim.summary && (
             <p className="text-xs text-faint">
               Simulated: {sim.summary.casts} cast{sim.summary.casts === 1 ? '' : 's'} per {fmtNum(sim.summary.cycleFrames / 60)}s cycle, ≈{fmtNum(sim.summary.dps, 0)} DPS

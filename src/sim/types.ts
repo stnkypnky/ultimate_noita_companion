@@ -34,7 +34,22 @@ export type SimCast = {
   /** Total cast delay in frames, payloads included. */
   cast_delay: number;
   next_frame: number;
+  /** shot_effects.recoil_knockback: how hard the cast pushes the caster back. */
+  recoil?: number;
   shot: SimShot;
+};
+
+/** Live play: one trigger pull and where the deck stands afterwards. */
+export type LiveCast = {
+  cast: SimCast;
+  deck: {
+    /** Inventory ids still to be drawn, in draw order. */
+    deck: number[];
+    discarded: number[];
+    /** Remaining charges per inventory id (-1 = unlimited). */
+    uses: { inv: number; uses: number }[];
+  };
+  missing: string[];
 };
 
 export type SimResult = {

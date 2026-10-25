@@ -4,8 +4,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createLuaHost, loadGun, type LuaHost } from '../tools/extract/lua.ts';
 import { AIR, RangeWorld, type RangeData } from '../src/features/range/world.ts';
+import { WandRuntime } from '../src/features/range/wand.ts';
+import { castWand, resetWand } from '../src/sim/protocol.ts';
 import type { EntityVisual, Material, Projectile } from '../src/data/types.ts';
-import type { SimResult } from '../src/sim/types.ts';
+import type { SimRequest, SimResult } from '../src/sim/types.ts';
 
 const GAME = join(import.meta.dirname, '../public/game');
 const json = <T>(p: string) => JSON.parse(readFileSync(join(GAME, p), 'utf8')) as T;
@@ -31,6 +33,20 @@ function casts(deck: string[], always: string[] = []) {
   return (JSON.parse(host.call<string>('sim_run', 64, true)) as SimResult).casts;
 }
 
+/** A wand with plenty of mana (like casts() above), held in the range and fired straight through the Lua host. */
+function equip(w: RangeWorld, deck: string[], mana = 2000) {
+  const req: SimRequest = {
+    wand: { shuffle: false, spellsPerCast: 1, castDelay: 10, rechargeTime: 20, manaMax: mana, manaChargeSpeed: mana, capacity: deck.length, spread: 0, speedMultiplier: 1 },
+    deck: deck.map((id) => ({ id, uses: -1 })),
+    alwaysCasts: [],
+    options: { maxCasts: 64, stopOnReload: true, hp: 100, maxHp: 100, money: 0, frame: 0 },
+  };
+  const call = (fn: string, ...args: unknown[]) => host.call(fn, ...args);
+  let n = 0;
+  w.wand = new WandRuntime({ reset: (r) => resetWand(call, r), cast: (f, m) => castWand(call, f, m, ++n) }, (c) => w.fire(c));
+  w.wand.equip(req, w.frame);
+}
+
 function world(deck: string[], frames: number, distance?: number) {
   const w = new RangeWorld(data);
   if (distance !== undefined) w.setDummyDistance(distance);
@@ -40,7 +56,7 @@ function world(deck: string[], frames: number, distance?: number) {
     spawned.push(file.split('/').pop()!);
     return spawn(file, ...rest);
   };
-  w.setCycle(casts(deck));
+  equip(w, deck);
   let maxBolts = 0;
   let maxBeams = 0;
   let maxSegments = 0;
@@ -80,7 +96,7 @@ describe('test range basics', () => {
     const c = casts(['LIGHT_BULLET', 'LIGHT_BULLET']);
     const cycle = c.at(-1)!.next_frame - c[0]!.frame;
     const w = new RangeWorld(data);
-    w.setCycle(c);
+    equip(w, ['LIGHT_BULLET', 'LIGHT_BULLET']);
     w.step();
     expect(w.castsFired).toBe(1);
     for (let i = 1; i < cycle * 3; i++) w.step();

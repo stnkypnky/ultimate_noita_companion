@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
-import { Gauge, Maximize2, Minimize2, Mountain, Pause, Play } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeftRight, Bot, Gauge, Maximize2, Minimize2, Mountain, Pause, Play } from 'lucide-react';
 import { fetchJson, useData } from '@/data/store';
 import type { EntityVisual, RangeProp } from '@/data/types';
 import { fmtNum } from '@/data/format';
-import type { SimCast } from '@/sim/types';
+import { LiveSession } from '@/sim/client';
+import { toSimRequest, type SimOptions, type Wand } from '@/features/wand/model';
 import { H, RangeWorld, W, type RangeData } from './world';
 import { RangeRenderer, SCALE, loadRangeImages, type RangeImages } from './render';
+import { WandRuntime } from './wand';
 
 const SPEEDS = [0.25, 0.5, 1] as const;
 const DEFAULT_DISTANCE = 228;
@@ -20,33 +22,48 @@ const loadExtra = () =>
 
 const humanize = (s: string) => s.replace(/_/g, ' ');
 
-/** Live pixel test range: the wand fires its simulated cast cycle on loop at a target dummy. */
-export function RangePreview({ casts, active }: { casts: SimCast[]; active: boolean }) {
-  const { projectiles, materials, materialById } = useData();
+const remembered = (key: string, fallback: string) => {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+const remember = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* not remembered without storage */
+  }
+};
+
+/** Live pixel test range: hold the wand and cast it at a target dummy, with the wand's real mana and recharge. */
+export function RangePreview({ wand, options, active }: { wand: Wand; options: SimOptions; active: boolean }) {
+  const { projectiles, materials, materialById, spellById } = useData();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<RangeWorld | null>(null);
+  const [session] = useState(() => new LiveSession());
   const [ready, setReady] = useState<{ data: RangeData; images: RangeImages } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
   const [onScreen, setOnScreen] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
-  const [hud, setHud] = useState({ dps: 0, total: 0, self: 0, casts: 0, live: 0, unsupported: [] as string[] });
-  const [distance, setDistance] = useState(() => {
-    try {
-      return Number(localStorage.getItem('range-distance')) || DEFAULT_DISTANCE;
-    } catch {
-      return DEFAULT_DISTANCE;
-    }
-  });
+  const [auto, setAuto] = useState(() => remembered('range-auto', '0') === '1');
+  const [hud, setHud] = useState({ dps: 0, total: 0, self: 0, casts: 0, live: 0, unsupported: [] as string[], wandError: null as string | null });
+  const req = useMemo(() => toSimRequest(wand, options, spellById).req, [wand, options, spellById]);
+  const empty = req.deck.length === 0 && req.alwaysCasts.length === 0;
+
+  useEffect(() => () => session.dispose(), [session]);
+  useEffect(() => {
+    if (worldRef.current) worldRef.current.auto = auto;
+    remember('range-auto', auto ? '1' : '0');
+  }, [auto, ready]);
+  const [distance, setDistance] = useState(() => Number(remembered('range-distance', '')) || DEFAULT_DISTANCE);
   useEffect(() => {
     worldRef.current?.setDummyDistance(distance);
-    try {
-      localStorage.setItem('range-distance', String(distance));
-    } catch {
-      /* not remembered without storage */
-    }
+    remember('range-distance', String(distance));
   }, [distance, ready]);
 
   // Load range data + sprites once.
@@ -72,15 +89,20 @@ export function RangePreview({ casts, active }: { casts: SimCast[]; active: bool
     };
   }, [projectiles, materials, materialById]);
 
-  // New cast cycle whenever the wand changes.
+  // A freshly built wand in hand whenever the wand changes.
   useEffect(() => {
     if (!ready) return;
-    if (!worldRef.current) {
-      worldRef.current = new RangeWorld(ready.data);
-      worldRef.current.setDummyDistance(distance);
+    let w = worldRef.current;
+    if (!w) {
+      w = worldRef.current = new RangeWorld(ready.data);
+      w.setDummyDistance(distance);
+      w.auto = auto;
+      const world = w;
+      w.wand = new WandRuntime(session, (c) => world.fire(c));
     }
-    worldRef.current.setCycle(casts);
-  }, [ready, casts]); // distance has its own effect; a new world just starts at the current setting
+    w.clearShots();
+    w.wand!.equip(req, w.frame);
+  }, [ready, req, session]); // distance and auto have their own effects; a new world just starts at the current settings
 
   // Pause when scrolled away or the tab is hidden.
   useEffect(() => {
@@ -127,6 +149,7 @@ export function RangePreview({ casts, active }: { casts: SimCast[]; active: bool
             casts: world.castsFired,
             live: world.projectiles.length,
             unsupported: [...world.unsupported],
+            wandError: world.wand?.error ?? null,
           });
         }
       }
@@ -134,7 +157,28 @@ export function RangePreview({ casts, active }: { casts: SimCast[]; active: bool
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [ready, running, speed, casts]);
+  }, [ready, running, speed]);
+
+  // Aim with the pointer; press to cast once, hold to keep casting. Taking aim switches Auto off.
+  const toWorld = (e: React.PointerEvent) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return { x: ((e.clientX - r.left) / r.width) * W, y: ((e.clientY - r.top) / r.height) * H };
+  };
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const w = worldRef.current;
+    if (!w || e.button !== 0) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    setAuto(false);
+    w.auto = false;
+    w.aim = toWorld(e);
+    w.setTrigger(true);
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const w = worldRef.current;
+    if (w && (e.pointerType === 'mouse' || w.trigger)) w.aim = toWorld(e);
+  };
+  const release = () => worldRef.current?.setTrigger(false);
 
   useEffect(() => {
     const h = () => setFullscreen(document.fullscreenElement === boxRef.current);
@@ -164,15 +208,25 @@ export function RangePreview({ casts, active }: { casts: SimCast[]; active: bool
           ref={canvasRef}
           width={W * SCALE}
           height={H * SCALE}
-          className="pixelated block w-full"
+          className="pixelated block w-full cursor-crosshair touch-none select-none"
           style={{ aspectRatio: `${W} / ${H}` }}
-          aria-label="Test range: the wand firing at a target dummy"
+          aria-label="Test range: aim and click or hold to cast the wand at a target dummy"
           role="img"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={release}
+          onPointerCancel={release}
+          onLostPointerCapture={release}
+          onContextMenu={(e) => e.preventDefault()}
         />
         {!ready && (
           <div className="absolute inset-0 grid place-items-center text-sm text-muted">{error ? `Couldn't load the range: ${error}` : 'Setting up the range…'}</div>
         )}
-        {ready && casts.length === 0 && <div className="absolute inset-0 grid place-items-center text-sm text-muted">Add spells to see them fly.</div>}
+        {ready && empty && <div className="pointer-events-none absolute inset-0 grid place-items-center text-sm text-muted">Add spells to see them fly.</div>}
+        {ready && !empty && !auto && hud.casts === 0 && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 text-center text-xs text-muted">Click to cast · hold to keep casting</div>
+        )}
+        {hud.wandError && <div className="pointer-events-none absolute inset-x-0 bottom-3 text-center text-xs text-blood">The wand misfired: {hud.wandError}</div>}
         <div className="pointer-events-none absolute top-2 left-2 flex gap-1.5 text-[11px] tabular-nums">
           <span className="rounded bg-black/60 px-1.5 py-0.5 text-ember">{fmtNum(hud.dps, 0)} DPS</span>
           <span className="rounded bg-black/60 px-1.5 py-0.5 text-muted">{fmtNum(hud.total, 0)} total</span>
@@ -201,6 +255,17 @@ export function RangePreview({ casts, active }: { casts: SimCast[]; active: bool
             </button>
           ))}
         </span>
+        <button
+          onClick={() => setAuto(!auto)}
+          aria-pressed={auto}
+          title="Auto-fire at the dummy"
+          className={`ml-1 inline-flex items-center gap-1 rounded-lg px-2 py-1 ${auto ? 'bg-ember text-bg' : 'bg-surface-2 text-muted hover:text-ink'}`}
+        >
+          <Bot size={14} /> Auto
+        </button>
+        <Btn label="Swap wand (restarts the deck, like switching items in-game)" onClick={() => worldRef.current?.wand?.swap()}>
+          <ArrowLeftRight size={15} />
+        </Btn>
         <Btn
           label="Rebuild terrain"
           onClick={() => {
