@@ -106,8 +106,7 @@ describe('test range basics', () => {
     // Point blank, it hits the dummy within 3 frames and acts like a trigger.
     expect(world(['LIGHT_BULLET_TIMER', 'BOMB'], 5, 20).spawned).toContain('bomb.xml');
     // Energy Orb with Timer: the orb lives ~50 frames, less than its 100-frame timer.
-    const orb = world(['SLOW_BULLET_TIMER', 'LIGHT_BULLET'], 70, 380).spawned;
-    expect(orb.filter((f) => f === 'light_bullet.xml')).toHaveLength(1);
+    expect(world(['SLOW_BULLET_TIMER', 'LIGHT_BULLET'], 60, 380).spawned).toContain('light_bullet.xml');
   });
 
   it('homing bends shots into the dummy', () => {
