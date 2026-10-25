@@ -37,6 +37,42 @@ export async function buildAtlas(
   return { png, rects, size: [cols * cw, rows * ch] };
 }
 
+/**
+ * Packs sprites of mixed sizes into rows (tallest first) with a 1 px gutter, for atlases holding
+ * animation frames where a uniform grid would waste most of the image.
+ */
+export async function buildPackedAtlas(inputs: AtlasInput[], maxWidth = 1024): Promise<{ png: Buffer; rects: Map<string, Icon>; size: [number, number] }> {
+  const metas = await Promise.all(
+    inputs.map(async (i) => {
+      const m = await sharp(i.png).metadata();
+      return { ...i, w: m.width ?? 1, h: m.height ?? 1 };
+    }),
+  );
+  const order = [...metas].sort((a, b) => b.h - a.h || b.w - a.w || a.key.localeCompare(b.key));
+  const rects = new Map<string, Icon>();
+  let x = 0;
+  let y = 0;
+  let rowH = 0;
+  let width = 1;
+  for (const m of order) {
+    if (x + m.w > maxWidth && x > 0) {
+      y += rowH + 1;
+      x = 0;
+      rowH = 0;
+    }
+    rects.set(m.key, { x, y, w: m.w, h: m.h });
+    x += m.w + 1;
+    rowH = Math.max(rowH, m.h);
+    width = Math.max(width, x);
+  }
+  const height = Math.max(1, y + rowH);
+  const png = await sharp({ create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+    .composite(metas.map((m) => ({ input: m.png, left: rects.get(m.key)!.x, top: rects.get(m.key)!.y })))
+    .png({ compressionLevel: 9 })
+    .toBuffer();
+  return { png, rects, size: [width, height] };
+}
+
 /** First frame of an icon that might be a horizontal strip. */
 export async function firstFrame(png: Buffer, size = 16): Promise<Buffer> {
   const m = await sharp(png).metadata();

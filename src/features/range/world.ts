@@ -5,7 +5,8 @@
 // lifetime, homing, sine waves, lasers, area damage, lightning) and ports the game's Lua for path modifiers,
 // bounce effects, orbits, the giga disc, chain bolt and teleports. Approximated: the engine's C++ internals
 // (exact homing maths, friction integration, Box2D physics for thrown bombs, arc damage) and falling-sand materials.
-import type { EntityVisual, Projectile, RangeKit, WandSprite } from '@/data/types';
+import type { EntityVisual, ExplosionVisual, Projectile, RangeKit, WandSprite } from '@/data/types';
+import { emitterStates, layerFrames, runEmitters, simpleParticle, stepParticles, type EmitterState, type Particle } from './particles';
 import { CRIT_MULT, projectileDamage } from '@/sim/analyze';
 import type { ShotState, SimCast, SimShot } from '@/sim/types';
 import { DEFAULT_FLIGHT, DEFAULT_MOVE, newPlayerState, stepPlayer, wandPose, type Controls, type PlayerState } from './player';
@@ -18,7 +19,8 @@ export const H = 242;
 const DEATH_FRAMES = 90;
 const DT = 1 / 60;
 const MAX_PROJECTILES = 700;
-const MAX_PARTICLES = 3000;
+const MAX_PARTICLES = 6000;
+const MAX_EFFECTS = 200;
 const GRAVITY = 400;
 
 export const AIR = 0;
@@ -108,7 +110,10 @@ export type Proj = {
   arc?: NonNullable<EntityVisual['arc']> & { target?: Proj };
   teleport: boolean;
   hitEffect?: NonNullable<EntityVisual['hitEffect']>;
+  /** Material trail colours from trail modifiers (fire trail, acid trail...). */
   trails: string[];
+  /** The projectile's own particle emitters and those of its modifiers. */
+  emit: EmitterState[];
   light?: { color: string; radius: number };
   scripts: Script[];
   vars: Record<string, number>;
@@ -120,8 +125,11 @@ export type Proj = {
   dead: boolean;
 };
 
-export type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; color: string; glow: boolean };
-export type Flash = { x: number; y: number; r: number; age: number; color: string };
+export type { Particle };
+/** A burst of light (explosions, muzzle flashes) that fades over `life` frames. */
+export type Flash = { x: number; y: number; r: number; age: number; life: number; color: string };
+/** A short-lived entity with no physics: muzzle flashes, explosion sprites, blast leftovers. */
+export type Effect = { x: number; y: number; rot: number; vis: EntityVisual; age: number; life: number; emit: EmitterState[]; flip: number };
 export type Floater = { x: number; y: number; text: string; age: number; crit: boolean; self: boolean };
 /** A fading line (luminous drill beams, chain-bolt hops). */
 export type Segment = { x0: number; y0: number; x1: number; y1: number; age: number; life: number; color: string; width: number };
@@ -166,10 +174,13 @@ export class RangeWorld {
   projectiles: Proj[] = [];
   particles: Particle[] = [];
   flashes: Flash[] = [];
+  effects: Effect[] = [];
   floaters: Floater[] = [];
   segments: Segment[] = [];
   bolts: Bolt[] = [];
   beams: Beam[] = [];
+  /** Camera shake strength (explosions, heavy casts); decays every frame. */
+  shake = 0;
   frame = 0;
   readonly floorY = H - 34;
   readonly player: Actor;
@@ -453,7 +464,19 @@ export class RangeWorld {
     this.homeAfterReload = cast.reload !== undefined;
     this.castsFired++;
     const { tip, angle } = this.pose;
-    for (let i = 0; i < 6; i++) this.spark(tip.x, tip.y, '#ffd27a', true, 12);
+    // Each kind of projectile cast brings its muzzle flash and a flash of light at the tip.
+    const seen = new Set<string>();
+    for (const sp of cast.shot.projectiles) {
+      const vis = this.data.visuals[sp.file];
+      if (vis?.muzzle && !seen.has(vis.muzzle)) {
+        seen.add(vis.muzzle);
+        this.addEffect(vis.muzzle, tip.x, tip.y, angle, this.facing);
+      }
+      if (vis?.shootLight && !seen.has(`light:${sp.file}`)) {
+        seen.add(`light:${sp.file}`);
+        this.flashes.push({ x: tip.x, y: tip.y, r: Math.min(40, vis.shootLight.radius * 0.5), age: 0, life: 6, color: vis.shootLight.color });
+      }
+    }
     // shot_effects.recoil_knockback pushes the caster away from the aim.
     if (cast.recoil) {
       this.body.vx -= Math.cos(angle) * cast.recoil;
@@ -525,7 +548,7 @@ export class RangeWorld {
       dieOnLowVelocity: vis?.physics?.dieOnLowVelocity ?? false,
       rotate: vis?.physics?.rotate ?? true,
       streak: vis?.physics?.streak ?? false,
-      beamLike: !vis?.sprite && life > 0 && life <= 4 && speedOf({ vx, vy }) > 300,
+      beamLike: !vis?.sprites?.length && life > 0 && life <= 4 && speedOf({ vx, vy }) > 300,
       hit: dmg.hit,
       critChance: dmg.critChance,
       explosion:
@@ -560,7 +583,8 @@ export class RangeWorld {
       ...(arc ? { arc: { ...arc, target: this.lastArc && !this.lastArc.dead ? this.lastArc : undefined } } : {}),
       teleport: !!vis?.teleport,
       hitEffect: vis?.hitEffect,
-      trails: [...new Set([trailMat, ...all.map((v) => v.trail?.color)].filter((c): c is string => !!c))],
+      trails: trailMat ? [trailMat] : [],
+      emit: all.flatMap((v) => emitterStates(v)),
       light: all.find((v) => v.light && v.light.radius > 0)?.light,
       scripts: all.flatMap((v) => (v.scripts ?? []).map((sc) => ({ ...sc, runs: 0, from: v }))),
       vars: {},
@@ -595,15 +619,12 @@ export class RangeWorld {
     this.updatePlayer();
     this.updateActor(this.dummy);
 
-    for (const q of this.particles) {
-      q.vy += 30 * DT;
-      q.x += q.vx * DT;
-      q.y += q.vy * DT;
-      q.life++;
-    }
-    this.particles = this.particles.filter((q) => q.life < q.max);
+    this.updateEffects();
+    this.particles = stepParticles(this.particles, (x, y) => this.cell(x, y) !== AIR);
     for (const f of this.flashes) f.age++;
-    this.flashes = this.flashes.filter((f) => f.age < 14);
+    this.flashes = this.flashes.filter((f) => f.age < f.life);
+    this.shake *= 0.85;
+    if (this.shake < 0.05) this.shake = 0;
     for (const s of this.segments) s.age++;
     this.segments = this.segments.filter((s) => s.age < s.life);
     for (const b of this.bolts) b.age++;
@@ -675,17 +696,38 @@ export class RangeWorld {
     if (p.dieOnLowVelocity && p.age > 5 && speedOf(p) < 40 && !p.parent) return this.die(p, 'timeout');
     if (p.lifetime > 0 && p.age >= p.lifetime) return this.die(p, 'timeout');
 
-    // trail
-    for (let i = 0; i < p.trails.length; i++) {
-      if (i > 0 && p.age % 3) continue;
-      const fast = speedOf(p) * DT;
-      const n = p.beamLike ? Math.min(12, Math.ceil(fast / 4)) : 1;
-      for (let k = 0; k < n; k++) {
-        const t = Math.random();
-        this.spark(p.px + (p.x - p.px) * t, p.py + (p.y - p.py) * t, p.trails[i]!, true, randInt(10, 26), 8);
-      }
+    // Particle emitters of the projectile and its modifiers, and material trails from trail modifiers.
+    runEmitters(p.emit, p.age, p.x, p.y, p.px, p.py, p.rot, this.addParticle);
+    for (const color of p.trails) {
+      const t = Math.random();
+      this.spark(p.px + (p.x - p.px) * t, p.py + (p.y - p.py) * t, color, true, randInt(10, 26), 8);
     }
   }
+
+  /** Effects: play their sprite, run their emitters, then go. */
+  private updateEffects() {
+    for (const fx of this.effects) {
+      fx.age++;
+      runEmitters(fx.emit, fx.age, fx.x, fx.y, fx.x, fx.y, fx.rot, this.addParticle);
+    }
+    this.effects = this.effects.filter((fx) => fx.age < fx.life);
+  }
+
+  /**
+   * Show an effect entity (muzzle flash, blast leftovers) at a point. It lasts for its LifetimeComponent,
+   * else its sprite's play-through (kill_entity_after_finished) or the longest emitter, else half a second.
+   */
+  addEffect(file: string, x: number, y: number, rot = 0, flip = 1, vis = this.data.visuals[file]) {
+    if (!vis || this.effects.length >= MAX_EFFECTS) return;
+    const sprite = vis.sprites?.[0];
+    const emitLife = Math.max(0, ...(vis.emitters ?? []).map((e) => (e.lifetimeFrames >= 0 ? e.delayFrames + e.lifetimeFrames + e.lifetimeMax * 60 : 0)));
+    const life = vis.lifetime ?? (sprite && (vis.killAfterAnim || !sprite.loop) ? layerFrames(sprite) : emitLife || 30);
+    this.effects.push({ x, y, rot, vis, age: 0, life: Math.max(1, life), emit: emitterStates(vis), flip });
+  }
+
+  addParticle = (q: Particle) => {
+    if (this.particles.length < MAX_PARTICLES) this.particles.push(q);
+  };
 
   private heading(p: Proj) {
     return speedOf(p) > 1 ? Math.atan2(p.vy, p.vx) : p.rot;
@@ -831,12 +873,12 @@ export class RangeWorld {
     p.dead = true;
     for (const c of p.children) c.dead = true;
     if (p.beamLike) {
-      const color = p.trails[0] ?? p.light?.color ?? '#ffffff';
+      const color = p.trails[0] ?? p.visual?.trail?.color ?? p.light?.color ?? '#ffffff';
       this.segments.push({ x0: p.spawnX, y0: p.spawnY, x1: p.x, y1: p.y, age: 0, life: 8, color, width: 1.5 });
     }
     const e = p.explosion;
     if (e && (reason === 'hit' ? e.onDeath : e.onTimeout || e.onDeath)) {
-      this.explode(p.x, p.y, e.radius, e.damage, e.digs && e.digDurability >= this.data.rockDurability, p.critChance, e.color, p.spareShooter);
+      this.explode(p.x, p.y, e.radius, e.damage, e.digs && e.digDurability >= this.data.rockDurability, p.critChance, e.color, p.spareShooter, p.visual?.explosion);
     }
     if (p.teleport) this.teleportPlayer(p);
     if (p.trigger && (p.trigger.kind === 'death' || (p.trigger.kind === 'hit' && reason === 'hit'))) this.spawnShot(p.trigger.shot, p.x, p.y, this.heading(p));
@@ -855,10 +897,26 @@ export class RangeWorld {
     this.moveActor(this.player, x, y + this.player.h / 2);
   }
 
-  explode(x: number, y: number, r: number, damage: number, digs: boolean, crit = 0, color?: string, spareShooter = false) {
+  /**
+   * A blast: damage in the radius and digging, drawn from its config_explosion when known (the animated
+   * explosion sprite, its sparks, light, camera shake and the entities it leaves) or a generic flash.
+   */
+  explode(x: number, y: number, r: number, damage: number, digs: boolean, crit = 0, color?: string, spareShooter = false, vis?: ExplosionVisual) {
     const c = color ?? (r > 20 ? '#ffb347' : '#fff1c2');
-    this.flashes.push({ x, y, r: Math.max(3, r), age: 0, color: c });
-    for (let i = 0; i < Math.min(60, 4 + r * 1.5); i++) this.spark(x, y, i % 3 ? c : '#fff1c2', true, randInt(8, 28), 60 + r * 4);
+    if (vis) {
+      if (vis.sprite) this.addEffect('', x, y, vis.randomRotation ? Math.random() * Math.PI * 2 : 0, 1, { sprites: [vis.sprite], killAfterAnim: true });
+      const sparks = vis.sparks ? randInt(vis.sparks.min, vis.sparks.max) : 0;
+      for (let i = 0; i < Math.min(80, sparks); i++) this.spark(x, y, vis.sparks!.color, vis.sparks!.glow, randInt(10, 30), 60 + r * 5);
+      if (vis.light) this.flashes.push({ x, y, r: Math.max(6, r * 1.6), age: 0, life: Math.max(8, Math.round(vis.light.fadeTime * 60)), color: vis.light.color });
+      this.shake = Math.min(6, this.shake + vis.cameraShake / 12);
+      for (const f of vis.entities) {
+        if (this.data.projectiles[f]) this.spawn(f, x, y, 0, 0);
+        else this.addEffect(f, x, y);
+      }
+    } else {
+      this.flashes.push({ x, y, r: Math.max(3, r), age: 0, life: 14, color: c });
+      for (let i = 0; i < Math.min(60, 4 + r * 1.5); i++) this.spark(x, y, i % 3 ? c : '#fff1c2', true, randInt(8, 28), 60 + r * 4);
+    }
     if (digs) this.carve(x, y, r);
     if (damage <= 0) return;
     for (const a of this.actors) {
@@ -1002,7 +1060,7 @@ export class RangeWorld {
     this.bolts.push({ points: this.jagged(p.x, p.y, ex, ey, 10), age: 0, life: 10, color: l.color });
     this.segments.push({ x0: p.x, y0: p.y, x1: ex, y1: ey, age: 0, life: 6, color: '#ffffff', width: 0.6 });
     if (struck) this.hurt(struck, p.hit, p.critChance);
-    this.explode(ex, ey, l.radius, l.damage, l.radius > 0 && 12 >= this.data.rockDurability, p.critChance, l.color, true);
+    this.explode(ex, ey, l.radius, l.damage, l.radius > 0 && 12 >= this.data.rockDurability, p.critChance, l.color, true, p.visual?.explosion);
   }
 
   private jagged(x0: number, y0: number, x1: number, y1: number, amp: number): [number, number][] {
@@ -1025,10 +1083,7 @@ export class RangeWorld {
   }
 
   spark(x: number, y: number, color: string, glow: boolean, life: number, speed = 20) {
-    if (this.particles.length >= MAX_PARTICLES) return;
-    const a = Math.random() * Math.PI * 2;
-    const s = Math.random() * speed;
-    this.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0, max: life, color, glow });
+    this.addParticle(simpleParticle(x, y, color, glow, life, speed));
   }
 
   private puff(x: number, y: number, color: string) {

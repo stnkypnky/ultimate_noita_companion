@@ -1,5 +1,6 @@
-import type { RangeProp } from '@/data/types';
+import type { RangeProp, SpriteLayer } from '@/data/types';
 import { gameUrl } from '@/data/store';
+import { layerFrame } from './particles';
 import { animFrame } from './player';
 import { AIR, BEDROCK, H, W, type RangeWorld } from './world';
 
@@ -70,6 +71,10 @@ export class RangeRenderer {
   private terrain = document.createElement('canvas');
   private terrainVersion = -1;
   private backdrop: CanvasPattern | null = null;
+  /** Bloom layer: glowing particles, emissive sprites and lights, blurred over the scene. */
+  private glow = document.createElement('canvas');
+  private glowCtx: CanvasRenderingContext2D;
+  private stillCamera = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   constructor(
     private ctx: CanvasRenderingContext2D,
@@ -77,6 +82,10 @@ export class RangeRenderer {
   ) {
     this.terrain.width = W;
     this.terrain.height = H;
+    this.glow.width = W;
+    this.glow.height = H;
+    this.glowCtx = this.glow.getContext('2d')!;
+    this.glowCtx.imageSmoothingEnabled = false;
     ctx.imageSmoothingEnabled = false;
     const bg = document.createElement('canvas');
     bg.width = img.rock.width;
@@ -114,6 +123,8 @@ export class RangeRenderer {
     ctx.save();
     ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
     ctx.imageSmoothingEnabled = false;
+    // camera shake from explosions (none with reduced motion)
+    if (w.shake > 0 && !this.stillCamera) ctx.translate(Math.round((Math.random() * 2 - 1) * w.shake), Math.round((Math.random() * 2 - 1) * w.shake));
 
     // cave backdrop
     ctx.globalCompositeOperation = 'source-over';
@@ -133,75 +144,107 @@ export class RangeRenderer {
     if (dm) this.actorSprite(this.img.dummy, dm, w.dummy.x, w.dummy.y, 1, w.dummy.flash);
     this.drawPlayer(w);
 
-    // particles (glowing ones add light)
+    // Glowing things are drawn twice: into the scene and into a bloom layer that's blurred on top.
+    const g = this.glowCtx;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalCompositeOperation = 'source-over';
+    g.globalAlpha = 1;
+    g.clearRect(0, 0, W, H);
+    const both = (draw: (c: CanvasRenderingContext2D) => void) => {
+      draw(ctx);
+      draw(g);
+    };
+
+    // particles: glowing materials (sparks, plasma) add light; fades follow fade_based_on_lifetime
     for (const q of w.particles) {
-      const a = 1 - q.life / q.max;
-      ctx.globalCompositeOperation = q.glow ? 'lighter' : 'source-over';
-      ctx.globalAlpha = a;
-      ctx.fillStyle = q.color;
-      ctx.fillRect(Math.round(q.x), Math.round(q.y), 1, 1);
+      const a = q.alpha * (q.fade ? 1 - q.life / q.max : 1);
+      if (a <= 0.02) continue;
+      const draw = (c: CanvasRenderingContext2D) => {
+        c.globalCompositeOperation = q.glow ? 'lighter' : 'source-over';
+        c.globalAlpha = Math.min(1, a);
+        if (q.long) {
+          c.strokeStyle = q.color;
+          c.lineWidth = 1;
+          c.beginPath();
+          c.moveTo(q.x - q.vx / 60, q.y - q.vy / 60);
+          c.lineTo(q.x, q.y);
+          c.stroke();
+        } else {
+          c.fillStyle = q.color;
+          c.fillRect(Math.round(q.x), Math.round(q.y), 1, 1);
+        }
+      };
+      if (q.glow) both(draw);
+      else draw(ctx);
     }
     ctx.globalAlpha = 1;
+    g.globalAlpha = 1;
 
     // laser beams: glow, then a bright core
     for (const b of w.beams) {
-      line(ctx, b.x0, b.y0, b.x1, b.y1, b.color, b.radius * 2 + 1, 0.45);
+      both((c) => line(c, b.x0, b.y0, b.x1, b.y1, b.color, b.radius * 2 + 1, 0.45));
       line(ctx, b.x0, b.y0, b.x1, b.y1, '#ffffff', Math.max(0.6, b.radius * 0.5), 0.9);
     }
     // fading lines: drill beams, chain-bolt hops
     for (const s of w.segments) {
       const a = 1 - s.age / s.life;
-      line(ctx, s.x0, s.y0, s.x1, s.y1, s.color, s.width + 1.5, 0.35 * a);
+      both((c) => line(c, s.x0, s.y0, s.x1, s.y1, s.color, s.width + 1.5, 0.35 * a));
       line(ctx, s.x0, s.y0, s.x1, s.y1, s.color, s.width, a);
     }
     // lightning: bolts and electric arcs
     for (const b of w.bolts) {
       const a = 1 - b.age / b.life;
-      polyline(ctx, b.points, b.color, 4, 0.35 * a);
+      both((c) => polyline(c, b.points, b.color, 4, 0.35 * a));
       polyline(ctx, b.points, b.color, 2, 0.9 * a);
       polyline(ctx, b.points, '#ffffff', 1.1, a);
-      const mid = b.points[Math.floor(b.points.length / 2)]!;
-      glow(ctx, mid[0], mid[1], 26, b.color, 0.25 * a);
     }
 
-    // projectiles
+    // projectiles: every sprite layer, animated from the projectile's birth
     let lights = 0;
     for (const p of w.projectiles) {
-      const sp = p.visual?.sprite;
+      const layers = p.visual?.sprites;
       if (p.beamLike) {
         // Very fast, few-frame projectiles (luminous drill) read as a short laser from where they started.
-        const c = p.trails[0] ?? p.light?.color ?? '#ffffff';
-        line(ctx, p.spawnX, p.spawnY, p.x, p.y, c, 2.5, 0.5);
+        const c = p.trails[0] ?? p.visual?.trail?.color ?? p.light?.color ?? '#ffffff';
+        both((cx) => line(cx, p.spawnX, p.spawnY, p.x, p.y, c, 2.5, 0.5));
         line(ctx, p.spawnX, p.spawnY, p.x, p.y, '#ffffff', 0.8, 0.9);
-      } else if (sp && sp.icon.w) {
-        ctx.globalCompositeOperation = sp.additive ? 'lighter' : 'source-over';
-        ctx.save();
-        ctx.translate(p.x, p.y);
-        if (p.physicsBody) ctx.rotate(p.spin);
-        else if (p.rotate || p.parent) ctx.rotate(p.rot);
-        // velocity_sets_scale: stretch along the motion, like the game's spark bolts
-        const stretch = p.streak ? Math.max(1, Math.min(3, Math.hypot(p.x - p.px, p.y - p.py) / sp.icon.w)) : 1;
-        ctx.drawImage(this.img.projectiles, sp.icon.x, sp.icon.y, sp.icon.w, sp.icon.h, -sp.ox * stretch, -sp.oy, sp.icon.w * stretch, sp.icon.h);
-        ctx.restore();
+      } else if (layers?.length) {
+        const rot = p.physicsBody ? p.spin : p.rotate || p.parent ? p.rot : 0;
+        // velocity_sets_scale: stretched along the motion, like the game's spark bolts
+        const f0 = layers[0]!.frames[0]!;
+        const stretch = p.streak ? Math.max(1, Math.min(3, Math.hypot(p.x - p.px, p.y - p.py) / Math.max(1, f0.w * layers[0]!.scale))) : 1;
+        for (const l of layers) this.layer(l, p.age, p.x, p.y, rot, 1, stretch);
       } else if (p.streak && (p.x !== p.px || p.y !== p.py)) {
-        line(ctx, p.px, p.py, p.x, p.y, p.trails[0] ?? p.light?.color ?? '#ffffff', 1.2, 0.9);
+        both((c) => line(c, p.px, p.py, p.x, p.y, p.visual?.trail?.color ?? p.light?.color ?? '#ffffff', 1.2, 0.9));
       } else {
         ctx.globalCompositeOperation = 'lighter';
-        ctx.fillStyle = p.light?.color ?? p.trails[0] ?? '#ffffff';
+        ctx.fillStyle = p.light?.color ?? p.visual?.trail?.color ?? '#ffffff';
         ctx.fillRect(Math.round(p.x) - 1, Math.round(p.y) - 1, 2, 2);
       }
       if (p.light && lights < MAX_LIGHTS) {
         lights++;
-        glow(ctx, p.x, p.y, Math.min(28, p.light.radius * 0.45), p.light.color, 0.35);
+        glow(g, p.x, p.y, Math.min(28, p.light.radius * 0.45), p.light.color, 0.5);
       }
     }
     ctx.globalCompositeOperation = 'source-over';
 
-    // explosions
+    // effects: muzzle flashes, explosion sprites, blast leftovers
+    for (const fx of w.effects) for (const l of fx.vis.sprites ?? []) this.layer(l, fx.age, fx.x, fx.y, fx.rot, fx.flip, 1);
+
+    // light from explosions and casts
     for (const f of w.flashes) {
-      const t = f.age / 14;
-      glow(ctx, f.x, f.y, f.r * (0.7 + t * 0.6), f.color, 0.9 * (1 - t));
+      const t = f.age / f.life;
+      glow(ctx, f.x, f.y, f.r * (0.7 + t * 0.6), f.color, 0.6 * (1 - t));
+      glow(g, f.x, f.y, f.r * (0.7 + t * 0.6), f.color, 0.8 * (1 - t));
     }
+
+    // bloom
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.85;
+    ctx.filter = 'blur(3px)';
+    ctx.drawImage(this.glow, 0, 0);
+    ctx.restore();
 
     // damage numbers
     ctx.globalCompositeOperation = 'source-over';
@@ -216,6 +259,8 @@ export class RangeRenderer {
       ctx.fillText(f.self ? `-${f.text}` : f.text, f.x, f.y);
     }
     ctx.globalAlpha = 1;
+    // HUD and text stay put while the scene shakes.
+    ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
     if (w.body.dead > 0) {
       ctx.globalCompositeOperation = 'source-over';
       ctx.font = '700 12px "Pixelify Sans", sans-serif';
@@ -234,6 +279,27 @@ export class RangeRenderer {
       ctx.drawImage(c, Math.round(w.aim.x - c.width / 2), Math.round(w.aim.y - c.height / 2));
     }
     ctx.restore();
+  }
+
+  /**
+   * One sprite layer of an entity `age` frames old: rotated, mirrored vertically when `flip` < 0 (aimed left),
+   * stretched along x for streaks. Additive layers add light; additive and emissive ones also bloom.
+   */
+  private layer(l: SpriteLayer, age: number, x: number, y: number, rot: number, flip: number, stretch: number) {
+    const f = layerFrame(l, age);
+    if (!f?.w) return;
+    const draw = (c: CanvasRenderingContext2D) => {
+      c.save();
+      c.translate(x, y);
+      if (rot) c.rotate(rot);
+      c.scale((l.sx ?? 1) * stretch, (l.sy ?? 1) * (flip < 0 ? -1 : 1));
+      c.globalAlpha = l.alpha;
+      c.globalCompositeOperation = l.additive ? 'lighter' : 'source-over';
+      c.drawImage(this.img.projectiles, f.x, f.y, f.w, f.h, -l.ox, -l.oy, f.w * l.scale, f.h * l.scale);
+      c.restore();
+    };
+    draw(this.ctx);
+    if (l.additive || l.emissive) draw(this.glowCtx);
   }
 
   /** Mina: the animation frame for what she's doing, mirrored to face the aim, with arm and wand rotated to it. */

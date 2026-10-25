@@ -3,9 +3,9 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import sharp from 'sharp';
-import type { EntityVisual, GameVersion, Item, Projectile, RangeProp } from '../../src/data/types.ts';
+import type { EntityVisual, GameVersion, Item, Projectile, RangeProp, SpriteLayer } from '../../src/data/types.ts';
 import { collectItems } from './items.ts';
-import { collectVisuals, rangeProps } from './visuals.ts';
+import { collectVisuals, rangeProps, type LayerOut } from './visuals.ts';
 import { rangeKit } from './kit.ts';
 import { Wak } from './wak.ts';
 import { findNoita } from './paths.ts';
@@ -16,7 +16,7 @@ import { buildPerks, type RawPerk } from './perks.ts';
 import { buildMaterials } from './materials.ts';
 import { buildEnemies, enemyIconFiles } from './enemies.ts';
 import { EntityLoader } from './entity.ts';
-import { buildAtlas, firstFrame } from './sprites.ts';
+import { buildAtlas, buildPackedAtlas, firstFrame } from './sprites.ts';
 
 const ROOT = join(import.meta.dirname, '../..');
 const OUT = join(ROOT, 'public/game');
@@ -98,7 +98,7 @@ for (const [id, tex] of textures) {
 console.log(`materials: ${materials.length}, reactions: ${reactions.length}, textures: ${textures.size}`);
 
 // ---------- Test range: projectile/effect visuals, dummy & player sprites ----------
-const materialLook = new Map(materials.map((m) => [m.id, { color: m.color, texture: textures.get(m.id) }]));
+const materialLook = new Map(materials.map((m) => [m.id, { color: m.color, glow: m.cellType === 'fire', texture: textures.get(m.id) }]));
 const visualFiles = [...new Set([...spells.flatMap((s) => s.projectiles), ...spells.flatMap((s) => [...s.extraEntities, ...String(s.stats.extra_entities ?? '').split(',')])].filter(Boolean))];
 const vis = await collectVisuals(visualFiles, wak, loader, materialLook);
 // Entities spells spawn indirectly (bounce effects, orbiting projectiles, chain-bolt hops) need projectile data too.
@@ -107,11 +107,16 @@ for (const f of vis.entities) {
   const p = buildProjectile(f, loader);
   if (p) projectiles[f] = p;
 }
-const projAtlas = await buildAtlas(vis.images, 16);
+const projAtlas = await buildPackedAtlas(vis.images, 1024);
+const layer = (l: LayerOut): SpriteLayer => ({ ...l, frames: l.frames.map((k) => projAtlas.rects.get(k)!) });
 const visuals: Record<string, EntityVisual> = {};
 for (const [file, v] of Object.entries(vis.visuals)) {
-  const { sprite, ...rest } = v;
-  visuals[file] = { ...rest, ...(sprite ? { sprite: { icon: projAtlas.rects.get(sprite.key)!, ox: sprite.ox, oy: sprite.oy, additive: sprite.additive } } : {}) };
+  const { sprites, explosion, ...rest } = v;
+  visuals[file] = {
+    ...rest,
+    ...(sprites ? { sprites: sprites.map(layer) } : {}),
+    ...(explosion ? { explosion: { ...explosion, sprite: explosion.sprite && layer(explosion.sprite) } } : {}),
+  };
 }
 const props: Record<string, RangeProp> = {};
 for (const [key, f] of Object.entries(await rangeProps(wak))) {

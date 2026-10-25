@@ -107,9 +107,96 @@ export type Enemy = {
   tags?: string[];
 };
 
+/** One SpriteComponent: its animation frames in the projectile atlas, played from the entity's birth. */
+export type SpriteLayer = {
+  frames: Icon[];
+  /** Seconds per frame. */
+  wait: number;
+  loop: boolean;
+  /** Pivot inside a frame, in game pixels. */
+  ox: number;
+  oy: number;
+  additive: boolean;
+  emissive: boolean;
+  alpha: number;
+  /** Game pixels per atlas pixel (frames larger than the atlas allows are stored shrunk). */
+  scale: number;
+  /** special_scale_x/y */
+  sx?: number;
+  sy?: number;
+};
+
+/** ParticleEmitterComponent: cosmetic particles (and, with real_particles, material cells) an entity sheds. */
+export type Emitter = {
+  material: string;
+  /** #rrggbb of the material. */
+  color: string;
+  alpha: number;
+  /** Fire-type materials (sparks, plasma) glow. */
+  glow: boolean;
+  /** Also puts real material into the world. */
+  real: boolean;
+  countMin: number;
+  countMax: number;
+  /** Frames between emissions. */
+  intervalMin: number;
+  intervalMax: number;
+  /** Seconds a particle lives. */
+  lifetimeMin: number;
+  lifetimeMax: number;
+  offset: [number, number];
+  posMin: [number, number];
+  posMax: [number, number];
+  velMin: [number, number];
+  velMax: [number, number];
+  gravity: [number, number];
+  airflow: number;
+  fade: boolean;
+  /** Emits along the path moved since last frame, one batch every trail_gap pixels. */
+  trail: boolean;
+  trailGap: number;
+  /** Spawns within a ring around the entity. */
+  area?: [number, number];
+  awayFromCenter: boolean;
+  /** Drawn as a streak along its velocity. */
+  long: boolean;
+  /** Emits while the entity lives (is_emitting). */
+  emitting: boolean;
+  delayFrames: number;
+  /** Frames the emitter keeps going (-1 = for the entity's life). */
+  lifetimeFrames: number;
+  friction: number;
+};
+
+/** config_explosion: how a projectile's explosion looks and what it leaves. */
+export type ExplosionVisual = {
+  sprite?: SpriteLayer;
+  randomRotation: boolean;
+  sparks: { min: number; max: number; color: string; glow: boolean } | null;
+  light?: { color: string; fadeTime: number };
+  cameraShake: number;
+  /** Material the blast fills its hole with (fire, smoke, slime...). */
+  cell?: { material: string; probability: number };
+  /** Entities spawned at the blast (fire, smoke clouds, particle swirls). */
+  entities: string[];
+  rayEnergy: number;
+  maxDurability: number;
+  hole: boolean;
+};
+
 /** How the test range draws and moves an entity (spell projectile or modifier effect), keyed by entity file. */
 export type EntityVisual = {
-  sprite?: { icon: Icon; ox: number; oy: number; additive: boolean };
+  /** Sprite layers, back to front. */
+  sprites?: SpriteLayer[];
+  emitters?: Emitter[];
+  explosion?: ExplosionVisual;
+  /** Muzzle flash entity shown at the wand tip when cast, and the flash of light. */
+  muzzle?: string;
+  shootLight?: { color: string; radius: number };
+  /** Plays its sprite once, then removes itself (kill_entity_after_finished). */
+  killAfterAnim?: boolean;
+  /** LifetimeComponent: frames until the entity removes itself. */
+  lifetime?: number;
   trail?: { color: string; count: number };
   light?: { color: string; radius: number };
   homing?: { coeff: number; velocityMultiplier: number; detectDistance: number; rotateOnly: boolean; maxTurnRate: number; targetShooter: boolean };
