@@ -1,0 +1,111 @@
+// Extracts game data from the local Noita install into public/game/. Run: npm run extract
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import type { GameVersion, Projectile } from '../../src/data/types.ts';
+import { Wak } from './wak.ts';
+import { findNoita } from './paths.ts';
+import { createLuaHost, loadGun } from './lua.ts';
+import { parseTranslations } from './translations.ts';
+import { buildProjectile, buildSpells, type RawAction } from './spells.ts';
+import { buildPerks, type RawPerk } from './perks.ts';
+import { buildMaterials } from './materials.ts';
+import { EntityLoader } from './entity.ts';
+import { buildAtlas, firstFrame } from './sprites.ts';
+
+const ROOT = join(import.meta.dirname, '../..');
+const OUT = join(ROOT, 'public/game');
+
+const noita = findNoita();
+console.log(`Noita: ${noita}`);
+const wak = new Wak(join(noita, 'data/data.wak'));
+console.log(`data.wak: ${wak.entries.size} files`);
+const readGame = (p: string) => (wak.has(p) ? wak.text(p) : undefined);
+
+const t = parseTranslations(readFileSync(join(noita, 'data/translations/common.csv'), 'utf8'));
+console.log(`translations: ${t.size} keys`);
+
+await rm(OUT, { recursive: true, force: true });
+await mkdir(join(OUT, 'data'), { recursive: true });
+const writeJson = (rel: string, v: unknown) => writeFile(join(OUT, rel), JSON.stringify(v));
+
+// ---------- Spells (reflection through the real gun scripts) ----------
+const gunHost = await createLuaHost(readGame);
+await loadGun(gunHost);
+const rawActions = JSON.parse(gunHost.call<string>('reflect_actions')) as RawAction[];
+const defaultState = JSON.parse(gunHost.call<string>('default_state_json')) as Record<string, number>;
+const reflectErrors = rawActions.filter((a) => a.reflect_error);
+if (reflectErrors.length) console.warn(`reflection errors: ${reflectErrors.map((a) => `${a.id}: ${a.reflect_error}`).join('\n  ')}`);
+
+const spellIconInputs = await Promise.all(
+  [...new Set(rawActions.map((a) => a.sprite))].filter((s) => wak.has(s)).map(async (s) => ({ key: s, png: await firstFrame(wak.bytes(s)) })),
+);
+const spellAtlas = await buildAtlas(spellIconInputs);
+const spells = buildSpells(rawActions, t, spellAtlas.rects);
+
+const loader = new EntityLoader(wak);
+const projectiles: Record<string, Projectile> = {};
+for (const file of new Set(spells.flatMap((s) => s.projectiles))) {
+  const p = buildProjectile(file, loader);
+  if (p) projectiles[file] = p;
+}
+console.log(`spells: ${spells.length}, projectiles: ${Object.keys(projectiles).length}`);
+
+// Lua sources the simulator needs at runtime: exactly what loading gun.lua touched.
+const luaFiles = [...gunHost.filesRead];
+for (const f of luaFiles) {
+  const dest = join(OUT, 'lua', f);
+  await mkdir(dirname(dest), { recursive: true });
+  await writeFile(dest, wak.bytes(f));
+}
+gunHost.close();
+
+// ---------- Perks ----------
+const perkHost = await createLuaHost(readGame);
+await perkHost.lua.doString('dofile("data/scripts/perks/perk_list.lua") __perks_json = json_encode(perk_list)');
+const rawPerks = JSON.parse(perkHost.lua.global.get('__perks_json') as string) as RawPerk[];
+perkHost.close();
+const perkIconInputs = await Promise.all(
+  [...new Set(rawPerks.map((p) => p.ui_icon).filter((s): s is string => !!s && wak.has(s)))].map(async (s) => ({ key: s, png: await firstFrame(wak.bytes(s)) })),
+);
+const perkAtlas = await buildAtlas(perkIconInputs, 16);
+const perks = buildPerks(rawPerks, t, perkAtlas.rects);
+console.log(`perks: ${perks.length}`);
+
+// ---------- Materials ----------
+const { materials, reactions, textures } = buildMaterials(wak.text('data/materials.xml'), t);
+await mkdir(join(OUT, 'materials'), { recursive: true });
+for (const [id, tex] of textures) {
+  if (wak.has(tex)) await writeFile(join(OUT, 'materials', `${id}.png`), wak.bytes(tex));
+}
+console.log(`materials: ${materials.length}, reactions: ${reactions.length}, textures: ${textures.size}`);
+
+// ---------- UI chrome from the game ----------
+await mkdir(join(OUT, 'ui'), { recursive: true });
+for (const f of wak.list('data/ui_gfx/inventory/')) {
+  if (/(item_bg_|quick_inventory_box|full_inventory_box)/.test(f)) await writeFile(join(OUT, 'ui', f.split('/').pop()!), wak.bytes(f));
+}
+
+// ---------- Write ----------
+await mkdir(join(OUT, 'sprites'), { recursive: true });
+await writeFile(join(OUT, 'sprites/spells.png'), spellAtlas.png);
+await writeFile(join(OUT, 'sprites/perks.png'), perkAtlas.png);
+await writeJson('data/spells.json', spells);
+await writeJson('data/projectiles.json', projectiles);
+await writeJson('data/perks.json', perks);
+await writeJson('data/materials.json', materials);
+await writeJson('data/reactions.json', reactions);
+await writeJson('data/default_state.json', defaultState);
+await writeJson('lua/files.json', luaFiles);
+
+const hashFile = join(noita, '_version_hash.txt');
+const branchFile = join(noita, '_branch.txt');
+const version: GameVersion = {
+  gameHash: existsSync(hashFile) ? readFileSync(hashFile, 'utf8').trim() : 'unknown',
+  branch: existsSync(branchFile) ? readFileSync(branchFile, 'utf8').trim() : 'unknown',
+  extractedAt: new Date().toISOString(),
+  counts: { spells: spells.length, perks: perks.length, materials: materials.length, reactions: reactions.length, projectiles: Object.keys(projectiles).length },
+};
+await writeJson('version.json', version);
+wak.close();
+console.log('done →', OUT);

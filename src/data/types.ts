@@ -1,7 +1,150 @@
-/** Written by the extractor to public/game/version.json. */
+// Shapes of the JSON files the extractor writes to public/game/. Shared by the app and tools/extract.
+
+/** Written to public/game/version.json. */
 export type GameVersion = {
   gameHash: string;
   branch: string;
   extractedAt: string;
   counts: Record<string, number>;
+};
+
+export const SPELL_TYPES = ['projectile', 'static', 'modifier', 'multicast', 'material', 'other', 'utility', 'passive'] as const;
+export type SpellType = (typeof SPELL_TYPES)[number];
+
+export const DAMAGE_TYPES = [
+  'projectile', 'explosion', 'melee', 'slice', 'fire', 'electricity', 'ice', 'drill',
+  'curse', 'holy', 'healing', 'radioactive', 'poison', 'physics_hit', 'overeating',
+] as const;
+export type DamageType = (typeof DAMAGE_TYPES)[number];
+
+/** Position of an icon inside a sprite atlas (pixels). */
+export type Icon = { x: number; y: number; w: number; h: number };
+
+export type Projectile = {
+  file: string;
+  /** Damage on hit, in HP (the game's internal units ×25). */
+  damage: Partial<Record<DamageType, number>>;
+  explosion?: { damage: number; radius: number; onDeath: boolean; onTimeout: boolean };
+  /** Frames; -1 = endless. */
+  lifetime: number;
+  lifetimeRandom: number;
+  speed: [number, number];
+  /** Random direction spread, degrees. */
+  spread: number;
+  bounces: number;
+  gravity: number;
+  airFriction: number;
+  knockback: number;
+  penetrateWorld: boolean;
+  penetrateEntities: boolean;
+  dieOnCollision: boolean;
+  friendlyFire: boolean;
+  /** Seconds a damage field ticks for, when damage_every_x_frames is set. */
+  damageEveryFrames: number;
+  /** Status effects applied on hit (entity basenames). */
+  effects: string[];
+  /** Real material the projectile emits, if any. */
+  material?: string;
+};
+
+export type Spell = {
+  id: string;
+  /** Position in gun_actions.lua (the game's own ordering). */
+  index: number;
+  name: string;
+  description: string;
+  type: SpellType;
+  icon: Icon;
+  mana: number;
+  /** null = unlimited. */
+  maxUses: number | null;
+  neverUnlimited: boolean;
+  price: number;
+  spawn: { level: number; prob: number }[];
+  /** Persistent flag needed before it can appear (secret unlocks). */
+  requiresFlag?: string;
+  recursive: boolean;
+  /** How many extra spells it draws (multicasts, triggers). */
+  draw: number;
+  /** Effect on the shot state, as seen by reflection (fire_rate_wait, spread_degrees, damage_*_add, ...). */
+  stats: Record<string, number | string>;
+  /** Frames added to recharge time. */
+  reloadDelta: number;
+  /** Projectile entity files (keys into projectiles.json). */
+  projectiles: string[];
+  extraEntities: string[];
+  /** Persistent flag the game sets when you first pick this spell up. */
+  discoverFlag: string;
+};
+
+export type Perk = {
+  id: string;
+  name: string;
+  description: string;
+  icon: Icon;
+  stackable: boolean;
+  stackableRare: boolean;
+  maxStack?: number;
+  maxInPool?: number;
+  usableByEnemies: boolean;
+  inDefaultPool: boolean;
+  oneOff: boolean;
+  removesOtherPerks: boolean;
+  gameEffect?: string;
+  discoverFlag: string;
+};
+
+export type CellType = 'liquid' | 'gas' | 'solid' | 'fire' | 'powder' | 'sand' | string;
+
+export type Material = {
+  id: string;
+  name: string;
+  parent?: string;
+  cellType: CellType;
+  /** "liquid" can be static or sand-like; this is the finer-grained state the UI groups by. */
+  state: 'liquid' | 'powder' | 'solid' | 'gas' | 'fire';
+  tags: string[];
+  /** #rrggbbaa */
+  color: string;
+  /** Path under game/materials/ to the texture tile, when there is one. */
+  texture?: string;
+  density: number;
+  burnable: boolean;
+  fireHp: number;
+  hp: number;
+  durability: number;
+  conductive: boolean;
+  electricalConductivity: boolean;
+  onFire: boolean;
+  temperatureOfFire: number;
+  autoignitionTemperature: number;
+  stickiness: number;
+  liquidSand: boolean;
+  liquidStatic: boolean;
+  /** Status effects from contact / ingestion. */
+  stains: string[];
+  ingestion: string[];
+  showInCreative: boolean;
+};
+
+/** One side of a reaction is either a material id or a "[tag]". */
+export type Reaction = {
+  probability: number;
+  inputs: string[];
+  outputs: string[];
+  fast: boolean;
+  requiresLifetime?: number;
+  explosion?: boolean;
+  /** Entity spawned by the reaction, if any. */
+  entity?: string;
+};
+
+export type GameData = {
+  spells: Spell[];
+  projectiles: Record<string, Projectile>;
+  perks: Perk[];
+  materials: Material[];
+  reactions: Reaction[];
+  /** Default shot state from gunaction_generated.lua. */
+  defaultState: Record<string, number | string | boolean>;
 };

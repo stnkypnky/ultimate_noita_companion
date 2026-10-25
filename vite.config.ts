@@ -46,5 +46,6 @@ export default defineConfig({
   worker: { format: 'es' },
   test: {
     include: ['tests/**/*.test.ts', 'src/**/*.test.ts'],
+    passWithNoTests: true,
   },
 });
