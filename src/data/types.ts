@@ -98,7 +98,16 @@ export type Perk = {
   discoverFlag: string;
 };
 
-export type CellType = 'liquid' | 'gas' | 'solid' | 'fire' | 'powder' | 'sand' | string;
+export type Enemy = {
+  /** Matches save00/stats/stats_<id>.xml. */
+  id: string;
+  name: string;
+  icon: Icon;
+  hp?: number;
+  tags?: string[];
+};
+
+export type CellType ='liquid' | 'gas' | 'solid' | 'fire' | 'powder' | 'sand' | string;
 
 export type Material = {
   id: string;
@@ -147,6 +156,7 @@ export type GameData = {
   spells: Spell[];
   projectiles: Record<string, Projectile>;
   perks: Perk[];
+  enemies: Enemy[];
   materials: Material[];
   reactions: Reaction[];
   /** Default shot state from gunaction_generated.lua. */

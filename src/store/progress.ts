@@ -3,7 +3,15 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { idbStorage } from './db';
 
-export type RunSummary = { runs: number; wins: number; deaths: number; bestDepth?: number; playtimeSec?: number };
+export type RunSummary = {
+  runs: number;
+  deaths: number;
+  playtimeSec: number;
+  kills: number;
+  bestGold: number;
+  /** Most recent runs first. */
+  recent: { seed: number; date: string; playtimeSec: number; killedBy?: string }[];
+};
 
 export type Progress = {
   syncedAt: string;

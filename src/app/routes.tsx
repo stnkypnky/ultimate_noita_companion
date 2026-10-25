@@ -6,6 +6,9 @@ import { Placeholder } from '@/ui/Placeholder';
 import { SpellsPage } from '@/features/spells/SpellsPage';
 import { PerksPage } from '@/features/perks/PerksPage';
 import { MaterialsPage } from '@/features/materials/MaterialsPage';
+import { ProgressPage } from '@/features/progress/ProgressPage';
+import { ImportPage } from '@/features/progress/ImportPage';
+import { SettingsPage } from '@/features/settings/SettingsPage';
 import { NotFound } from '@/ui/NotFound';
 
 export const router = createBrowserRouter(
@@ -21,8 +24,9 @@ export const router = createBrowserRouter(
         { path: 'items/:id?', element: <Placeholder title="Items" /> },
         { path: 'materials/:id?', element: <MaterialsPage /> },
         { path: 'alchemy', element: <Placeholder title="Alchemy" /> },
-        { path: 'progress', element: <Placeholder title="Progress Sync" /> },
-        { path: 'settings', element: <Placeholder title="Settings" /> },
+        { path: 'progress', element: <ProgressPage /> },
+        { path: 'import', element: <ImportPage /> },
+        { path: 'settings', element: <SettingsPage /> },
         { path: '*', element: <NotFound /> },
       ],
     },

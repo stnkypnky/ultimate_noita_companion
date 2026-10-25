@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { Eye, EyeOff, RefreshCw } from 'lucide-react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import { useProgress } from '@/store/progress';
 
 /** First launch: decide how spoilers are handled before showing any game content. */
@@ -9,6 +9,8 @@ export function Onboarding() {
   const setOnboarded = useProgress((s) => s.setOnboarded);
   const setMode = useProgress((s) => s.setMode);
   const navigate = useNavigate();
+  // Arriving from a sync QR code: the import page itself answers the question.
+  const importing = useLocation().pathname.startsWith('/import');
 
   const choose = (mode: 'progress' | 'all', thenSync = false) => {
     setMode(mode);
@@ -18,7 +20,7 @@ export function Onboarding() {
 
   return (
     <AnimatePresence>
-      {!onboarded && (
+      {!onboarded && !importing && (
         <motion.div
           className="fixed inset-0 z-[60] grid place-items-end bg-black/70 backdrop-blur-sm sm:place-items-center"
           initial={{ opacity: 0 }}

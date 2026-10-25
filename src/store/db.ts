@@ -11,13 +11,17 @@ export type SavedBuild = {
 };
 
 type KV = { key: string; value: string };
+/** File System Access handles can't be serialised to JSON, but IndexedDB stores them natively. */
+type Handle = { key: string; handle: FileSystemDirectoryHandle };
 
 class CompanionDB extends Dexie {
   kv!: EntityTable<KV, 'key'>;
   builds!: EntityTable<SavedBuild, 'id'>;
+  handles!: EntityTable<Handle, 'key'>;
   constructor() {
     super('noita-companion');
     this.version(1).stores({ kv: 'key', builds: 'id, updatedAt, name' });
+    this.version(2).stores({ handles: 'key' });
   }
 }
 
