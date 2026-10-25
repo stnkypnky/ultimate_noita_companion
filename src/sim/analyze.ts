@@ -52,6 +52,26 @@ const DAMAGE_ADD: Partial<Record<DamageType, string>> = {
 
 const n = (s: ShotState, k: string) => (typeof s[k] === 'number' ? (s[k] as number) : 0);
 
+/** A projectile's hit damage, explosion and crit chance once its shot's modifiers are applied. */
+export function projectileDamage(base: Projectile | undefined, state: ShotState) {
+  const damage: Partial<Record<DamageType, number>> = {};
+  for (const t of DAMAGE_TYPES) {
+    const add = DAMAGE_ADD[t] ? n(state, DAMAGE_ADD[t]!) * HP_UNIT : 0;
+    const v = (base?.damage[t] ?? 0) + add;
+    if (Math.abs(v) > 1e-6) damage[t] = Math.round(v * 100) / 100;
+  }
+  let explosion: { damage: number; radius: number } | undefined;
+  if (base?.explosion) {
+    const ed = base.explosion.damage + n(state, 'damage_explosion_add') * HP_UNIT;
+    const er = base.explosion.radius + n(state, 'explosion_radius');
+    if (ed > 0 || er > 4) explosion = { damage: Math.round(ed * 100) / 100, radius: Math.round(er) };
+  }
+  const hit = Object.values(damage).reduce((a, b) => a + Math.max(0, b ?? 0), 0);
+  return { damage, explosion, hit, critChance: Math.max(0, Math.min(100, n(state, 'damage_critical_chance'))) };
+}
+
+export { CRIT_MULT };
+
 export class Analyzer {
   private byProjectile = new Map<string, Spell[]>();
 
@@ -73,27 +93,14 @@ export class Analyzer {
   }
 
   private view(p: SimProjectile, state: ShotState, played: Set<string>): ProjectileView {
-    const base = this.projectiles[p.file];
-    const damage: Partial<Record<DamageType, number>> = {};
-    for (const t of DAMAGE_TYPES) {
-      const add = DAMAGE_ADD[t] ? n(state, DAMAGE_ADD[t]!) * HP_UNIT : 0;
-      const v = (base?.damage[t] ?? 0) + add;
-      if (Math.abs(v) > 1e-6) damage[t] = Math.round(v * 100) / 100;
-    }
-    let explosion: ProjectileView['explosion'];
-    if (base?.explosion) {
-      const ed = base.explosion.damage + n(state, 'damage_explosion_add') * HP_UNIT;
-      const er = base.explosion.radius + n(state, 'explosion_radius');
-      if (ed > 0 || er > 4) explosion = { damage: Math.round(ed * 100) / 100, radius: Math.round(er) };
-    }
-    const total = Object.values(damage).reduce((a, b) => a + Math.max(0, b ?? 0), 0) + (explosion?.damage ?? 0);
+    const { damage, explosion, hit, critChance } = projectileDamage(this.projectiles[p.file], state);
     return {
       file: p.file,
       spell: this.spellFor(p.file, played, !!p.trigger),
       damage,
       ...(explosion ? { explosion } : {}),
-      total,
-      critChance: Math.max(0, Math.min(100, n(state, 'damage_critical_chance'))),
+      total: hit + (explosion?.damage ?? 0),
+      critChance,
       ...(p.trigger
         ? { trigger: { kind: p.trigger.kind, ...(p.trigger.delay !== undefined ? { delay: p.trigger.delay } : {}), children: this.shot(p.trigger.shot, played) } }
         : {}),

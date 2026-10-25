@@ -26,6 +26,8 @@ import { CastResults } from './CastResults';
 import { decodeWand } from './model';
 import { SpellPalette } from './SpellPalette';
 import { useWand } from './store';
+import { RangePreview } from '@/features/range/RangePreview';
+import { fmtNum } from '@/data/format';
 import { useSimulation } from './useSimulation';
 import { AlwaysCasts, TrashZone, WandSlots, type DragData, type DropData } from './WandSlots';
 import { WandStats } from './WandStats';
@@ -46,6 +48,21 @@ export function WandPage() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [buildsOpen, setBuildsOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [view, setView] = useState<'casts' | 'preview'>(() => {
+    try {
+      return localStorage.getItem('wand-view') === 'preview' ? 'preview' : 'casts';
+    } catch {
+      return 'casts';
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('wand-view', view);
+    } catch {
+      /* storage unavailable: the choice just isn't remembered */
+    }
+  }, [view]);
+  const rangeCasts = useMemo(() => sim.casts.map((c) => c.cast), [sim.casts]);
 
   const flash = useCallback((msg: string) => {
     setToast(msg);
@@ -237,6 +254,41 @@ export function WandPage() {
     </>
   );
 
+  const results = (
+    <Section
+      title="Simulation"
+      aside={
+        <div role="tablist" aria-label="Simulation view" className="inline-flex rounded-lg bg-surface-2 p-0.5 text-xs">
+          {(['casts', 'preview'] as const).map((v) => (
+            <button
+              key={v}
+              role="tab"
+              aria-selected={view === v}
+              onClick={() => setView(v)}
+              className={`rounded-md px-2.5 py-1 font-medium ${view === v ? 'bg-ember text-bg' : 'text-muted hover:text-ink'}`}
+            >
+              {v === 'casts' ? 'Casts' : 'Preview'}
+            </button>
+          ))}
+        </div>
+      }
+    >
+      {view === 'preview' ? (
+        <div className="space-y-3">
+          <RangePreview casts={rangeCasts} active />
+          {sim.summary && (
+            <p className="text-xs text-faint">
+              Simulated: {sim.summary.casts} cast{sim.summary.casts === 1 ? '' : 's'} per {fmtNum(sim.summary.cycleFrames / 60)}s cycle, ≈{fmtNum(sim.summary.dps, 0)} DPS
+              expected. The range measures what actually lands on the dummy.
+            </p>
+          )}
+        </div>
+      ) : (
+        <CastResults sim={sim} onHoverCast={setHoverCast} />
+      )}
+    </Section>
+  );
+
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDragging(null)}>
       <Page
@@ -251,18 +303,12 @@ export function WandPage() {
               <SpellPalette onPick={pick} scale={2} compact />
             </aside>
             <div className="min-w-0">{builder}</div>
-            <div className="min-w-0">
-              <Section title="Simulation">
-                <CastResults sim={sim} onHoverCast={setHoverCast} />
-              </Section>
-            </div>
+            <div className="min-w-0">{results}</div>
           </div>
         ) : (
           <div style={{ paddingBottom: paletteOpen ? '48vh' : 0 }}>
             {builder}
-            <Section title="Simulation">
-              <CastResults sim={sim} onHoverCast={setHoverCast} />
-            </Section>
+            {results}
           </div>
         )}
       </Page>

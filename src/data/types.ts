@@ -107,6 +107,22 @@ export type Enemy = {
   tags?: string[];
 };
 
+/** How the test range draws and moves an entity (spell projectile or modifier effect), keyed by entity file. */
+export type EntityVisual = {
+  sprite?: { icon: Icon; ox: number; oy: number; additive: boolean };
+  trail?: { color: string; count: number };
+  light?: { color: string; radius: number };
+  homing?: { coeff: number; velocityMultiplier: number; detectDistance: number; rotateOnly: boolean; maxTurnRate: number; targetShooter: boolean };
+  sine?: { freq: number; m: number };
+  cellEater?: { radius: number };
+  /** LuaComponents: script basename + schedule. The range implements the common ones. */
+  scripts?: { script: string; every: number; onAdded: boolean; times: number }[];
+  physics?: { bounceEnergy: number; collideWithWorld: boolean; rotate: boolean; dieOnLowVelocity: boolean; digs?: boolean; digDurability?: number };
+};
+
+/** Backdrop sprites for the test range (game/sprites/range_<key>.png). */
+export type RangeProp = { w: number; h: number; ox: number; oy: number };
+
 /** World pickups from data/entities/items/pickup/. */
 export type Item = {
   id: string;

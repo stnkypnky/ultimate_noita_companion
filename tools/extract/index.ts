@@ -2,8 +2,10 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { GameVersion, Item, Projectile } from '../../src/data/types.ts';
+import sharp from 'sharp';
+import type { EntityVisual, GameVersion, Item, Projectile, RangeProp } from '../../src/data/types.ts';
 import { collectItems } from './items.ts';
+import { collectVisuals, rangeProps } from './visuals.ts';
 import { Wak } from './wak.ts';
 import { findNoita } from './paths.ts';
 import { createLuaHost, loadGun } from './lua.ts';
@@ -94,6 +96,25 @@ for (const [id, tex] of textures) {
 }
 console.log(`materials: ${materials.length}, reactions: ${reactions.length}, textures: ${textures.size}`);
 
+// ---------- Test range: projectile/effect visuals, dummy & player sprites ----------
+const materialColor = new Map(materials.map((m) => [m.id, m.color]));
+const visualFiles = [...new Set([...spells.flatMap((s) => s.projectiles), ...spells.flatMap((s) => [...s.extraEntities, ...String(s.stats.extra_entities ?? '').split(',')])].filter(Boolean))];
+const vis = await collectVisuals(visualFiles, wak, loader, materialColor);
+const projAtlas = await buildAtlas(vis.images, 16);
+const visuals: Record<string, EntityVisual> = {};
+for (const [file, v] of Object.entries(vis.visuals)) {
+  const { sprite, ...rest } = v;
+  visuals[file] = { ...rest, ...(sprite ? { sprite: { icon: projAtlas.rects.get(sprite.key)!, ox: sprite.ox, oy: sprite.oy, additive: sprite.additive } } : {}) };
+}
+const props: Record<string, RangeProp> = {};
+for (const [key, f] of Object.entries(await rangeProps(wak))) {
+  const m = await sharp(f.png).metadata();
+  props[key] = { w: m.width ?? 0, h: m.height ?? 0, ox: f.ox, oy: f.oy };
+  await mkdir(join(OUT, 'sprites'), { recursive: true });
+  await writeFile(join(OUT, `sprites/range_${key}.png`), f.png);
+}
+console.log(`visuals: ${Object.keys(visuals).length} entities, ${vis.images.length} sprites; range props: ${Object.keys(props).join(', ')}`);
+
 // ---------- UI chrome from the game ----------
 await mkdir(join(OUT, 'ui'), { recursive: true });
 for (const f of wak.list('data/ui_gfx/inventory/')) {
@@ -108,6 +129,9 @@ await writeFile(join(OUT, 'sprites/enemies.png'), enemyAtlas.png);
 await writeJson('data/enemies.json', enemies);
 await writeFile(join(OUT, 'sprites/items.png'), itemAtlas.png);
 await writeJson('data/items.json', items);
+await writeFile(join(OUT, 'sprites/projectiles.png'), projAtlas.png);
+await writeJson('data/visuals.json', visuals);
+await writeJson('data/range_props.json', props);
 await writeJson('data/spells.json', spells);
 await writeJson('data/projectiles.json', projectiles);
 await writeJson('data/perks.json', perks);
@@ -123,7 +147,7 @@ const version: GameVersion = {
   branch: existsSync(branchFile) ? readFileSync(branchFile, 'utf8').trim() : 'unknown',
   extractedAt: new Date().toISOString(),
   counts: { spells: spells.length, perks: perks.length, enemies: enemies.length, items: items.length, materials: materials.length, reactions: reactions.length, projectiles: Object.keys(projectiles).length },
-  atlases: { spells: spellAtlas.size, perks: perkAtlas.size, enemies: enemyAtlas.size, items: itemAtlas.size },
+  atlases: { spells: spellAtlas.size, perks: perkAtlas.size, enemies: enemyAtlas.size, items: itemAtlas.size, projectiles: projAtlas.size },
 };
 await writeJson('version.json', version);
 wak.close();
