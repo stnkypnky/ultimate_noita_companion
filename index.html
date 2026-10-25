@@ -14,15 +14,18 @@
     <style>
       /* Static pre-splash so there is never a white flash before JS boots */
       html, body { margin: 0; background: #0d0b10; }
-      #boot { position: fixed; inset: 0; display: grid; place-items: center; background: #0d0b10; }
-      #boot .orb { width: 72px; height: 72px; border-radius: 50%;
-        background: radial-gradient(circle at 35% 35%, #ffd27a, #ff7a1a 45%, #6b1d00 80%);
-        box-shadow: 0 0 60px #ff7a1a88; animation: boot-pulse 1.4s ease-in-out infinite; }
-      @keyframes boot-pulse { 50% { transform: scale(1.08); box-shadow: 0 0 90px #ff7a1aaa; } }
+      #boot { position: fixed; inset: 0; background: #0d0b10; }
+      /* The wand exactly where the splash holds it (see wandGrip/GRIP in src/app/Splash.tsx): 3 CSS px per game px, 4 from 768px. */
+      #boot img { position: absolute; width: 54px; height: 27px; image-rendering: pixelated;
+        left: calc(50% - min(150px, 28vw) - 6px); top: calc(50% + 130px - 13.5px);
+        transform-origin: 6px 13.5px; transform: rotate(-40deg); filter: drop-shadow(0 0 6px #6fd6ff88); }
+      @media (min-width: 768px) {
+        #boot img { width: 72px; height: 36px; left: calc(50% - 158px); top: calc(50% + 112px); transform-origin: 8px 18px; }
+      }
     </style>
   </head>
   <body>
-    <div id="boot"><div class="orb"></div></div>
+    <div id="boot"><img src="/icons/wand.png" alt="" /></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -106,7 +106,48 @@ body {
   padding-top: env(safe-area-inset-top);
 }
 
+/* ---------- Splash ---------- */
+/* Title letters start dark and are lit by spark-bolt hits; --hit (0..1) is the flash of the latest hit. */
+.splash-letter {
+  display: inline-block;
+  opacity: 0.07;
+  filter: blur(2px);
+  transition:
+    opacity 0.3s,
+    filter 0.3s;
+  text-shadow:
+    0 0 calc(var(--hit, 0) * 4px) rgb(255 255 255 / var(--hit, 0)),
+    0 0 calc(var(--hit, 0) * 18px) rgb(111 214 255 / calc(var(--hit, 0) * 0.95));
+}
+.splash-kicker {
+  opacity: 0;
+  transition: opacity 0.6s;
+}
+.splash-letter[data-lit],
+.splash-kicker[data-lit] {
+  opacity: 1;
+  filter: none;
+}
+
+/* Noita's HUD mana bar: black outline, dark well, #42a8e2 fill. */
+.splash-mana {
+  background: #0a0810;
+  box-shadow:
+    0 0 0 1px #000,
+    0 0 0 2px #2e2838;
+}
+.splash-mana > div {
+  height: 100%;
+  background: linear-gradient(#8fd2f6 0 25%, #42a8e2 25% 100%);
+  box-shadow: 0 0 10px #42a8e299;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .splash-letter,
+  .splash-kicker {
+    opacity: 1;
+    filter: none;
+  }
   *,
   *::before,
   *::after {

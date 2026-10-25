@@ -14,6 +14,8 @@ export type Indexed = GameData & {
 
 type GameDataState = {
   status: Status;
+  /** Share of the game data files fetched so far, 0..1 (drives the splash mana bar). */
+  progress: number;
   error?: string;
   data: Indexed | null;
   version: GameVersion | null;
@@ -48,21 +50,29 @@ function index(version: GameVersion, d: GameData): Indexed {
 
 export const useGameData = create<GameDataState>((set, get) => ({
   status: 'loading',
+  progress: 0,
   data: null,
   version: null,
   load: async () => {
     if (get().data) return;
+    const FILES = 9;
+    let done = 0;
+    const counted = async <T>(path: string) => {
+      const v = await fetchJson<T>(path);
+      set({ progress: ++done / FILES });
+      return v;
+    };
     try {
-      const version = await fetchJson<GameVersion>('version.json');
+      const version = await counted<GameVersion>('version.json');
       const [spells, projectiles, perks, enemies, items, materials, reactions, defaultState] = await Promise.all([
-        fetchJson<Spell[]>('data/spells.json'),
-        fetchJson<Record<string, Projectile>>('data/projectiles.json'),
-        fetchJson<Perk[]>('data/perks.json'),
-        fetchJson<Enemy[]>('data/enemies.json'),
-        fetchJson<Item[]>('data/items.json'),
-        fetchJson<Material[]>('data/materials.json'),
-        fetchJson<Reaction[]>('data/reactions.json'),
-        fetchJson<GameData['defaultState']>('data/default_state.json'),
+        counted<Spell[]>('data/spells.json'),
+        counted<Record<string, Projectile>>('data/projectiles.json'),
+        counted<Perk[]>('data/perks.json'),
+        counted<Enemy[]>('data/enemies.json'),
+        counted<Item[]>('data/items.json'),
+        counted<Material[]>('data/materials.json'),
+        counted<Reaction[]>('data/reactions.json'),
+        counted<GameData['defaultState']>('data/default_state.json'),
       ]);
       set({ status: 'ready', version, data: index(version, { spells, projectiles, perks, enemies, items, materials, reactions, defaultState }) });
     } catch (e) {

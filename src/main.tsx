@@ -12,5 +12,5 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 );
 
-// The static boot orb in index.html hands over to the React splash.
+// The static boot wand in index.html hands over to the React splash.
 document.getElementById('boot')?.remove();

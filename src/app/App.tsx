@@ -7,7 +7,8 @@ import { useGameData } from '@/data/store';
 import { useProgress } from '@/store/progress';
 import { useWand } from '@/features/wand/store';
 
-const MIN_SPLASH_MS = 1100;
+// Long enough for the splash wand to light the whole title.
+const MIN_SPLASH_MS = 1500;
 
 // Persisted stores load asynchronously from IndexedDB; render only once both are in.
 const PERSISTED = [useProgress, useWand] as const;

@@ -60,8 +60,13 @@ const rgba = (hex: string, a = 255) => {
   return ((a << 24) | ((v & 0xff) << 16) | (v & 0xff00) | (v >> 16)) >>> 0;
 };
 
+// The bare sprite is also used by the boot screen and splash.
+const WAND = 'data/items_gfx/wand_good_2.png';
+await sharp(wak.bytes(WAND)).png().toFile(join(out, 'wand.png'));
+await sharp(wak.bytes('data/ui_gfx/hud/mana.png')).png().toFile(join(out, 'hud-mana.png'));
+
 // Scene: the ice-crystal wand aimed up-right, a spark bolt just leaving the tip.
-const wand = rotate(await sprite('data/items_gfx/wand_good_2.png'), -45);
+const wand = rotate(await sprite(WAND), -45);
 const scene: Px = { w: GRID, h: GRID, d: new Uint32Array(GRID * GRID) };
 const wx = Math.round((GRID - wand.w) / 2) - 2, wy = Math.round((GRID - wand.h) / 2) + 2;
 for (let y = 0; y < wand.h; y++)
