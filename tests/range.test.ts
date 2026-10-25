@@ -100,6 +100,16 @@ describe('test range basics', () => {
     expect(w.totalDamage).toBeGreaterThan(100);
   });
 
+  it('a timer goes off when its time is up, early on a hit, or when the projectile expires first', () => {
+    // Spark Bolt with Timer: 10 frames.
+    expect(world(['LIGHT_BULLET_TIMER', 'BOMB'], 12, 380).spawned).toContain('bomb.xml');
+    // Point blank, it hits the dummy within 3 frames and acts like a trigger.
+    expect(world(['LIGHT_BULLET_TIMER', 'BOMB'], 5, 20).spawned).toContain('bomb.xml');
+    // Energy Orb with Timer: the orb lives ~50 frames, less than its 100-frame timer.
+    const orb = world(['SLOW_BULLET_TIMER', 'LIGHT_BULLET'], 70, 380).spawned;
+    expect(orb.filter((f) => f === 'light_bullet.xml')).toHaveLength(1);
+  });
+
   it('homing bends shots into the dummy', () => {
     expect(world(['HOMING', 'BUBBLESHOT'], 300).w.damageEvents.length).toBeGreaterThan(0);
   });

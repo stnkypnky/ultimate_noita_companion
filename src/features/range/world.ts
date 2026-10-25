@@ -1060,9 +1060,11 @@ export class RangeWorld {
       this.applyEffects(a, p.effects);
       if (a.id === 'player' && p.knockback > 0) this.push(Math.atan2(p.vy, p.vx), p.knockback * KNOCKBACK_SCALE);
       this.applyHitEffect(p, a);
-      if (p.trigger?.kind === 'hit') {
+      // A timer that hits something before it runs out acts like a trigger; a piercing one keeps
+      // releasing copies into each enemy it passes through until its time is up.
+      if (p.trigger?.kind === 'hit' || p.trigger?.kind === 'timer') {
         const t = p.trigger;
-        delete p.trigger;
+        if (t.kind === 'hit' || !p.penetrateEntities) delete p.trigger;
         this.payload(p, t.shot);
       }
       if (!p.penetrateEntities && p.dieOnCollision) {
@@ -1104,7 +1106,8 @@ export class RangeWorld {
     // execute_on_removed scripts (Larpa death, chain shot) run as it goes.
     for (const sc of p.scripts) if (sc.onRemoved) this.runScript(p, sc);
     if (p.vars.quantum !== undefined) for (const q of this.projectiles) if (q !== p && q.vars.quantum === p.vars.quantum && !q.dead) this.die(q, 'timeout');
-    if (p.trigger && (p.trigger.kind === 'death' || (p.trigger.kind === 'hit' && reason === 'hit'))) this.payload(p, p.trigger.shot);
+    // A timer still pending goes off as the projectile ends: on a hit like a trigger, or when its lifetime runs out.
+    if (p.trigger && (p.trigger.kind !== 'hit' || reason === 'hit')) this.payload(p, p.trigger.shot);
   }
 
   /** Teleport bolts move the caster to where they end, backed off from walls (TeleportProjectileComponent). */
