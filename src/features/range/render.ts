@@ -1,15 +1,24 @@
 import type { RangeProp } from '@/data/types';
 import { gameUrl } from '@/data/store';
+import { animFrame } from './player';
 import { AIR, BEDROCK, H, W, type RangeWorld } from './world';
 
 /** Drawing scale over world pixels: sprites stay crisp, text stays readable. */
 export const SCALE = 2;
 const MAX_LIGHTS = 160;
 
+const HUD_ICONS = ['health', 'flying', 'mana', 'reload', 'delay'] as const;
+type HudIcon = (typeof HUD_ICONS)[number];
+
 export type RangeImages = {
   projectiles: HTMLImageElement;
   dummy: HTMLImageElement;
   player: HTMLImageElement;
+  playerSheet: HTMLImageElement;
+  arm: HTMLImageElement;
+  wands: HTMLImageElement;
+  cursor: HTMLImageElement;
+  hud: Record<HudIcon, HTMLImageElement>;
   rock: ImageData;
   bedrock: ImageData;
   props: Record<string, RangeProp>;
@@ -35,12 +44,25 @@ function pixels(img: HTMLImageElement): ImageData {
 let assets: Promise<RangeImages> | null = null;
 export function loadRangeImages(props: Record<string, RangeProp>): Promise<RangeImages> {
   assets ??= Promise.all([
-    loadImage(gameUrl('sprites/projectiles.png')),
-    loadImage(gameUrl('sprites/range_dummy.png')),
-    loadImage(gameUrl('sprites/range_player.png')),
+    Promise.all(
+      ['projectiles', 'range_dummy', 'range_player', 'range_player_sheet', 'range_arm', 'range_wands', 'range_cursor'].map((n) => loadImage(gameUrl(`sprites/${n}.png`))),
+    ),
+    Promise.all(HUD_ICONS.map((n) => loadImage(gameUrl(`sprites/hud_${n}.png`)))),
     loadImage(gameUrl('materials/rock_static.png')),
     loadImage(gameUrl('materials/rock_hard_border.png')),
-  ]).then(([projectiles, dummy, player, rock, bedrock]) => ({ projectiles, dummy, player, rock: pixels(rock), bedrock: pixels(bedrock), props }));
+  ]).then(([[projectiles, dummy, player, playerSheet, arm, wands, cursor], hud, rock, bedrock]) => ({
+    projectiles: projectiles!,
+    dummy: dummy!,
+    player: player!,
+    playerSheet: playerSheet!,
+    arm: arm!,
+    wands: wands!,
+    cursor: cursor!,
+    hud: Object.fromEntries(HUD_ICONS.map((n, i) => [n, hud[i]!])) as Record<HudIcon, HTMLImageElement>,
+    rock: pixels(rock),
+    bedrock: pixels(bedrock),
+    props,
+  }));
   return assets;
 }
 
@@ -105,20 +127,11 @@ export class RangeRenderer {
     }
     ctx.drawImage(this.terrain, 0, 0);
 
-    // player (faces the dummy), wand, dummy
+    // dummy, then the player with arm and wand
     const { props } = this.img;
-    const pl = props.player;
-    const f = w.facing;
-    if (pl) this.actorSprite(this.img.player, pl, w.player.x, w.player.y, f, w.player.flash);
-    const m = w.muzzle;
-    ctx.strokeStyle = '#8a5a2b';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(w.player.x + f * 2, m.y + 3);
-    ctx.lineTo(m.x, m.y);
-    ctx.stroke();
     const dm = props.dummy;
     if (dm) this.actorSprite(this.img.dummy, dm, w.dummy.x, w.dummy.y, 1, w.dummy.flash);
+    this.drawPlayer(w);
 
     // particles (glowing ones add light)
     for (const q of w.particles) {
@@ -203,26 +216,99 @@ export class RangeRenderer {
       ctx.fillText(f.self ? `-${f.text}` : f.text, f.x, f.y);
     }
     ctx.globalAlpha = 1;
+    if (w.body.dead > 0) {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.font = '700 12px "Pixelify Sans", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#000';
+      ctx.strokeText('You died', W / 2, H / 2 - 20);
+      ctx.fillStyle = '#ff5a5a';
+      ctx.fillText('You died', W / 2, H / 2 - 20);
+    }
     this.hud(w);
+    // the game's mouse cursor where you aim
+    if (w.aim && w.showCursor) {
+      const c = this.img.cursor;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(c, Math.round(w.aim.x - c.width / 2), Math.round(w.aim.y - c.height / 2));
+    }
     ctx.restore();
   }
 
-  /** Top-right bars like the game's HUD: mana, then recharge and cast delay while they run. */
+  /** Mina: the animation frame for what she's doing, mirrored to face the aim, with arm and wand rotated to it. */
+  private drawPlayer(w: RangeWorld) {
+    const kit = w.kit;
+    const b = w.body;
+    if (b.dead > 0) return;
+    // Spawn invincibility blinks, like the game.
+    if (b.invincible > 0 && Math.floor(b.invincible / 4) % 2) return;
+    const ctx = this.ctx;
+    const pose = w.pose;
+    const f = w.facing;
+    if (!kit) {
+      const pl = this.img.props.player;
+      if (pl) this.actorSprite(this.img.player, pl, w.player.x, w.player.y, f, w.player.flash);
+      return;
+    }
+    const { anim, index } = animFrame(kit, b);
+    const [px, py] = kit.player.pivot;
+    const sx = anim.x + (index % anim.perRow) * anim.w;
+    const sy = anim.y + Math.floor(index / anim.perRow) * anim.h;
+    const sprite = (img: HTMLImageElement) => {
+      ctx.save();
+      ctx.translate(Math.round(pose.entity.x), Math.round(pose.entity.y));
+      if (f < 0) ctx.scale(-1, 1);
+      ctx.drawImage(img, sx, sy, anim.w, anim.h, -px, -py, anim.w, anim.h);
+      ctx.restore();
+    };
+    ctx.globalCompositeOperation = 'source-over';
+    sprite(this.img.playerSheet);
+    if (w.player.flash > 0) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = w.player.flash / 8;
+      sprite(this.img.playerSheet);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    // Wand first (held at its grip), then the arm over it.
+    const turned = (x: number, y: number, draw: () => void) => {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(pose.angle);
+      if (pose.flip < 0) ctx.scale(1, -1);
+      draw();
+      ctx.restore();
+    };
+    const ws = w.wandSprite;
+    if (ws) turned(pose.hand.x, pose.hand.y, () => ctx.drawImage(this.img.wands, ws.icon.x, ws.icon.y, ws.icon.w, ws.icon.h, -ws.grip[0], -ws.grip[1], ws.icon.w, ws.icon.h));
+    turned(pose.armRoot.x, pose.armRoot.y, () => ctx.drawImage(this.img.arm, -kit.arm.ox, -kit.arm.oy));
+  }
+
+  /** Top-right bars like the game's HUD: health, levitation, mana, then recharge and cast delay while they run. */
   private hud(w: RangeWorld) {
-    const wand = w.wand;
-    if (!wand?.equipped) return;
     const ctx = this.ctx;
     const x = W - 8 - HUD_BAR_W;
-    let y = 8;
+    let y = 7;
+    const row = (icon: HudIcon, fill: number, color: string, flash = false) => {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(this.img.hud[icon], x - 11, y - 3);
+      hudBar(ctx, x, y, fill, color, flash);
+      y += 10;
+    };
+    row('health', w.body.hp / w.maxHp, HUD.health, w.player.flash > 0);
+    ctx.font = '600 7px "Pixelify Sans", sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#ffffffcc';
+    ctx.fillText(String(Math.ceil(w.body.hp)), x - 13, y - 8);
+    if (w.body.flyEnergy < w.flightMax) row('flying', w.body.flyEnergy / w.flightMax, HUD.flying);
+    const wand = w.wand;
+    if (!wand?.equipped) return;
     const starved = w.frame - wand.noManaFrame < 24 && (w.frame - wand.noManaFrame) % 8 < 4;
-    hudBar(ctx, x, y, wand.manaMax > 0 ? wand.mana / wand.manaMax : 0, HUD.mana, starved);
-    y += 6;
-    if (w.frame < wand.reloadEnd) {
-      hudBar(ctx, x, y, 1 - wand.reloadProgress(w.frame), HUD.reload, false);
-      y += 6;
-    }
+    row('mana', wand.manaMax > 0 ? wand.mana / wand.manaMax : 0, HUD.mana, starved);
+    if (w.frame < wand.reloadEnd) row('reload', 1 - wand.reloadProgress(w.frame), HUD.reload);
     // Long cast delays (bombs, payloads) get their own bar; short ones would only flicker.
-    if (w.frame < wand.delayEnd && wand.delayEnd - wand.delayStart > 6) hudBar(ctx, x, y, 1 - wand.delayProgress(w.frame), HUD.delay, false);
+    if (w.frame < wand.delayEnd && wand.delayEnd - wand.delayStart > 6) row('delay', 1 - wand.delayProgress(w.frame), HUD.delay);
   }
 
   /** Feet-anchored sprite, optionally mirrored, with a hit flash. */
@@ -242,7 +328,7 @@ export class RangeRenderer {
 }
 
 /** HUD colours from data/ui_gfx/hud/colors_*.png. */
-const HUD = { mana: '#42a8e2', reload: '#fc8a43', delay: '#ffdd88', flash: '#fc4355', bg: '#72483e7d' };
+const HUD = { health: '#87bf1c', flying: '#ffaa40', mana: '#42a8e2', reload: '#fc8a43', delay: '#ffdd88', flash: '#fc4355', bg: '#72483e7d' };
 const HUD_BAR_W = 40;
 
 function hudBar(ctx: CanvasRenderingContext2D, x: number, y: number, fill: number, color: string, flash: boolean) {

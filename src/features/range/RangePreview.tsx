@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeftRight, Bot, Gauge, Maximize2, Minimize2, Mountain, Pause, Play } from 'lucide-react';
+import { ArrowBigUp, ArrowLeftRight, Bot, ChevronLeft, ChevronRight, Dices, Gauge, Maximize2, Minimize2, Mountain, Pause, Play } from 'lucide-react';
 import { fetchJson, useData } from '@/data/store';
-import type { EntityVisual, RangeProp } from '@/data/types';
+import type { EntityVisual, RangeKit, RangeProp } from '@/data/types';
 import { fmtNum } from '@/data/format';
 import { LiveSession } from '@/sim/client';
+import type { LiveCast } from '@/sim/types';
+import { SpellIcon } from '@/ui/GameIcon';
 import { toSimRequest, type SimOptions, type Wand } from '@/features/wand/model';
 import { H, RangeWorld, W, type RangeData } from './world';
 import { RangeRenderer, SCALE, loadRangeImages, type RangeImages } from './render';
+import { pickWandSprite, type Controls } from './player';
 import { WandRuntime } from './wand';
 
 const SPEEDS = [0.25, 0.5, 1] as const;
@@ -14,11 +17,14 @@ const DEFAULT_DISTANCE = 228;
 const MIN_DISTANCE = 40;
 const MAX_DISTANCE = 340;
 
-let extra: Promise<{ visuals: Record<string, EntityVisual>; props: Record<string, RangeProp> }> | null = null;
+type Extra = { visuals: Record<string, EntityVisual>; props: Record<string, RangeProp>; kit: RangeKit };
+let extra: Promise<Extra> | null = null;
 const loadExtra = () =>
-  (extra ??= Promise.all([fetchJson<Record<string, EntityVisual>>('data/visuals.json'), fetchJson<Record<string, RangeProp>>('data/range_props.json')]).then(
-    ([visuals, props]) => ({ visuals, props }),
-  ));
+  (extra ??= Promise.all([
+    fetchJson<Record<string, EntityVisual>>('data/visuals.json'),
+    fetchJson<Record<string, RangeProp>>('data/range_props.json'),
+    fetchJson<RangeKit>('data/range_kit.json'),
+  ]).then(([visuals, props, kit]) => ({ visuals, props, kit })));
 
 const humanize = (s: string) => s.replace(/_/g, ' ');
 
@@ -37,6 +43,22 @@ const remember = (key: string, value: string) => {
   }
 };
 
+/** Keys that walk, levitate and work the range, as in the game (WASD) plus arrows. */
+const MOVE_KEYS: Record<string, keyof Controls> = { a: 'left', arrowleft: 'left', d: 'right', arrowright: 'right', w: 'up', arrowup: 'up', ' ': 'up' };
+
+type Hud = {
+  dps: number;
+  total: number;
+  self: number;
+  casts: number;
+  live: number;
+  unsupported: string[];
+  wandError: string | null;
+  deck: LiveCast['deck'] | null;
+  /** Deck cards (1-based) the last cast played. */
+  played: number[];
+};
+
 /** Live pixel test range: hold the wand and cast it at a target dummy, with the wand's real mana and recharge. */
 export function RangePreview({ wand, options, active }: { wand: Wand; options: SimOptions; active: boolean }) {
   const { projectiles, materials, materialById, spellById } = useData();
@@ -51,9 +73,12 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
   const [onScreen, setOnScreen] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
   const [auto, setAuto] = useState(() => remembered('range-auto', '0') === '1');
-  const [hud, setHud] = useState({ dps: 0, total: 0, self: 0, casts: 0, live: 0, unsupported: [] as string[], wandError: null as string | null });
+  const [look, setLook] = useState(0);
+  const [hud, setHud] = useState<Hud>({ dps: 0, total: 0, self: 0, casts: 0, live: 0, unsupported: [], wandError: null, deck: null, played: [] });
   const req = useMemo(() => toSimRequest(wand, options, spellById).req, [wand, options, spellById]);
   const empty = req.deck.length === 0 && req.alwaysCasts.length === 0;
+  const wandSprite = useMemo(() => (ready?.data.kit ? pickWandSprite(ready.data.kit.wands, wand, look) : undefined), [ready, wand, look]);
+  const touch = useMemo(() => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches, []);
 
   useEffect(() => () => session.dispose(), [session]);
   useEffect(() => {
@@ -65,12 +90,15 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
     worldRef.current?.setDummyDistance(distance);
     remember('range-distance', String(distance));
   }, [distance, ready]);
+  useEffect(() => {
+    if (worldRef.current) worldRef.current.wandSprite = wandSprite;
+  }, [wandSprite, ready]);
 
   // Load range data + sprites once.
   useEffect(() => {
     let live = true;
     loadExtra()
-      .then(async ({ visuals, props }) => {
+      .then(async ({ visuals, props, kit }) => {
         const images = await loadRangeImages(props);
         if (!live) return;
         setReady({
@@ -80,6 +108,7 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
             visuals,
             materialColor: new Map(materials.map((m) => [m.id, m.color])),
             rockDurability: materialById.get('rock_static')?.durability ?? 0,
+            kit,
           },
         });
       })
@@ -97,12 +126,13 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
       w = worldRef.current = new RangeWorld(ready.data);
       w.setDummyDistance(distance);
       w.auto = auto;
+      w.wandSprite = wandSprite;
       const world = w;
       w.wand = new WandRuntime(session, (c) => world.fire(c));
     }
     w.clearShots();
     w.wand!.equip(req, w.frame);
-  }, [ready, req, session]); // distance and auto have their own effects; a new world just starts at the current settings
+  }, [ready, req, session]); // distance, auto and the sprite have their own effects; a new world just starts at the current settings
 
   // Pause when scrolled away or the tab is hidden.
   useEffect(() => {
@@ -140,8 +170,9 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
         }
         renderer.draw(world);
         hudTimer += dt;
-        if (hudTimer > 0.25) {
+        if (hudTimer > 0.1) {
           hudTimer = 0;
+          const rt = world.wand;
           setHud({
             dps: world.dps,
             total: world.totalDamage,
@@ -149,7 +180,9 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
             casts: world.castsFired,
             live: world.projectiles.length,
             unsupported: [...world.unsupported],
-            wandError: world.wand?.error ?? null,
+            wandError: rt?.error ?? null,
+            deck: rt?.deck ?? null,
+            played: rt?.lastCast?.slots.filter((s) => s > 0) ?? [],
           });
         }
       }
@@ -158,6 +191,42 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, [ready, running, speed]);
+
+  // Keyboard: active while the pointer is over the range or it has focus, so the builder's own keys keep working.
+  const engaged = useRef(false);
+  useEffect(() => {
+    const control = (e: KeyboardEvent, down: boolean) => {
+      const w = worldRef.current;
+      if (!w) return;
+      const k = e.key.toLowerCase();
+      const move = MOVE_KEYS[k];
+      if (!down) {
+        if (move) w.controls[move] = false;
+        return;
+      }
+      if (!engaged.current || (e.target as HTMLElement).tagName === 'INPUT' || e.ctrlKey || e.metaKey) return;
+      if (move) w.controls[move] = true;
+      else if (k === '1') w.wand?.swap();
+      else if (k === 'f') setAuto((a) => !a);
+      else if (k === 'p') setPlaying((p) => !p);
+      else return;
+      e.preventDefault();
+    };
+    const down = (e: KeyboardEvent) => control(e, true);
+    const up = (e: KeyboardEvent) => control(e, false);
+    const blur = () => {
+      const w = worldRef.current;
+      if (w) w.controls = { left: false, right: false, up: false };
+    };
+    addEventListener('keydown', down);
+    addEventListener('keyup', up);
+    addEventListener('blur', blur);
+    return () => {
+      removeEventListener('keydown', down);
+      removeEventListener('keyup', up);
+      removeEventListener('blur', blur);
+    };
+  }, []);
 
   // Aim with the pointer; press to cast once, hold to keep casting. Taking aim switches Auto off.
   const toWorld = (e: React.PointerEvent) => {
@@ -176,9 +245,23 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
   };
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const w = worldRef.current;
-    if (w && (e.pointerType === 'mouse' || w.trigger)) w.aim = toWorld(e);
+    if (!w) return;
+    if (e.pointerType === 'mouse' || w.trigger) w.aim = toWorld(e);
+    w.showCursor = e.pointerType === 'mouse';
   };
   const release = () => worldRef.current?.setTrigger(false);
+
+  /** Hold-to-move buttons for touch screens. */
+  const hold = (key: keyof Controls) => ({
+    onPointerDown: (e: React.PointerEvent) => {
+      e.preventDefault();
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      if (worldRef.current) worldRef.current.controls[key] = true;
+    },
+    onPointerUp: () => worldRef.current && (worldRef.current.controls[key] = false),
+    onPointerCancel: () => worldRef.current && (worldRef.current.controls[key] = false),
+    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+  });
 
   useEffect(() => {
     const h = () => setFullscreen(document.fullscreenElement === boxRef.current);
@@ -199,7 +282,14 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
   return (
     <div
       ref={boxRef}
-      className={`overflow-hidden bg-[#0b0910] ${
+      tabIndex={-1}
+      onPointerEnter={() => (engaged.current = true)}
+      onPointerLeave={() => {
+        engaged.current = false;
+        if (worldRef.current) worldRef.current.showCursor = false;
+      }}
+      onFocus={() => (engaged.current = true)}
+      className={`overflow-hidden bg-[#0b0910] outline-none ${
         expanded ? 'fixed inset-0 z-[90] flex flex-col justify-center' : fullscreen ? 'flex h-full flex-col justify-center' : 'rounded-[var(--radius)] border border-line'
       }`}
     >
@@ -208,9 +298,9 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
           ref={canvasRef}
           width={W * SCALE}
           height={H * SCALE}
-          className="pixelated block w-full cursor-crosshair touch-none select-none"
+          className="pixelated block w-full cursor-none touch-none select-none"
           style={{ aspectRatio: `${W} / ${H}` }}
-          aria-label="Test range: aim and click or hold to cast the wand at a target dummy"
+          aria-label="Test range: aim and click or hold to cast; A/D walk, W or Space levitates"
           role="img"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -224,7 +314,9 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
         )}
         {ready && empty && <div className="pointer-events-none absolute inset-0 grid place-items-center text-sm text-muted">Add spells to see them fly.</div>}
         {ready && !empty && !auto && hud.casts === 0 && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-3 text-center text-xs text-muted">Click to cast · hold to keep casting</div>
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 text-center text-xs text-muted">
+            {touch ? 'Touch to aim and cast · buttons to move' : 'Click to cast · hold to keep casting · A/D walk · W or Space levitates'}
+          </div>
         )}
         {hud.wandError && <div className="pointer-events-none absolute inset-x-0 bottom-3 text-center text-xs text-blood">The wand misfired: {hud.wandError}</div>}
         <div className="pointer-events-none absolute top-2 left-2 flex gap-1.5 text-[11px] tabular-nums">
@@ -238,8 +330,32 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
         </div>
       </div>
 
+      {touch && ready && (
+        // Under the scene rather than over it, so thumbs never hide the player.
+        <div className="flex items-center gap-2 border-t border-line px-2 py-1.5">
+          {(
+            [
+              ['left', <ChevronLeft key="l" size={22} />, 'Walk left'],
+              ['right', <ChevronRight key="r" size={22} />, 'Walk right'],
+              ['up', <ArrowBigUp key="u" size={22} />, 'Levitate'],
+            ] as const
+          ).map(([key, icon, label]) => (
+            <button
+              key={key}
+              aria-label={label}
+              {...hold(key)}
+              className={`grid h-11 w-14 touch-none place-items-center rounded-xl bg-surface-2 text-ink select-none active:bg-ember active:text-bg ${key === 'up' ? 'ml-auto' : ''}`}
+            >
+              {icon}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {!empty && <DeckStrip deck={req.deck} hud={hud} spellById={spellById} />}
+
       <div className="flex flex-wrap items-center gap-1 border-t border-line px-2 py-1.5 text-xs">
-        <Btn label={playing ? 'Pause' : 'Play'} onClick={() => setPlaying(!playing)}>
+        <Btn label={playing ? 'Pause (P)' : 'Play (P)'} onClick={() => setPlaying(!playing)}>
           {playing ? <Pause size={15} /> : <Play size={15} />}
         </Btn>
         <span className="ml-1 inline-flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5" role="group" aria-label="Speed">
@@ -258,13 +374,16 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
         <button
           onClick={() => setAuto(!auto)}
           aria-pressed={auto}
-          title="Auto-fire at the dummy"
+          title="Auto-fire at the dummy (F)"
           className={`ml-1 inline-flex items-center gap-1 rounded-lg px-2 py-1 ${auto ? 'bg-ember text-bg' : 'bg-surface-2 text-muted hover:text-ink'}`}
         >
           <Bot size={14} /> Auto
         </button>
-        <Btn label="Swap wand (restarts the deck, like switching items in-game)" onClick={() => worldRef.current?.wand?.swap()}>
+        <Btn label="Swap wand (1): restarts the deck, like switching items in-game" onClick={() => worldRef.current?.wand?.swap()}>
           <ArrowLeftRight size={15} />
+        </Btn>
+        <Btn label="Another wand sprite for these stats" onClick={() => setLook(look + 1)}>
+          <Dices size={15} />
         </Btn>
         <Btn
           label="Rebuild terrain"
@@ -298,6 +417,36 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
           Not shown in the preview yet: {hud.unsupported.map(humanize).join(', ')}. The Casts tab numbers aren't affected.
         </p>
       )}
+    </div>
+  );
+}
+
+/** The wand's spells in deck order, as the live wand sees them: next up, just cast, already drawn, out of charges. */
+function DeckStrip({ deck, hud, spellById }: { deck: { id: string; uses: number }[]; hud: Hud; spellById: ReturnType<typeof useData>['spellById'] }) {
+  const d = hud.deck;
+  const next = d ? d.deck[0] : 1;
+  const left = new Map(d?.uses.map((u) => [u.inv, u.uses]));
+  return (
+    <div className="flex items-center gap-1 overflow-x-auto border-t border-line px-2 py-1.5" aria-label="Deck">
+      {deck.map((card, i) => {
+        const inv = i + 1;
+        const spell = spellById.get(card.id);
+        if (!spell) return null;
+        const uses = left.get(inv) ?? card.uses;
+        const spent = uses === 0;
+        const drawn = d ? d.discarded.includes(inv) : false;
+        const cast = hud.played.includes(inv);
+        return (
+          <span
+            key={inv}
+            title={`${spell.name}${uses >= 0 ? ` · ${uses} charges` : ''}${inv === next ? ' · next' : ''}`}
+            className={`relative shrink-0 rounded-md p-0.5 ${inv === next && !spent ? 'ring-2 ring-gold' : cast ? 'ring-2 ring-ember' : ''} ${drawn || spent ? 'opacity-40' : ''} ${spent ? 'grayscale' : ''}`}
+          >
+            <SpellIcon type={spell.type} icon={spell.icon} scale={1} />
+            {uses >= 0 && <span className="absolute right-0 bottom-0 rounded bg-black/70 px-0.5 text-[9px] leading-tight tabular-nums">{uses}</span>}
+          </span>
+        );
+      })}
     </div>
   );
 }

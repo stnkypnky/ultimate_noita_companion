@@ -1,17 +1,21 @@
-// Test-range simulation: replays the cast simulator's output as moving projectiles in a small pixel world.
+// Test-range simulation: the player casts the live wand (wand.ts) as moving projectiles in a small pixel world.
 // Pure logic (no DOM) so it can be unit-tested; rendering lives in render.ts.
 //
 // Fidelity notes: motion uses each projectile's own component data (speed, gravity, air friction, bounces,
 // lifetime, homing, sine waves, lasers, area damage, lightning) and ports the game's Lua for path modifiers,
 // bounce effects, orbits, the giga disc, chain bolt and teleports. Approximated: the engine's C++ internals
 // (exact homing maths, friction integration, Box2D physics for thrown bombs, arc damage) and falling-sand materials.
-import type { EntityVisual, Projectile } from '@/data/types';
+import type { EntityVisual, Projectile, RangeKit, WandSprite } from '@/data/types';
 import { CRIT_MULT, projectileDamage } from '@/sim/analyze';
 import type { ShotState, SimCast, SimShot } from '@/sim/types';
+import { DEFAULT_FLIGHT, DEFAULT_MOVE, newPlayerState, stepPlayer, wandPose, type Controls, type PlayerState } from './player';
 import type { WandRuntime } from './wand';
 
-export const W = 420;
-export const H = 236;
+/** The game's internal screen size, so distances and speeds read 1:1. */
+export const W = 427;
+export const H = 242;
+/** Frames the player lies dead before respawning. */
+const DEATH_FRAMES = 90;
 const DT = 1 / 60;
 const MAX_PROJECTILES = 700;
 const MAX_PARTICLES = 3000;
@@ -27,6 +31,8 @@ export type RangeData = {
   materialColor: Map<string, string>;
   /** Durability of the terrain material (rock_static); explosions dig only if their max_durability_to_destroy reaches it. */
   rockDurability: number;
+  /** Player sprites and movement constants; without it the player uses player_base.xml defaults. */
+  kit?: RangeKit;
 };
 
 /** A scheduled LuaComponent, remembering which entity (projectile or modifier effect) it belongs to. */
@@ -166,8 +172,14 @@ export class RangeWorld {
   beams: Beam[] = [];
   frame = 0;
   readonly floorY = H - 34;
-  readonly player: Actor = { id: 'player', x: 34, y: H - 34, w: 8, h: 17, homeX: 34, vy: 0, flash: 0, pending: 0, pendingCrit: false };
+  readonly player: Actor;
+  /** Movement, levitation and health of the player. */
+  readonly body: PlayerState;
   readonly dummy: Actor = { id: 'dummy', x: 262, y: H - 34, w: 14, h: 24, homeX: 262, vy: 0, flash: 0, pending: 0, pendingCrit: false };
+  /** Walk / levitate keys. */
+  controls: Controls = { left: false, right: false, up: false };
+  /** Which of the game's wand sprites is in hand (its tip is where spells leave). */
+  wandSprite: WandSprite | undefined;
   readonly unsupported = new Set<string>();
   damageEvents: { frame: number; amount: number }[] = [];
   totalDamage = 0;
@@ -182,15 +194,25 @@ export class RangeWorld {
   auto = true;
   /** Where the player aims, in world pixels (manual mode). */
   aim: { x: number; y: number } | null = null;
+  /** Draw the game's cursor at the aim (the pointer is over the range). */
+  showCursor = false;
 
   /** Auto mode puts teleported or swapped actors back after each recharge, so the range stays usable. */
   private homeAfterReload = false;
+  /** The player walked or levitated since the actors were last put back (auto mode then leaves the player be). */
+  private steered = false;
   /** A press since the last frame, so a click shorter than a frame still pulls the trigger. */
   private tapped = false;
   private nextId = 1;
   private lastArc: Proj | null = null;
 
   constructor(private data: RangeData) {
+    const k = data.kit?.player;
+    const hb = k?.hitbox ?? { minX: -3, maxX: 3, minY: -12, maxY: 4 };
+    // The damage hitbox, measured from the feet (it hangs from the entity position, a few pixels above them).
+    const feetBelowEntity = (k?.feet ?? 17) - (k?.pivot[1] ?? 14);
+    this.player = { id: 'player', x: 34, y: H - 34, w: hb.maxX - hb.minX, h: feetBelowEntity - hb.minY, homeX: 34, vy: 0, flash: 0, pending: 0, pendingCrit: false };
+    this.body = newPlayerState(k?.flight ?? DEFAULT_FLIGHT, k?.hp ?? 100);
     this.resetTerrain();
   }
 
@@ -198,26 +220,46 @@ export class RangeWorld {
     return [this.player, this.dummy];
   }
 
-  /** Where shots leave the wand: in front of the player, facing the dummy. */
-  get muzzle() {
-    const f = this.facing;
-    return { x: this.player.x + f * 10, y: this.player.y - 11 };
+  get maxHp() {
+    return this.data.kit?.player.hp ?? 100;
+  }
+
+  get flightMax() {
+    return (this.data.kit?.player.flight ?? DEFAULT_FLIGHT).timeMax;
+  }
+
+  get kit() {
+    return this.data.kit;
   }
 
   private get manual() {
     return !this.auto && this.aim;
   }
 
-  get facing() {
-    const tx = this.manual ? this.aim!.x : this.dummy.x;
-    return tx >= this.player.x ? 1 : -1;
+  /** Where the player aims: the cursor, or (auto) the dummy's upper chest so gravity-affected shots arc into it. */
+  private get aimPoint() {
+    return this.manual ? this.aim! : { x: this.dummy.x, y: this.dummy.y - this.dummy.h * 0.8 };
   }
 
-  /** Manual: at the cursor. Auto: the dummy's upper chest, so gravity-affected shots arc into it rather than skimming the floor. */
+  get facing() {
+    return this.aimPoint.x >= this.player.x ? 1 : -1;
+  }
+
+  /** Arm, hand and wand tip, rotated toward the target. */
+  get pose() {
+    const f = this.facing;
+    const root = wandPose(this.data.kit, this.body, this.player, f, f > 0 ? 0 : Math.PI, this.wandSprite).armRoot;
+    const angle = Math.atan2(this.aimPoint.y - root.y, this.aimPoint.x - root.x);
+    return { angle, ...wandPose(this.data.kit, this.body, this.player, f, angle, this.wandSprite) };
+  }
+
+  /** Where shots leave the wand: its tip. */
+  get muzzle() {
+    return this.pose.tip;
+  }
+
   get aimAngle() {
-    const m = this.muzzle;
-    if (this.manual) return Math.atan2(this.aim!.y - m.y, this.aim!.x - m.x);
-    return Math.atan2(this.dummy.y - this.dummy.h * 0.8 - m.y, this.dummy.x - m.x);
+    return this.pose.angle;
   }
 
   get dummyDistance() {
@@ -318,7 +360,32 @@ export class RangeWorld {
     a.y = Math.max(a.h + 4, Math.min(H - 4, y));
     while (a.y > a.h + 4 && this.cell(a.x, a.y - 1) !== AIR) a.y--;
     a.vy = 0;
+    if (a.id === 'player') this.body.vx = this.body.vy = 0;
     this.puff(a.x, a.y - a.h / 2, '#82dcff');
+  }
+
+  /** The player: walks, jumps and levitates under the controls; lies down for a moment after dying. */
+  private updatePlayer() {
+    const a = this.player;
+    const b = this.body;
+    if (b.dead > 0) {
+      if (--b.dead === 0) this.respawn();
+    } else {
+      const k = this.data.kit?.player;
+      if (this.controls.left || this.controls.right || this.controls.up) this.steered = true;
+      const pos = stepPlayer(b, a, this.controls, k?.move ?? DEFAULT_MOVE, k?.flight ?? DEFAULT_FLIGHT, (x, y) => this.cell(x, y) !== AIR, DT);
+      a.x = Math.max(6, Math.min(W - 6, pos.x));
+      a.y = pos.y;
+    }
+    this.actorTick(a);
+  }
+
+  /** Back on the mark with full health and levitation, briefly invincible (as at the start of a run). */
+  respawn() {
+    const b = this.body;
+    Object.assign(b, newPlayerState(this.data.kit?.player.flight ?? DEFAULT_FLIGHT, this.maxHp));
+    this.moveActor(this.player, this.player.homeX, this.groundBelow(this.player.homeX));
+    this.steered = false;
   }
 
   private updateActor(a: Actor) {
@@ -337,6 +404,11 @@ export class RangeWorld {
         a.y += (a.vy * DT) / steps;
       }
     }
+    this.actorTick(a);
+  }
+
+  /** Hit flash and batched damage numbers. */
+  private actorTick(a: Actor) {
     if (a.flash > 0) a.flash--;
     if (a.pending > 0 && this.frame % 10 === 0) {
       this.floater(a, a.pending, a.pendingCrit);
@@ -367,16 +439,27 @@ export class RangeWorld {
   /** Put both actors back on their marks. */
   resetActors() {
     for (const a of this.actors) this.moveActor(a, a.homeX, this.groundBelow(a.homeX));
+    this.steered = false;
   }
 
-  /** The wand cast: its projectiles leave the muzzle along the aim. */
+  /** The wand cast: its projectiles leave the wand tip along the aim, and the wand kicks back. */
   fire(cast: SimCast) {
-    if (this.auto && this.homeAfterReload && this.displaced()) this.resetActors();
+    if (this.body.dead > 0) return;
+    if (this.auto && this.homeAfterReload && this.displaced()) {
+      // Teleports and swaps are undone, but a player who walked somewhere stays there.
+      if (this.steered) this.moveActor(this.dummy, this.dummy.homeX, this.groundBelow(this.dummy.homeX));
+      else this.resetActors();
+    }
     this.homeAfterReload = cast.reload !== undefined;
     this.castsFired++;
-    const m = this.muzzle;
-    for (let i = 0; i < 6; i++) this.spark(m.x, m.y, '#ffd27a', true, 12);
-    this.spawnShot(cast.shot, m.x, m.y, this.aimAngle);
+    const { tip, angle } = this.pose;
+    for (let i = 0; i < 6; i++) this.spark(tip.x, tip.y, '#ffd27a', true, 12);
+    // shot_effects.recoil_knockback pushes the caster away from the aim.
+    if (cast.recoil) {
+      this.body.vx -= Math.cos(angle) * cast.recoil;
+      this.body.vy -= Math.sin(angle) * cast.recoil;
+    }
+    this.spawnShot(cast.shot, tip.x, tip.y, angle);
   }
 
   /** Fire every projectile of a (sub)shot from a point, with the shot's spread, pattern and speed modifiers. */
@@ -509,7 +592,8 @@ export class RangeWorld {
     // Copy: updates may spawn new projectiles (they start moving next frame).
     for (const p of [...this.projectiles]) if (!p.dead && p.age >= 0) this.update(p);
     this.projectiles = this.projectiles.filter((p) => !p.dead);
-    for (const a of this.actors) this.updateActor(a);
+    this.updatePlayer();
+    this.updateActor(this.dummy);
 
     for (const q of this.particles) {
       q.vy += 30 * DT;
@@ -791,8 +875,8 @@ export class RangeWorld {
     if (a.id === 'dummy') {
       this.totalDamage += dealt;
       this.damageEvents.push({ frame: this.frame, amount: dealt });
-    } else {
-      this.selfDamage += dealt;
+    } else if (!this.harmPlayer(dealt)) {
+      return;
     }
     a.flash = 6;
     if (source && (source.parent || source.area || source.laser || source.damageEveryFrames > 0)) {
@@ -809,11 +893,25 @@ export class RangeWorld {
     if (a.id === 'dummy') {
       this.totalDamage += amount;
       this.damageEvents.push({ frame: this.frame, amount });
-    } else {
-      this.selfDamage += amount;
+    } else if (!this.harmPlayer(amount)) {
+      return;
     }
     a.flash = 4;
     a.pending += amount;
+  }
+
+  /** Take health from the player (not while invincible or already dead); false if nothing was taken. */
+  private harmPlayer(amount: number) {
+    const b = this.body;
+    if (b.dead > 0 || b.invincible > 0) return false;
+    this.selfDamage += amount;
+    b.hp = Math.max(0, b.hp - amount);
+    if (b.hp === 0) {
+      b.dead = DEATH_FRAMES;
+      b.vx = b.vy = 0;
+      this.puff(this.player.x, this.player.y - this.player.h / 2, '#ff5a5a');
+    }
+    return true;
   }
 
   private floater(a: Actor, dealt: number, crit: boolean) {

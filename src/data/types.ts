@@ -151,6 +151,73 @@ export type EntityVisual = {
 /** Backdrop sprites for the test range (game/sprites/range_<key>.png). */
 export type RangeProp = { w: number; h: number; ox: number; oy: number };
 
+/** A RectAnimation on the player's sprite sheet. */
+export type RangeAnim = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  count: number;
+  perRow: number;
+  /** Seconds per frame. */
+  wait: number;
+  loop: boolean;
+  /** The arm's root (right_arm_start hotspot) on each frame, from the frame's top-left. */
+  arm: [number, number][];
+};
+
+/** One of the game's wand sprites (data/scripts/gun/procedural/wands.lua), in the stat space the game matches wands with. */
+export type WandSprite = {
+  name: string;
+  icon: Icon;
+  grip: [number, number];
+  tip: [number, number];
+  fireRateWait: number;
+  actionsPerRound: number;
+  shuffle: number;
+  deckCapacity: number;
+  spreadDegrees: number;
+  reloadTime: number;
+};
+
+/** The player in the test range: game sprites and player_base.xml constants (data/range_kit.json). */
+export type RangeKit = {
+  player: {
+    anims: Record<string, RangeAnim>;
+    /** Entity position on a frame (the sprite's offset_x/offset_y). */
+    pivot: [number, number];
+    /** Rows from a frame's top to just below the feet. */
+    feet: number;
+    /** CharacterPlatformingComponent (px/s, px/s², per-frame blend factors). */
+    move: {
+      runVelocity: number;
+      accelX: number;
+      gravity: number;
+      jumpVelocityY: number;
+      jumpVelocityX: number;
+      velocityMinX: number;
+      velocityMaxX: number;
+      velocityMinY: number;
+      velocityMaxY: number;
+      flyVelocityX: number;
+      flySpeedMaxUp: number;
+      flySpeedMaxDown: number;
+      flySpeedMult: number;
+      flySpeedChangeSpd: number;
+      climbOverY: number;
+    };
+    /** CharacterDataComponent levitation: seconds of flight, refill per second in the air / on ground. */
+    flight: { timeMax: number; rechargeAir: number; rechargeGround: number; airWaitFrames: number; needsRecharge: boolean };
+    /** Max HP. */
+    hp: number;
+    /** Damage hitbox around the entity position. */
+    hitbox: { minX: number; maxX: number; minY: number; maxY: number };
+  };
+  arm: { w: number; h: number; ox: number; oy: number; hand: [number, number] };
+  wands: WandSprite[];
+  cursor: { w: number; h: number };
+};
+
 /** World pickups from data/entities/items/pickup/. */
 export type Item = {
   id: string;

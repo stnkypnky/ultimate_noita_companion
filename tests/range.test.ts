@@ -61,14 +61,17 @@ function world(deck: string[], frames: number, distance?: number) {
   let maxBeams = 0;
   let maxSegments = 0;
   let orbiting = 0;
+  // Auto mode puts a teleported player back on the next cast after a recharge, so track the furthest move.
+  let maxShift = 0;
   for (let i = 0; i < frames; i++) {
     w.step();
+    maxShift = Math.max(maxShift, Math.abs(w.player.x - w.player.homeX));
     maxBolts = Math.max(maxBolts, w.bolts.length);
     maxBeams = Math.max(maxBeams, w.beams.length);
     maxSegments = Math.max(maxSegments, w.segments.length);
     orbiting = Math.max(orbiting, w.projectiles.filter((p) => p.parent).length);
   }
-  return { w, spawned, maxBolts, maxBeams, maxSegments, orbiting };
+  return { w, spawned, maxBolts, maxBeams, maxSegments, orbiting, maxShift };
 }
 
 const rocks = (w: RangeWorld) => w.terrain.reduce((n, c) => n + (c !== AIR ? 1 : 0), 0);
@@ -136,8 +139,7 @@ describe('spell fixes', () => {
   });
 
   it('teleport bolt moves the caster', () => {
-    const { w } = world(['TELEPORT_PROJECTILE'], 30);
-    expect(Math.abs(w.player.x - w.player.homeX)).toBeGreaterThan(20);
+    expect(world(['TELEPORT_PROJECTILE'], 30).maxShift).toBeGreaterThan(20);
   });
 
   it('swapper swaps caster and dummy', () => {

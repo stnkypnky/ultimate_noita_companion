@@ -6,6 +6,7 @@ import sharp from 'sharp';
 import type { EntityVisual, GameVersion, Item, Projectile, RangeProp } from '../../src/data/types.ts';
 import { collectItems } from './items.ts';
 import { collectVisuals, rangeProps } from './visuals.ts';
+import { rangeKit } from './kit.ts';
 import { Wak } from './wak.ts';
 import { findNoita } from './paths.ts';
 import { createLuaHost, loadGun } from './lua.ts';
@@ -120,6 +121,9 @@ for (const [key, f] of Object.entries(await rangeProps(wak))) {
   await writeFile(join(OUT, `sprites/range_${key}.png`), f.png);
 }
 console.log(`visuals: ${Object.keys(visuals).length} entities, ${vis.images.length} sprites; range props: ${Object.keys(props).join(', ')}`);
+const kit = await rangeKit(wak);
+for (const [rel, png] of Object.entries(kit.files)) await writeFile(join(OUT, rel), png);
+console.log(`range kit: ${Object.keys(kit.kit.player.anims).length} player animations, ${kit.kit.wands.length} wand sprites`);
 
 // ---------- UI chrome from the game ----------
 await mkdir(join(OUT, 'ui'), { recursive: true });
@@ -138,6 +142,7 @@ await writeJson('data/items.json', items);
 await writeFile(join(OUT, 'sprites/projectiles.png'), projAtlas.png);
 await writeJson('data/visuals.json', visuals);
 await writeJson('data/range_props.json', props);
+await writeJson('data/range_kit.json', kit.kit);
 await writeJson('data/spells.json', spells);
 await writeJson('data/projectiles.json', projectiles);
 await writeJson('data/perks.json', perks);
