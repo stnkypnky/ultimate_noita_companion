@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Enemy, GameData, GameVersion, Material, Perk, Projectile, Reaction, Spell } from './types';
+import type { Enemy, GameData, GameVersion, Item, Material, Perk, Projectile, Reaction, Spell } from './types';
 
 type Status = 'loading' | 'ready' | 'missing';
 
@@ -54,16 +54,17 @@ export const useGameData = create<GameDataState>((set, get) => ({
     if (get().data) return;
     try {
       const version = await fetchJson<GameVersion>('version.json');
-      const [spells, projectiles, perks, enemies, materials, reactions, defaultState] = await Promise.all([
+      const [spells, projectiles, perks, enemies, items, materials, reactions, defaultState] = await Promise.all([
         fetchJson<Spell[]>('data/spells.json'),
         fetchJson<Record<string, Projectile>>('data/projectiles.json'),
         fetchJson<Perk[]>('data/perks.json'),
         fetchJson<Enemy[]>('data/enemies.json'),
+        fetchJson<Item[]>('data/items.json'),
         fetchJson<Material[]>('data/materials.json'),
         fetchJson<Reaction[]>('data/reactions.json'),
         fetchJson<GameData['defaultState']>('data/default_state.json'),
       ]);
-      set({ status: 'ready', version, data: index(version, { spells, projectiles, perks, enemies, materials, reactions, defaultState }) });
+      set({ status: 'ready', version, data: index(version, { spells, projectiles, perks, enemies, items, materials, reactions, defaultState }) });
     } catch (e) {
       set({ status: 'missing', error: String(e) });
     }

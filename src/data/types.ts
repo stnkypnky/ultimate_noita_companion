@@ -107,7 +107,16 @@ export type Enemy = {
   tags?: string[];
 };
 
-export type CellType ='liquid' | 'gas' | 'solid' | 'fire' | 'powder' | 'sand' | string;
+/** World pickups from data/entities/items/pickup/. */
+export type Item = {
+  id: string;
+  name: string;
+  description: string;
+  icon: Icon;
+  tags?: string[];
+};
+
+export type CellType = 'liquid' | 'gas' | 'solid' | 'fire' | 'powder' | 'sand' | string;
 
 export type Material = {
   id: string;
@@ -157,6 +166,7 @@ export type GameData = {
   projectiles: Record<string, Projectile>;
   perks: Perk[];
   enemies: Enemy[];
+  items: Item[];
   materials: Material[];
   reactions: Reaction[];
   /** Default shot state from gunaction_generated.lua. */

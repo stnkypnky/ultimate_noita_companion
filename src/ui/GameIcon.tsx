@@ -48,7 +48,7 @@ export const TYPE_COLOR: Record<SpellType, string> = {
 };
 
 /** One icon from a sprite atlas, pixel-perfect at an integer scale. */
-export function AtlasIcon({ atlas, icon, scale = 2, style }: { atlas: 'spells' | 'perks'; icon: Icon; scale?: number; style?: CSSProperties }) {
+export function AtlasIcon({ atlas, icon, scale = 2, style }: { atlas: 'spells' | 'perks' | 'items' | 'enemies'; icon: Icon; scale?: number; style?: CSSProperties }) {
   const [aw, ah] = useGameData((s) => s.version?.atlases[atlas]) ?? [0, 0];
   return (
     <span

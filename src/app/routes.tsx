@@ -1,16 +1,13 @@
-import { createBrowserRouter } from 'react-router';
+import { createBrowserRouter, type RouteObject } from 'react-router';
 import { Layout } from './Layout';
 import { HomePage } from '@/features/home/HomePage';
 import { MorePage } from '@/features/home/MorePage';
-import { Placeholder } from '@/ui/Placeholder';
-import { SpellsPage } from '@/features/spells/SpellsPage';
-import { PerksPage } from '@/features/perks/PerksPage';
-import { MaterialsPage } from '@/features/materials/MaterialsPage';
-import { ProgressPage } from '@/features/progress/ProgressPage';
-import { ImportPage } from '@/features/progress/ImportPage';
-import { SettingsPage } from '@/features/settings/SettingsPage';
-import { WandPage } from '@/features/wand/WandPage';
 import { NotFound } from '@/ui/NotFound';
+
+// Pages load on demand (the service worker still precaches every chunk for offline use).
+const page = (load: () => Promise<{ default: React.ComponentType }>): Pick<RouteObject, 'lazy'> => ({
+  lazy: async () => ({ Component: (await load()).default }),
+});
 
 export const router = createBrowserRouter(
   [
@@ -19,15 +16,15 @@ export const router = createBrowserRouter(
       children: [
         { index: true, element: <HomePage /> },
         { path: 'more', element: <MorePage /> },
-        { path: 'wand', element: <WandPage /> },
-        { path: 'spells/:id?', element: <SpellsPage /> },
-        { path: 'perks/:id?', element: <PerksPage /> },
-        { path: 'items/:id?', element: <Placeholder title="Items" /> },
-        { path: 'materials/:id?', element: <MaterialsPage /> },
-        { path: 'alchemy', element: <Placeholder title="Alchemy" /> },
-        { path: 'progress', element: <ProgressPage /> },
-        { path: 'import', element: <ImportPage /> },
-        { path: 'settings', element: <SettingsPage /> },
+        { path: 'wand', ...page(() => import('@/features/wand/WandPage').then((m) => ({ default: m.WandPage }))) },
+        { path: 'spells/:id?', ...page(() => import('@/features/spells/SpellsPage').then((m) => ({ default: m.SpellsPage }))) },
+        { path: 'perks/:id?', ...page(() => import('@/features/perks/PerksPage').then((m) => ({ default: m.PerksPage }))) },
+        { path: 'items/:id?', ...page(() => import('@/features/items/ItemsPage').then((m) => ({ default: m.ItemsPage }))) },
+        { path: 'materials/:id?', ...page(() => import('@/features/materials/MaterialsPage').then((m) => ({ default: m.MaterialsPage }))) },
+        { path: 'alchemy', ...page(() => import('@/features/alchemy/AlchemyPage').then((m) => ({ default: m.AlchemyPage }))) },
+        { path: 'progress', ...page(() => import('@/features/progress/ProgressPage').then((m) => ({ default: m.ProgressPage }))) },
+        { path: 'import', ...page(() => import('@/features/progress/ImportPage').then((m) => ({ default: m.ImportPage }))) },
+        { path: 'settings', ...page(() => import('@/features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage }))) },
         { path: '*', element: <NotFound /> },
       ],
     },

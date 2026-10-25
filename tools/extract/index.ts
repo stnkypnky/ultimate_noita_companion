@@ -2,7 +2,8 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { GameVersion, Projectile } from '../../src/data/types.ts';
+import type { GameVersion, Item, Projectile } from '../../src/data/types.ts';
+import { collectItems } from './items.ts';
 import { Wak } from './wak.ts';
 import { findNoita } from './paths.ts';
 import { createLuaHost, loadGun } from './lua.ts';
@@ -79,6 +80,12 @@ const enemyAtlas = await buildAtlas(await Promise.all(enemyIcons.map(async (f) =
 const enemies = buildEnemies(enemyIcons, loader, t, enemyAtlas.rects);
 console.log(`enemies: ${enemies.length}`);
 
+// ---------- Items (world pickups) ----------
+const itemData = await collectItems(wak, loader, t);
+const itemAtlas = await buildAtlas(itemData.images, 16);
+const items: Item[] = itemData.items.map(({ iconKey, ...it }) => ({ ...it, icon: itemAtlas.rects.get(iconKey) ?? { x: 0, y: 0, w: 0, h: 0 } }));
+console.log(`items: ${items.length}`);
+
 // ---------- Materials ----------
 const { materials, reactions, textures } = buildMaterials(wak.text('data/materials.xml'), t);
 await mkdir(join(OUT, 'materials'), { recursive: true });
@@ -99,6 +106,8 @@ await writeFile(join(OUT, 'sprites/spells.png'), spellAtlas.png);
 await writeFile(join(OUT, 'sprites/perks.png'), perkAtlas.png);
 await writeFile(join(OUT, 'sprites/enemies.png'), enemyAtlas.png);
 await writeJson('data/enemies.json', enemies);
+await writeFile(join(OUT, 'sprites/items.png'), itemAtlas.png);
+await writeJson('data/items.json', items);
 await writeJson('data/spells.json', spells);
 await writeJson('data/projectiles.json', projectiles);
 await writeJson('data/perks.json', perks);
@@ -113,8 +122,8 @@ const version: GameVersion = {
   gameHash: existsSync(hashFile) ? readFileSync(hashFile, 'utf8').trim() : 'unknown',
   branch: existsSync(branchFile) ? readFileSync(branchFile, 'utf8').trim() : 'unknown',
   extractedAt: new Date().toISOString(),
-  counts: { spells: spells.length, perks: perks.length, enemies: enemies.length, materials: materials.length, reactions: reactions.length, projectiles: Object.keys(projectiles).length },
-  atlases: { spells: spellAtlas.size, perks: perkAtlas.size, enemies: enemyAtlas.size },
+  counts: { spells: spells.length, perks: perks.length, enemies: enemies.length, items: items.length, materials: materials.length, reactions: reactions.length, projectiles: Object.keys(projectiles).length },
+  atlases: { spells: spellAtlas.size, perks: perkAtlas.size, enemies: enemyAtlas.size, items: itemAtlas.size },
 };
 await writeJson('version.json', version);
 wak.close();

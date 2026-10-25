@@ -36,6 +36,16 @@ const steps: Step[] = [
   { name: 'perk-detail', run: async (p) => { await p.goto(`${base}/perks/EDIT_WANDS_EVERYWHERE`); await p.waitForTimeout(1900); } },
   { name: 'materials', run: async (p) => { await p.goto(`${base}/materials`); await p.waitForTimeout(1900); } },
   { name: 'material-detail', run: async (p) => { await p.goto(`${base}/materials/water`); await p.waitForTimeout(1900); } },
+  { name: 'items', run: async (p) => { await p.goto(`${base}/items/heart`); await p.waitForTimeout(1900); } },
+  { name: 'alchemy', run: async (p) => {
+      await p.goto(`${base}/alchemy`); await p.waitForTimeout(1600);
+      await p.getByLabel('World seed').fill('1517558277');
+      await p.getByLabel('First material').click(); await p.getByLabel('First material').fill('water');
+      await p.getByRole('button', { name: /^Water water$/ }).first().click();
+      await p.getByLabel('Second material').click(); await p.getByLabel('Second material').fill('lava');
+      await p.getByRole('button', { name: /^Lava lava$/ }).first().click();
+      await p.waitForTimeout(500);
+    } },
 ];
 
 const browser = await chromium.launch();

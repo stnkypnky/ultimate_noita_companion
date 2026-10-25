@@ -26,5 +26,18 @@ export const SECRET_MATERIALS = new Set([
 
 export const materialKey = (id: string) => `material:${id}`;
 
+/**
+ * Secret world items. Essences also unlock from the save's own flags (essence_<x>),
+ * so they're keyed by that flag name; everything else uses item:<id>.
+ */
+export const SECRET_ITEMS = new Set([
+  'essence_air', 'essence_alcohol', 'essence_fire', 'essence_laser', 'essence_water',
+  'evil_eye', 'greed_curse', 'physics_gold_orb_greed', 'physics_greed_die', 'moon', 'safe_haven', 'summon_portal_broken',
+  'beamstone', 'brimstone', 'musicstone', 'poopstone', 'stonestone', 'thunderstone', 'wandstone', 'waterstone',
+  'newsun', 'newsun_dark', 'sunbaby', 'sunegg', 'sunseed', 'sunstone', 'broken_wand', 'potion_mimic', 'bloodmoney_x',
+]);
+
+export const itemKey = (id: string) => (id.startsWith('essence_') ? id : `item:${id}`);
+
 /** Lively Concoction & Alchemic Precursor recipes are seed secrets. */
 export const ALCHEMY_KEY = 'secret:alchemy';
