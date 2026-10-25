@@ -6,7 +6,8 @@ import { createLuaHost, loadGun, type LuaHost } from '../tools/extract/lua.ts';
 import { AIR, RangeWorld, type RangeData } from '../src/features/range/world.ts';
 import { WandRuntime } from '../src/features/range/wand.ts';
 import { castWand, resetWand } from '../src/sim/protocol.ts';
-import type { EntityVisual, Material, Projectile } from '../src/data/types.ts';
+import type { EntityVisual, Material, Projectile, RangeKit } from '../src/data/types.ts';
+import { projectileDamage } from '../src/sim/analyze.ts';
 import type { SimRequest, SimResult } from '../src/sim/types.ts';
 
 const GAME = join(import.meta.dirname, '../public/game');
@@ -23,6 +24,7 @@ beforeAll(async () => {
     visuals: json<Record<string, EntityVisual>>('data/visuals.json'),
     materialColor: new Map(materials.map((m) => [m.id, m.color])),
     rockDurability: materials.find((m) => m.id === 'rock_static')?.durability ?? 0,
+    kit: json<RangeKit>('data/range_kit.json'),
   };
 });
 
@@ -185,5 +187,56 @@ describe('effects', () => {
 
   it('electric arc links projectiles of a cast', () => {
     expect(world(['ARC_ELECTRIC', 'BURST_2', 'BUBBLESHOT', 'BUBBLESHOT'], 30).maxBolts).toBeGreaterThan(0);
+  });
+});
+
+describe('looks and physics from the game data', () => {
+  it('projectiles shed particles from their emitters', () => {
+    const { w } = world(['LIGHT_BULLET'], 12);
+    expect(w.particles.length).toBeGreaterThan(5);
+  });
+
+  it('a bomb plays its explosion sprite, shakes the camera and throws the player', () => {
+    const { w } = world([], 0);
+    for (let i = 0; i < 70; i++) w.step();
+    const vx = w.body.vx;
+    w.explode(w.player.x - 12, w.player.y - 6, 30, 0, false, 0, undefined, false, data.visuals['data/entities/projectiles/bomb.xml']?.explosion);
+    expect(w.effects.length).toBeGreaterThan(0);
+    expect(w.shake).toBeGreaterThan(0);
+    expect(w.body.vx).toBeGreaterThan(vx + 20);
+  });
+
+  it('bounces reflect off the surface (a floor keeps the forward motion)', () => {
+    const w = new RangeWorld(data);
+    const p = w.spawn('data/entities/projectiles/deck/bouncy_orb.xml', 120, w.floorY - 3, 120, 200, { bounces: 5 })!;
+    for (let i = 0; i < 4; i++) w.step();
+    expect(p.vx).toBeGreaterThan(0);
+    expect(p.vy).toBeLessThan(0);
+  });
+
+  it('Freeze charge freezes what it hits, with the game duration', () => {
+    const { w } = world(['FREEZE', 'LIGHT_BULLET'], 0);
+    let frozen = 0;
+    for (let i = 0; i < 120; i++) {
+      w.step();
+      if (w.dummy.status.has('FROZEN')) frozen++;
+    }
+    expect(frozen).toBeGreaterThan(30);
+  });
+
+  it('burning hurts every second until it goes out, and water puts it out', () => {
+    const w = new RangeWorld(data);
+    w.applyEffects(w.dummy, ['data/entities/misc/effect_apply_on_fire.xml']);
+    for (let i = 0; i < 60; i++) w.step();
+    expect(w.totalDamage).toBeGreaterThan(0);
+    w.applyEffects(w.dummy, ['data/entities/misc/effect_apply_wet.xml']);
+    expect(w.dummy.status.has('ON_FIRE')).toBe(false);
+  });
+
+  it('Null Shot takes all damage away, the blast too', () => {
+    const bomb = data.projectiles['data/entities/projectiles/bomb.xml'];
+    const d = projectileDamage(bomb, { damage_null_all: 1 });
+    expect(d.hit).toBe(0);
+    expect(d.explosion?.damage ?? 0).toBe(0);
   });
 });

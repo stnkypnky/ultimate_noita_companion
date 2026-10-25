@@ -99,10 +99,15 @@ export function stepPlayer(
   const dir = (c.right ? 1 : 0) - (c.left ? 1 : 0);
   s.grounded = onGround(solid, x, y);
 
-  // Horizontal: walk on ground, slower drift in the air.
+  // Horizontal: walk on ground, slower drift in the air. Knocked faster than that (recoil, blasts),
+  // the player slides back down to walking speed instead of stopping dead.
   const top = s.grounded ? move.velocityMaxX : move.flyVelocityX;
-  s.vx += (dir * top - s.vx) * move.accelX;
-  s.vx = Math.max(move.velocityMinX, Math.min(move.velocityMaxX, s.vx)) || 0;
+  if (s.vx > move.velocityMaxX || s.vx < move.velocityMinX) {
+    s.vx *= s.grounded ? 0.85 : 0.97;
+  } else {
+    s.vx += (dir * top - s.vx) * move.accelX;
+    s.vx = Math.max(move.velocityMinX, Math.min(move.velocityMaxX, s.vx)) || 0;
+  }
 
   // Vertical: jump on the press, then levitate while held.
   const pressed = c.up && !s.upHeld;

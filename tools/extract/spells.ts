@@ -123,6 +123,7 @@ export function buildProjectile(file: string, loader: EntityLoader): Projectile 
     bounces: num(pc?.attrs.bounces_left, 0),
     gravity: num(vel?.attrs.gravity_y, 400),
     airFriction: num(vel?.attrs.air_friction, 0.55),
+    terminalVelocity: num(vel?.attrs.terminal_velocity, 1000),
     knockback: num(pc?.attrs.knockback_force, 0),
     penetrateWorld: pc?.attrs.penetrate_world === '1',
     penetrateEntities: pc?.attrs.penetrate_entities === '1',

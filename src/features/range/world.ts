@@ -17,6 +17,10 @@ export const W = 427;
 export const H = 242;
 /** Frames the player lies dead before respawning. */
 const DEATH_FRAMES = 90;
+/** Frames before a shot made friendly-fire by a modifier can hit its caster (clear of the wand). */
+const SHOT_FRIENDLY_GRACE = 6;
+/** Velocity (px/s) per point of knockback_force, and of explosion push at the blast's centre. */
+const KNOCKBACK_SCALE = 15;
 const DT = 1 / 60;
 const MAX_PROJECTILES = 700;
 const MAX_PARTICLES = 6000;
@@ -38,7 +42,7 @@ export type RangeData = {
 };
 
 /** A scheduled LuaComponent, remembering which entity (projectile or modifier effect) it belongs to. */
-type Script = { script: string; every: number; times: number; runs: number; onAdded: boolean; from?: EntityVisual };
+type Script = { script: string; every: number; times: number; runs: number; onAdded: boolean; onRemoved?: boolean; from?: EntityVisual };
 
 export type Actor = {
   id: 'player' | 'dummy';
@@ -53,6 +57,8 @@ export type Actor = {
   /** Continuous damage (lasers, saw blades, arcs) is summed and shown every few frames. */
   pending: number;
   pendingCrit: boolean;
+  /** Status effects (GameEffect name) and frames left. */
+  status: Map<string, number>;
 };
 
 export type Proj = {
@@ -91,6 +97,10 @@ export type Proj = {
   explosion: { damage: number; radius: number; onDeath: boolean; onTimeout: boolean; digs: boolean; digDurability: number; color?: string } | null;
   spareShooter: boolean;
   friendlyFire: boolean;
+  /** knockback_force of the projectile plus the shot's (Knockback modifier). */
+  knockback: number;
+  /** Status effect entities applied to whatever it damages. */
+  effects: string[];
   shooterGrace: number;
   damageEveryFrames: number;
   trigger?: { kind: 'hit' | 'timer' | 'death'; delay?: number; shot: SimShot };
@@ -117,6 +127,8 @@ export type Proj = {
   light?: { color: string; radius: number };
   scripts: Script[];
   vars: Record<string, number>;
+  /** on_collision_spawn_entity: what it leaves where it hits (Random Explosion). */
+  spawnOnHit?: string;
   /** Orbiting children (orbit spells) and the parent they circle. */
   children: Proj[];
   parent?: Proj;
@@ -139,7 +151,11 @@ export type Bolt = { points: [number, number][]; age: number; life: number; colo
 export type Beam = { x0: number; y0: number; x1: number; y1: number; color: string; radius: number };
 
 /** Scripts whose effect is purely cosmetic or covered by data; never reported as missing. */
-const COSMETIC = new Set(['colour_spell', 'orbit_shot_init', 'spells_to_power_tag']);
+const COSMETIC = new Set([
+  'colour_spell', 'orbit_shot_init', 'spells_to_power_tag',
+  // Sound only (the instruments), seeing through walls, and sky checks that don't apply on the range.
+  'ocarina', 'kantele', 'xray_effect', 'touch_grass', 'duck_init', 'friend_fly_init',
+]);
 
 /** bounce_fx_file each bounce modifier sets (from data/scripts/projectiles/bounce_*.lua). */
 const BOUNCE_FX: Record<string, string> = {
@@ -186,7 +202,7 @@ export class RangeWorld {
   readonly player: Actor;
   /** Movement, levitation and health of the player. */
   readonly body: PlayerState;
-  readonly dummy: Actor = { id: 'dummy', x: 262, y: H - 34, w: 14, h: 24, homeX: 262, vy: 0, flash: 0, pending: 0, pendingCrit: false };
+  readonly dummy: Actor = { id: 'dummy', x: 262, y: H - 34, w: 14, h: 24, homeX: 262, vy: 0, flash: 0, pending: 0, pendingCrit: false, status: new Map() };
   /** Walk / levitate keys. */
   controls: Controls = { left: false, right: false, up: false };
   /** Which of the game's wand sprites is in hand (its tip is where spells leave). */
@@ -222,7 +238,7 @@ export class RangeWorld {
     const hb = k?.hitbox ?? { minX: -3, maxX: 3, minY: -12, maxY: 4 };
     // The damage hitbox, measured from the feet (it hangs from the entity position, a few pixels above them).
     const feetBelowEntity = (k?.feet ?? 17) - (k?.pivot[1] ?? 14);
-    this.player = { id: 'player', x: 34, y: H - 34, w: hb.maxX - hb.minX, h: feetBelowEntity - hb.minY, homeX: 34, vy: 0, flash: 0, pending: 0, pendingCrit: false };
+    this.player = { id: 'player', x: 34, y: H - 34, w: hb.maxX - hb.minX, h: feetBelowEntity - hb.minY, homeX: 34, vy: 0, flash: 0, pending: 0, pendingCrit: false, status: new Map() };
     this.body = newPlayerState(k?.flight ?? DEFAULT_FLIGHT, k?.hp ?? 100);
     this.resetTerrain();
   }
@@ -384,7 +400,9 @@ export class RangeWorld {
     } else {
       const k = this.data.kit?.player;
       if (this.controls.left || this.controls.right || this.controls.up) this.steered = true;
-      const pos = stepPlayer(b, a, this.controls, k?.move ?? DEFAULT_MOVE, k?.flight ?? DEFAULT_FLIGHT, (x, y) => this.cell(x, y) !== AIR, DT);
+      // Frozen or electrocuted (disable_movement): no walking or levitating until it wears off.
+      const controls = this.stopped(a) ? { left: false, right: false, up: false } : this.controls;
+      const pos = stepPlayer(b, a, controls, k?.move ?? DEFAULT_MOVE, k?.flight ?? DEFAULT_FLIGHT, (x, y) => this.cell(x, y) !== AIR, DT);
       a.x = Math.max(6, Math.min(W - 6, pos.x));
       a.y = pos.y;
     }
@@ -395,6 +413,7 @@ export class RangeWorld {
   respawn() {
     const b = this.body;
     Object.assign(b, newPlayerState(this.data.kit?.player.flight ?? DEFAULT_FLIGHT, this.maxHp));
+    this.player.status.clear();
     this.moveActor(this.player, this.player.homeX, this.groundBelow(this.player.homeX));
     this.steered = false;
   }
@@ -418,9 +437,10 @@ export class RangeWorld {
     this.actorTick(a);
   }
 
-  /** Hit flash and batched damage numbers. */
+  /** Hit flash, status effects wearing off (and burning), batched damage numbers. */
   private actorTick(a: Actor) {
     if (a.flash > 0) a.flash--;
+    this.tickStatus(a);
     if (a.pending > 0 && this.frame % 10 === 0) {
       this.floater(a, a.pending, a.pendingCrit);
       a.pending = 0;
@@ -430,6 +450,59 @@ export class RangeWorld {
 
   private displaced() {
     return this.actors.some((a) => Math.abs(a.x - a.homeX) > 2);
+  }
+
+  // ---------- status effects ----------
+
+  /**
+   * Apply status effect entities (game_effect_entities of the shot, damage_game_effect_entities of the
+   * projectile) for their GameEffectComponent frames. Wet puts fire out and keeps it from catching.
+   */
+  applyEffects(a: Actor, files: string[]) {
+    const effects = this.data.kit?.effects;
+    if (!effects) return;
+    for (const f of files) {
+      const fx = effects[f.split('/').pop()!.replace('.xml', '')];
+      if (!fx || fx.effect === 'NONE') continue;
+      if (fx.effect === 'ON_FIRE' && a.status.has('WET')) continue;
+      if (fx.effect === 'WET') a.status.delete('ON_FIRE');
+      const frames = fx.frames < 0 ? Infinity : fx.frames;
+      a.status.set(fx.effect, Math.max(a.status.get(fx.effect) ?? 0, frames));
+    }
+  }
+
+  /** Frozen or electrocuted: the effect has disable_movement. */
+  private stopped(a: Actor) {
+    const effects = this.data.kit?.effects;
+    if (!effects || !a.status.size) return false;
+    for (const fx of Object.values(effects)) if (fx.stops && a.status.has(fx.effect)) return true;
+    return false;
+  }
+
+  private tickStatus(a: Actor) {
+    if (!a.status.size) return;
+    const c = this.center(a);
+    for (const [effect, left] of a.status) {
+      if (left <= 1) a.status.delete(effect);
+      else a.status.set(effect, left - 1);
+      // What each effect looks like on the actor, in the game's material colours.
+      const r = () => ({ x: c.x + rand(-a.w / 2, a.w / 2), y: c.y + rand(-a.h / 2, a.h / 2) });
+      if (effect === 'ON_FIRE') {
+        if (this.frame % 2 === 0) {
+          const p = r();
+          this.addParticle({ ...simpleParticle(p.x, p.y, Math.random() < 0.5 ? '#ff6000' : '#ffac0f', true, randInt(12, 24), 6, -40) });
+        }
+        // Burning takes the DamageModel's fire_damage_amount, taken here as per second, in small steps.
+        if (this.frame % 10 === 0) this.tick(a, (this.data.kit?.player.fireDamage ?? 5) / 6);
+      } else if (effect === 'ELECTROCUTION' && this.frame % 2 === 0) {
+        const p = r();
+        this.spark(p.x, p.y, '#27b4f6', true, randInt(4, 10), 40);
+      } else if ((effect === 'WET' || effect === 'OILED' || effect === 'POISON' || effect === 'BLOODY') && this.frame % 8 === 0) {
+        const p = r();
+        const color = { WET: '#376259', OILED: '#3d3728', POISON: '#6ac300', BLOODY: '#830000' }[effect];
+        this.addParticle({ ...simpleParticle(p.x, p.y, color, false, randInt(15, 30), 2, 120), fade: false });
+      }
+    }
   }
 
   // ---------- casting ----------
@@ -477,16 +550,24 @@ export class RangeWorld {
         this.flashes.push({ x: tip.x, y: tip.y, r: Math.min(40, vis.shootLight.radius * 0.5), age: 0, life: 6, color: vis.shootLight.color });
       }
     }
-    // shot_effects.recoil_knockback pushes the caster away from the aim.
+    // shot_effects.recoil_knockback pushes the caster away from the aim; c.screenshake shakes the camera.
     if (cast.recoil) {
       this.body.vx -= Math.cos(angle) * cast.recoil;
       this.body.vy -= Math.sin(angle) * cast.recoil;
     }
+    const shake = num(cast.shot.state, 'screenshake');
+    if (shake > 0) this.shake = Math.min(6, this.shake + shake / 12);
     this.spawnShot(cast.shot, tip.x, tip.y, angle);
   }
 
+  /** A trigger's payload leaves the carrier along its heading, slowed by its child_speed_multiplier (grenades, mines). */
+  private payload(p: Proj, shot: SimShot) {
+    const childSpeed = typeof p.state.child_speed_multiplier === 'number' ? p.state.child_speed_multiplier : 1;
+    this.spawnShot(shot, p.x, p.y, this.heading(p), childSpeed);
+  }
+
   /** Fire every projectile of a (sub)shot from a point, with the shot's spread, pattern and speed modifiers. */
-  spawnShot(shot: SimShot, x: number, y: number, angle: number) {
+  spawnShot(shot: SimShot, x: number, y: number, angle: number, speedScale = 1) {
     const s = shot.state;
     const n = shot.projectiles.length;
     const pattern = num(s, 'pattern_degrees');
@@ -496,7 +577,7 @@ export class RangeWorld {
       const spread = Math.max(0, num(s, 'spread_degrees') + (base?.spread ?? 0));
       let a = angle + (rand(-spread, spread) * Math.PI) / 180;
       if (pattern > 0 && n > 1) a += ((-pattern + (2 * pattern * i) / (n - 1)) * Math.PI) / 180;
-      const speedMul = typeof s.speed_multiplier === 'number' ? s.speed_multiplier : 1;
+      const speedMul = (typeof s.speed_multiplier === 'number' ? s.speed_multiplier : 1) * speedScale;
       let speed = rand(base?.speed[0] ?? 60, base?.speed[1] ?? 60) * speedMul;
       // Thrown physics bodies (bombs) go by their throw force, not their projectile speed. Box2D isn't
       // available here, so this keeps them in the lob range they have in-game.
@@ -565,6 +646,8 @@ export class RangeWorld {
           : null,
       spareShooter: vis?.physics?.spareShooter ?? false,
       friendlyFire: base?.friendlyFire ?? false,
+      knockback: (base?.knockback ?? 0) + num(s, 'knockback_force'),
+      effects: [...(base?.effects ?? []), ...String(s.game_effect_entities ?? '').split(',').filter(Boolean)],
       shooterGrace: vis?.physics?.shooterGrace ?? -1,
       damageEveryFrames: base?.damageEveryFrames ?? -1,
       ...(trigger ? { trigger } : {}),
@@ -572,7 +655,8 @@ export class RangeWorld {
       rehitCooldown: 0,
       stuck: false,
       visual: vis,
-      homing: all.find((v) => v.homing)?.homing,
+      // Copied: scripts like Accelerating Homing tune them per projectile.
+      homing: ((h) => (h ? { ...h } : undefined))(all.find((v) => v.homing)?.homing),
       sine: all.find((v) => v.sine)?.sine,
       cellEater: Math.max(0, ...all.map((v) => v.cellEater?.radius ?? 0)),
       groundPen: vis?.physics?.groundPenetration,
@@ -650,7 +734,7 @@ export class RangeWorld {
     p.py = p.y;
     if (p.rehitCooldown > 0) p.rehitCooldown--;
     for (const sc of p.scripts) {
-      if (ONCE.has(sc.script) || sc.onAdded || (sc.times > 0 && sc.runs >= sc.times)) continue;
+      if (ONCE.has(sc.script) || sc.onAdded || sc.onRemoved || sc.every < 0 || (sc.times > 0 && sc.runs >= sc.times)) continue;
       if (p.age % Math.max(1, sc.every) === 0) this.runScript(p, sc);
     }
     if (p.dead) return;
@@ -675,6 +759,13 @@ export class RangeWorld {
       const f = Math.max(0, 1 - p.airFriction * DT);
       p.vx *= f;
       p.vy *= f;
+      // VelocityComponent terminal_velocity caps the speed.
+      const sp = speedOf(p);
+      const cap = this.data.projectiles[p.file]?.terminalVelocity ?? 1000;
+      if (sp > cap) {
+        p.vx *= cap / sp;
+        p.vy *= cap / sp;
+      }
       this.move(p);
       if (p.physicsBody) p.spin += p.vx * DT * 0.15;
       else if (p.rotate && speedOf(p) > 1) p.rot = Math.atan2(p.vy, p.vx);
@@ -685,13 +776,17 @@ export class RangeWorld {
     this.updateArea(p);
     this.updateArc(p);
     if (p.damageEveryFrames > 0 && p.age % p.damageEveryFrames === 0) {
-      for (const a of this.actors) if (this.canHit(p, a) && this.inActor(a, p.x, p.y, 8)) this.hurt(a, p.hit, p.critChance, p);
+      for (const a of this.actors) {
+        if (!this.canHit(p, a) || !this.inActor(a, p.x, p.y, 8)) continue;
+        this.hurt(a, p.hit, p.critChance, p);
+        this.applyEffects(a, p.effects);
+      }
     }
     if (p.cellEater > 0 && p.age % 2 === 0) this.carve(p.x, p.y, p.cellEater, p.visual?.cellEater?.probability ?? 100);
     if (p.trigger?.kind === 'timer' && p.age === (p.trigger.delay ?? 0)) {
       const t = p.trigger;
       delete p.trigger;
-      this.spawnShot(t.shot, p.x, p.y, this.heading(p));
+      this.payload(p, t.shot);
     }
     if (p.dieOnLowVelocity && p.age > 5 && speedOf(p) < 40 && !p.parent) return this.die(p, 'timeout');
     if (p.lifetime > 0 && p.age >= p.lifetime) return this.die(p, 'timeout');
@@ -733,9 +828,14 @@ export class RangeWorld {
     return speedOf(p) > 1 ? Math.atan2(p.vy, p.vx) : p.rot;
   }
 
-  /** Friendly-fire projectiles can hit their caster once their grace frames are over. */
+  /**
+   * Friendly-fire projectiles can hit their caster once their grace frames are over. A projectile's own
+   * friendly_fire needs collide_with_shooter_frames >= 0 (-1 means never, per the component docs); modifiers
+   * that turn friendly fire on for the shot (Piercing Shot, Bloodlust) hurt the caster once clear of the wand.
+   */
   private canHit(p: Proj, a: Actor) {
     if (a.id === 'dummy') return true;
+    if (p.state.friendly_fire === true) return p.age > Math.max(SHOT_FRIENDLY_GRACE, p.shooterGrace);
     return p.friendlyFire && p.shooterGrace >= 0 && p.age > p.shooterGrace;
   }
 
@@ -808,14 +908,39 @@ export class RangeWorld {
     if (p.x < -40 || p.x > W + 40 || p.y < -40 || p.y > H + 40) p.dead = true;
   }
 
+  /** Outward surface normal at a point, from the solid cells around it. */
+  private normalAt(x: number, y: number): { x: number; y: number } | null {
+    let nx = 0;
+    let ny = 0;
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        if (this.cell(x + dx, y + dy) !== AIR) {
+          nx -= dx;
+          ny -= dy;
+        }
+      }
+    }
+    const len = Math.hypot(nx, ny);
+    return len > 0 ? { x: nx / len, y: ny / len } : null;
+  }
+
+  /** Bounce off the surface: reflect the velocity over its normal, keeping bounce_energy of it. */
   private bounce(p: Proj, nx: number, ny: number, energy: number, counts: boolean) {
-    const bx = this.cell(nx, p.y) !== AIR;
-    const by = this.cell(p.x, ny) !== AIR;
-    if (bx || !by) p.vx = -p.vx;
-    if (by || !bx) p.vy = -p.vy;
+    const n = this.normalAt(nx, ny);
+    const into = n ? p.vx * n.x + p.vy * n.y : 0;
+    if (n && into < 0) {
+      p.vx -= 2 * into * n.x;
+      p.vy -= 2 * into * n.y;
+    } else {
+      // Rough or enclosed spot: fall back to flipping the blocked axes.
+      const bx = this.cell(nx, p.y) !== AIR;
+      const by = this.cell(p.x, ny) !== AIR;
+      if (bx || !by) p.vx = -p.vx;
+      if (by || !bx) p.vy = -p.vy;
+    }
     p.vx *= energy;
     p.vy *= energy;
-    if (p.physicsBody && by) p.vx *= 0.8; // ground friction: thrown bombs settle and roll to a stop
+    if (p.physicsBody && n && n.y < -0.5) p.vx *= 0.8; // ground friction: thrown bombs settle and roll to a stop
     if (counts) {
       p.bounces--;
       if (p.bounceFx) this.spawnBounceFx(p);
@@ -830,6 +955,7 @@ export class RangeWorld {
         // Orbiting blades/orbs keep hitting as they sweep through; explosive ones blow up.
         if (p.rehitCooldown > 0) continue;
         this.hurt(a, p.hit, p.critChance, p);
+        this.applyEffects(a, p.effects);
         p.rehitCooldown = 20;
         if (p.explosion) {
           this.die(p, 'hit');
@@ -840,11 +966,13 @@ export class RangeWorld {
       if (p.hitActors.has(a.id)) continue;
       p.hitActors.add(a.id);
       this.hurt(a, p.hit, p.critChance, p);
+      this.applyEffects(a, p.effects);
+      if (a.id === 'player' && p.knockback > 0) this.push(Math.atan2(p.vy, p.vx), p.knockback * KNOCKBACK_SCALE);
       this.applyHitEffect(p, a);
       if (p.trigger?.kind === 'hit') {
         const t = p.trigger;
         delete p.trigger;
-        this.spawnShot(t.shot, p.x, p.y, this.heading(p));
+        this.payload(p, t.shot);
       }
       if (!p.penetrateEntities && p.dieOnCollision) {
         this.die(p, 'hit');
@@ -881,7 +1009,11 @@ export class RangeWorld {
       this.explode(p.x, p.y, e.radius, e.damage, e.digs && e.digDurability >= this.data.rockDurability, p.critChance, e.color, p.spareShooter, p.visual?.explosion);
     }
     if (p.teleport) this.teleportPlayer(p);
-    if (p.trigger && (p.trigger.kind === 'death' || (p.trigger.kind === 'hit' && reason === 'hit'))) this.spawnShot(p.trigger.shot, p.x, p.y, this.heading(p));
+    if (p.spawnOnHit && reason === 'hit') this.spawn(p.spawnOnHit, p.x, p.y, 0, 0);
+    // execute_on_removed scripts (Larpa death, chain shot) run as it goes.
+    for (const sc of p.scripts) if (sc.onRemoved) this.runScript(p, sc);
+    if (p.vars.quantum !== undefined) for (const q of this.projectiles) if (q !== p && q.vars.quantum === p.vars.quantum && !q.dead) this.die(q, 'timeout');
+    if (p.trigger && (p.trigger.kind === 'death' || (p.trigger.kind === 'hit' && reason === 'hit'))) this.payload(p, p.trigger.shot);
   }
 
   /** Teleport bolts move the caster to where they end, backed off from walls (TeleportProjectileComponent). */
@@ -918,6 +1050,11 @@ export class RangeWorld {
       for (let i = 0; i < Math.min(60, 4 + r * 1.5); i++) this.spark(x, y, i % 3 ? c : '#fff1c2', true, randInt(8, 28), 60 + r * 4);
     }
     if (digs) this.carve(x, y, r);
+    // Blasts throw the player about, strongest at the centre (the engine's explosion push, approximated).
+    const pc = this.center(this.player);
+    const d = Math.hypot(pc.x - x, pc.y - y);
+    const reach = r * 1.5 + 4;
+    if (r > 0 && d < reach && this.body.dead === 0) this.push(Math.atan2(pc.y - y, pc.x - x), (1 - d / reach) * (4 + r * 0.25) * KNOCKBACK_SCALE);
     if (damage <= 0) return;
     for (const a of this.actors) {
       if (a.id === 'player' && spareShooter) continue;
@@ -956,6 +1093,12 @@ export class RangeWorld {
     }
     a.flash = 4;
     a.pending += amount;
+  }
+
+  /** Shove the player (knockback, blasts). */
+  private push(angle: number, speed: number) {
+    this.body.vx += Math.cos(angle) * speed;
+    this.body.vy += Math.sin(angle) * speed;
   }
 
   /** Take health from the player (not while invincible or already dead); false if nothing was taken. */
@@ -1098,6 +1241,35 @@ export class RangeWorld {
     if (fn) fn(p, this, sc);
     else if (BOUNCE_FX[sc.script]) p.bounceFx = BOUNCE_FX[sc.script];
     else if (!COSMETIC.has(sc.script)) this.unsupported.add(sc.script);
+  }
+
+  /** For scripts: remove a projectile the way EntityKill would (its death effects play). */
+  kill(p: Proj, reason: 'hit' | 'timeout' = 'timeout') {
+    this.die(p, reason);
+  }
+
+  /** For scripts: the player's hitbox centre (the projectile's mWhoShot). */
+  get playerCenter() {
+    return this.center(this.player);
+  }
+
+  /**
+   * Black / white hole pull (black_hole_gravity.lua): every projectile within 150 px gets
+   * 196 × (1 - distance/150) px/s added toward the hole (away from it when `sign` is -1).
+   * Physics bodies feel a fifth of that as a force.
+   */
+  gravityWell(hole: Proj, sign: number, range = 150, coeff = 196) {
+    for (const q of this.projectiles) {
+      if (q === hole || q.dead || q.visual?.tags?.includes('black_hole')) continue;
+      const dx = hole.x - q.x;
+      const dy = hole.y - q.y;
+      const d = Math.hypot(dx, dy);
+      if (d >= range || d < 0.5) continue;
+      const f = (sign * coeff * (range - d)) / range / d;
+      const k = q.physicsBody ? 0.2 * DT : 1;
+      q.vx += dx * f * k;
+      q.vy += dy * f * k;
+    }
   }
 
   /** For scripts: the projectile with this id, if it's still flying. */
@@ -1408,4 +1580,328 @@ const SCRIPTS: Record<string, (p: Proj, w: RangeWorld, sc: Script) => void> = {
     w.spawn('data/entities/projectiles/deck/bounce_lightning.xml', p.x + vx * 0.05, p.y + vy * 0.05, vx, vy, {});
     p.dead = true;
   },
+
+  // ----- Black and white holes (black_hole_gravity.lua, white_hole_gravity.lua, *_big.lua) -----
+  black_hole_gravity: (p, w) => w.gravityWell(p, 1),
+  white_hole_gravity: (p, w) => w.gravityWell(p, -1),
+  // The giant ones grow (BlackHoleComponent radius + 1 per run, up to 64): they eat a widening hole.
+  black_hole_big: (p) => {
+    p.cellEater = Math.min(64, Math.max(1, p.cellEater) + 1);
+  },
+  white_hole_big: () => {},
+
+  // ----- Expanding Orb: damage falls from full to 0.1 over 115 runs (orb_expanding.lua) -----
+  orb_expanding: (p, _w, sc) => {
+    p.vars.baseHit ??= p.hit;
+    const t = Math.min(1, (sc.runs - 1) / 115);
+    p.hit = p.vars.baseHit + (0.1 * 25 - p.vars.baseHit) * t;
+  },
+
+  // ----- Spiral Shot: four parts circle the projectile at 16 px, turning 0.1 rad a run -----
+  spiral_shot_start: (p, w) => {
+    let theta = (6 * Math.PI) / 180 - w.frame / 10;
+    for (let i = 0; i < 4; i++) {
+      const c = w.spawn('data/entities/projectiles/deck/spiral_part.xml', p.x + Math.cos(theta) * 16, p.y + Math.sin(theta) * 16, 0, 0, {});
+      if (c) {
+        c.parent = p;
+        c.orbitGroup = 'spiral';
+        c.lifetime = -1;
+        c.vars.theta = theta;
+        p.children.push(c);
+      }
+      theta += (2 * Math.PI) / 4;
+    }
+  },
+  spiral_shot: (p) => {
+    for (const c of p.children) {
+      if (c.dead || c.orbitGroup !== 'spiral') continue;
+      c.px = c.x;
+      c.py = c.y;
+      c.x = p.x + Math.cos(c.vars.theta!) * 16;
+      c.y = p.y + Math.sin(c.vars.theta!) * 16;
+      c.vars.theta! += 0.1;
+    }
+  },
+
+  // ----- Homing variants -----
+  homing_accelerating: (p) => {
+    if (!p.homing) return;
+    p.homing.coeff = Math.min(800, p.homing.coeff + 2);
+    p.homing.velocityMultiplier = Math.min(2, p.homing.velocityMultiplier + 0.01);
+  },
+  // Homing Area: snaps onto a target within 32 px.
+  homing_area: (p, w) => {
+    const t = w.dummyCenter;
+    if (Math.hypot(t.x - p.x, t.y - p.y) <= 32) {
+      p.x = t.x;
+      p.y = t.y;
+    }
+  },
+  teleport_cast: (p, w) => {
+    const t = w.dummyCenter;
+    if (Math.hypot(t.x - p.x, t.y - p.y) <= 96) {
+      p.x = t.x;
+      p.y = t.y;
+    }
+  },
+  caster_cast: (p, w) => {
+    const c = w.playerCenter;
+    p.x = c.x;
+    p.y = c.y;
+  },
+
+  // ----- Modifiers that shoot extra projectiles as they fly (*_ray.lua) -----
+  lightning_ray: (p, w) => shootRandom(w, p, 'data/entities/projectiles/deck/lightning_extra_arcs.xml', 3000),
+  fireball_ray: (p, w) => shootRandom(w, p, 'data/entities/projectiles/deck/fireball_ray.xml', 3000),
+  tentacle_ray: (p, w) => shootRandom(w, p, 'data/entities/projectiles/deck/tentacle.xml', 3000),
+  laser_emitter_ray: (p, w) => shootRandom(w, p, 'data/entities/projectiles/deck/orb_laseremitter_weak.xml', 40),
+  fireball_ray_line: (p, w) => {
+    if (!p.vx && !p.vy) return;
+    const a = Math.atan2(p.vy, p.vx);
+    for (const side of [-1, 1]) {
+      const b = a + (side * Math.PI) / 2;
+      w.spawn('data/entities/projectiles/deck/fireball_ray_small.xml', p.x, p.y, Math.cos(b) * 2000, Math.sin(b) * 2000, {});
+    }
+  },
+  darkflame: (p, w) => {
+    w.spawn('data/entities/projectiles/darkflame_stationary.xml', p.x + randInt(-8, 8), p.y + randInt(-8, 8), 0, 0, {});
+  },
+  tentacle_portal: (p, w) => {
+    if (randInt(1, 4) === 1) return;
+    let a = Math.random() * Math.PI * 2;
+    const t = w.dummyCenter;
+    if (randInt(1, 4) > 1 && Math.abs(t.x - p.x) + Math.abs(t.y - p.y) < 72) a = Math.atan2(t.y - p.y, t.x - p.x);
+    const len = randInt(400, 700);
+    w.spawn('data/entities/projectiles/deck/tentacle.xml', p.x, p.y, Math.cos(a) * len, Math.sin(a) * len, {});
+  },
+  purple_explosion_field: (p, w) => {
+    let x = p.x + randInt(-70, 70);
+    let y = p.y + randInt(-70, 70);
+    const t = w.dummyCenter;
+    if (Math.hypot(t.x - p.x, t.y - p.y) <= 70 && randInt(1, 5) === 2) {
+      x = t.x;
+      y = t.y;
+    }
+    w.spawn('data/entities/projectiles/deck/purple_explosion.xml', x, y, 0, 0, {});
+  },
+  meteor_rain: (p, w) => {
+    for (let i = randInt(1, 3); i > 0; i--) {
+      const a = Math.PI * randInt(1, 200) * 0.01;
+      // Noita's y axis points up in these formulas: the meteors come from above.
+      w.spawn('data/entities/projectiles/deck/meteor_rain_meteor.xml', p.x + Math.cos(a) * 300, p.y - Math.sin(a) * 300, -Math.cos(a) * 900, Math.sin(a) * 900, {});
+    }
+    w.shake = Math.min(6, w.shake + 15 / 12);
+  },
+  death_cross_big_explosion: (p, w) => {
+    for (let i = 0; i < 4; i++) {
+      const th = (i * Math.PI) / 2;
+      for (let j = 1; j <= 4; j++) w.spawn('data/entities/projectiles/deck/death_cross_big_laser.xml', p.x, p.y, Math.cos(th) * (200 * j + 300), Math.sin(th) * (200 * j + 300), {});
+    }
+  },
+  lightning_explosion_small: (p, w) => {
+    let th = 0;
+    for (let i = 0; i < 4; i++) {
+      w.spawn('data/entities/projectiles/deck/lightning.xml', p.x, p.y, Math.cos(th) * 2500, Math.sin(th) * 2500, {});
+      th += Math.PI / 2 + rand(-0.5, 0.5) * (Math.PI / 180) * 30;
+    }
+  },
+  electrocution_blast: (p, w) => {
+    const a = Math.random() * Math.PI * 2;
+    w.spawn('data/entities/misc/electricity.xml', p.x + randInt(-28, 28), p.y + randInt(-28, 28), Math.cos(a) * 5000, Math.sin(a) * 5000, {});
+  },
+
+  // ----- Larpa: copies of the projectile (no modifiers, so they can't cascade) -----
+  larpa_chaos: (p, w) => clone(w, p, Math.random() * Math.PI * 2, 1500),
+  larpa_chaos_2: (p, w) => clone(w, p, Math.random() * Math.PI * 2, 10),
+  larpa_downwards: (p, w) => clone(w, p, Math.PI / 2, 1700),
+  larpa_upwards: (p, w) => clone(w, p, -Math.PI / 2, 1700),
+  larpa_death: (p, w) => {
+    let a = Math.random() * Math.PI * 2;
+    for (let i = 0; i < 8; i++, a += Math.PI / 4) clone(w, p, a, 1500);
+  },
+  quantum_split: (p, w) => {
+    const group = p.id;
+    p.vars.quantum = group;
+    const a = Math.atan2(p.vy, p.vx);
+    const sp = speedOf(p) * 0.8;
+    for (const side of [-1, 1]) {
+      const c = w.spawn(p.file, p.x, p.y, Math.cos(a + side * Math.PI * 0.04) * sp, Math.sin(a + side * Math.PI * 0.04) * sp, { ...p.state, extra_entities: '' });
+      if (!c) continue;
+      c.penetrateWorld = false;
+      c.penetrateEntities = false;
+      c.vars.quantum = group;
+    }
+  },
+  // Chain Shot: when it ends, it fires itself on, up to four more times.
+  chain_shot_init: (p) => {
+    p.vars.chain ??= 1;
+  },
+  chain_shot_launch: (p, w) => {
+    const it = p.vars.chain ?? 0;
+    if (it < 1 || it >= 5 || p.file.includes('exploding_deer') || p.file.includes('pebble')) return;
+    let vx = p.vx;
+    let vy = p.vy;
+    if (Math.abs(vx) + Math.abs(vy) < 20) {
+      vx += randInt(-400, 400);
+      vy += randInt(-400, 400);
+    }
+    const c = w.spawn(p.file, p.x, p.y, vx + randInt(-10, 10), vy + randInt(-10, 10), { ...p.state, extra_entities: 'data/entities/misc/chain_shot.xml' });
+    if (c) c.vars.chain = it + 1;
+  },
+
+  // ----- Rockets and other path changes -----
+  rocket_downwards: (p, w) => {
+    if (p.vy <= 10) return;
+    for (const [vx, vy] of [
+      [-100, 100],
+      [-50, 140],
+      [0, 160],
+      [50, 140],
+      [100, 100],
+    ] as const)
+      w.spawn('data/entities/projectiles/deck/rocket_downwards.xml', p.x + vx * 0.05, p.y + vy * 0.05, vx, vy, {});
+    w.kill(p);
+  },
+  rocket_octagon: (p, w) => {
+    if (speedOf(p) >= 50) return;
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4;
+      w.spawn('data/entities/projectiles/deck/rocket_downwards.xml', p.x + Math.cos(a) * 7.5, p.y - Math.sin(a) * 7.5, Math.cos(a) * 150, -Math.sin(a) * 150, {});
+    }
+    w.kill(p);
+  },
+  fizzle: (p, w) => {
+    if (randInt(1, 10) !== 1) return;
+    for (let i = 0; i < 5; i++) w.spawn('data/entities/projectiles/deck/fizzle.xml', p.x, p.y, p.vx, p.vy, {});
+    w.kill(p);
+  },
+  // Anti-gravity Grenade falls away from the caster: gravity 600 toward wherever the caster isn't.
+  grenade_anti_gravity: (p, w) => {
+    const py = w.playerCenter.y;
+    if (py > p.y) p.gravity = 600;
+    else if (py < p.y) p.gravity = -600;
+  },
+  // Summon Giga Disc... and the bigger one: pulled back toward the caster.
+  disc_bullet_bigger_trajectory: (p, w) => {
+    const o = w.playerCenter;
+    const dir = getDirection(o.x, o.y, p.x, p.y);
+    const dist = Math.hypot(p.x - o.x, p.y - o.y);
+    p.vx += Math.cos(dir) * dist * 0.33;
+    p.vy -= Math.sin(dir) * dist * 0.33;
+  },
+  worm_shot_slowdown: (p) => {
+    if (Math.abs(p.vx) + Math.abs(p.vy) > 450) {
+      p.vx *= 0.86;
+      p.vy *= 0.86;
+    }
+  },
+  swarm_fly: (p) => {
+    p.vx += randInt(-20, 20);
+    p.vy += randInt(-20, 20);
+  },
+  // Clouds hang at the ceiling, or 40 px above where they were cast.
+  cloud_position: (p, w) => {
+    const hit = w.raycast(p.x, p.y, p.x, p.y - 40);
+    p.y = hit ? hit.y + 1 : p.y - 40;
+  },
+  // Random explosion: hits leave one of these projectiles behind.
+  random_explosion: (p) => {
+    const opts = ['acidshot', 'alcohol_blast', 'black_hole_big', 'cloud_thunder', 'cloud_acid', 'cloud_blood', 'cloud_water', 'death_cross', 'death_cross_big', 'fireball', 'firebomb', 'grenade', 'grenade_tier_2', 'grenade_tier_3', 'lightning', 'meteor', 'nuke', 'regeneration_field', 'rocket', 'rocket_tier_2', 'rocket_tier_3', 'tentacle_portal', 'thunder_blast', 'wall_square', 'xray'];
+    p.spawnOnHit = `data/entities/projectiles/deck/${opts[randInt(0, opts.length - 1)]}.xml`;
+  },
+  // Null Shot also switches off explosions, area damage and lightning on the projectile itself.
+  zero_damage: (p) => {
+    p.hit = 0;
+    p.explosion = null;
+    p.area = undefined;
+  },
+  laser_emitter_wider: (p) => {
+    if (!p.laser) return;
+    p.laser.beamRadius += 2;
+    p.laser.damage += 0.025 * 25;
+    p.laser.maxLength += 36;
+  },
+
+  // ----- Spells that act on every projectile in flight -----
+  bomb_detonator: (p, w) => {
+    for (const q of [...w.projectiles]) {
+      if (q === p || q.dead) continue;
+      if (q.explosion) q.explosion.onDeath = q.explosion.onTimeout = true;
+      w.kill(q, 'hit');
+    }
+  },
+  all_nukes: (p, w) => convertAll(w, p, 'data/entities/projectiles/deck/nuke.xml', 'nuke'),
+  all_discs: (p, w) => convertAll(w, p, 'data/entities/projectiles/deck/disc_bullet_big.xml', 'disc_bullet_big'),
+  all_rockets: (p, w) => convertAll(w, p, 'data/entities/projectiles/deck/rocket.xml', 'rocket'),
+  all_deathcrosses: (p, w) => convertAll(w, p, 'data/entities/projectiles/deck/death_cross.xml', 'death_cross'),
+  all_blackholes: (p, w) => convertAll(w, p, 'data/entities/projectiles/deck/black_hole.xml', 'black_hole'),
+  all_acid: (p, w) => convertAll(w, p, 'data/entities/projectiles/deck/acidshot.xml', 'acidshot'),
+  clusterbomb_new: (p, w) => {
+    if (speedOf(p) >= 50) return;
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4;
+      w.spawn('data/entities/projectiles/deck/grenade_small.xml', p.x + Math.cos(a) * 7.5, p.y - Math.sin(a) * 7.5, Math.cos(a) * 150, -Math.sin(a) * 150, {});
+    }
+  },
+  meteor_collide: (p) => {
+    p.penetrateWorld = false;
+  },
+  // Hook: yanks the caster toward it at 800 px/s.
+  hook: (p, w) => {
+    const o = w.playerCenter;
+    const a = Math.atan2(p.y - o.y, p.x - o.x);
+    w.body.vx = Math.cos(a) * 800;
+    w.body.vy = Math.sin(a) * 800;
+  },
+  // Long-Distance Cast: the payload jumps 120 px ahead (or to the first platform in the way).
+  super_teleport_cast: (p, w) => {
+    const a = Math.atan2(p.vy, p.vx);
+    const ex = p.x + Math.cos(a) * 120;
+    const ey = p.y + Math.sin(a) * 120;
+    const hit = w.raycast(p.x, p.y, ex, ey);
+    p.x = hit?.x ?? ex;
+    p.y = hit?.y ?? ey;
+  },
+  // Nolla: the projectile lives one frame.
+  nolla: (p) => {
+    p.lifetime = Math.min(p.lifetime > 0 ? p.lifetime : Infinity, p.age + 1);
+  },
+  // Exploding ducks commit to dying on contact once a target is within 12 px.
+  duck: (p, w) => {
+    const t = w.dummyCenter;
+    if (Math.hypot(t.x - p.x, t.y - p.y) <= 12) p.dieOnCollision = true;
+  },
+  // Projectile Gravity Well: everything within 96 px is pulled in (96 × closeness px/s a run).
+  projectile_gravity: (p, w) => w.gravityWell(p, 1, 96, 96),
+  // Projectile Thunder Field: nearby projectiles turn into lightning flying out from it.
+  projectile_thunder: (p, w) => {
+    for (const q of [...w.projectiles]) {
+      if (q === p || q.dead || Math.hypot(q.x - p.x, q.y - p.y) >= 48) continue;
+      const a = Math.atan2(q.y - p.y, q.x - p.x);
+      q.explosion = null;
+      w.spawn('data/entities/projectiles/deck/projectile_thunder_lightning.xml', q.x, q.y, Math.cos(a) * 6000, Math.sin(a) * 6000, {});
+      w.kill(q);
+    }
+  },
 };
+
+/** shoot_projectile_from_projectile in a random direction at a fixed speed. */
+function shootRandom(w: RangeWorld, p: Proj, file: string, speed: number) {
+  const a = Math.random() * Math.PI * 2;
+  w.spawn(file, p.x, p.y, Math.cos(a) * speed, Math.sin(a) * speed, {});
+}
+
+/** A copy of the projectile (its projectile_file) without modifiers, as the Larpa spells make. */
+function clone(w: RangeWorld, p: Proj, angle: number, speed: number) {
+  w.spawn(p.file, p.x, p.y, Math.cos(angle) * speed, Math.sin(angle) * speed, { ...p.state, extra_entities: '' });
+}
+
+/** The "all_*" spells: every other projectile becomes `file` (keeping its velocity), without exploding. */
+function convertAll(w: RangeWorld, p: Proj, file: string, tag: string) {
+  for (const q of [...w.projectiles]) {
+    if (q === p || q.dead || q.file === file || q.visual?.tags?.includes(tag)) continue;
+    q.explosion = null;
+    w.spawn(file, q.x, q.y, q.vx, q.vy, {});
+    w.kill(q);
+  }
+}

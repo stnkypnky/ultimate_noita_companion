@@ -36,6 +36,8 @@ export type Projectile = {
   bounces: number;
   gravity: number;
   airFriction: number;
+  /** VelocityComponent terminal_velocity: top speed, px/s. */
+  terminalVelocity?: number;
   knockback: number;
   penetrateWorld: boolean;
   penetrateEntities: boolean;
@@ -203,7 +205,7 @@ export type EntityVisual = {
   sine?: { freq: number; m: number };
   cellEater?: { radius: number; probability: number };
   /** LuaComponents: script basename + schedule. The range implements the common ones. */
-  scripts?: { script: string; every: number; onAdded: boolean; times: number }[];
+  scripts?: { script: string; every: number; onAdded: boolean; onRemoved?: boolean; times: number }[];
   physics?: {
     bounceEnergy: number;
     collideWithWorld: boolean;
@@ -297,12 +299,19 @@ export type RangeKit = {
     flight: { timeMax: number; rechargeAir: number; rechargeGround: number; airWaitFrames: number; needsRecharge: boolean };
     /** Max HP. */
     hp: number;
+    /** DamageModelComponent fire_damage_amount, in HP: what burning takes per second. */
+    fireDamage: number;
     /** Damage hitbox around the entity position. */
     hitbox: { minX: number; maxX: number; minY: number; maxY: number };
   };
   arm: { w: number; h: number; ox: number; oy: number; hand: [number, number] };
   wands: WandSprite[];
   cursor: { w: number; h: number };
+  /**
+   * Status effect entities (data/entities/misc/effect_*.xml, by basename): the GameEffect they apply,
+   * for how many frames (-1 = until removed), whether it stops movement, and the game's indicator icon.
+   */
+  effects: Record<string, { effect: string; frames: number; stops: boolean; icon?: Icon }>;
 };
 
 /** World pickups from data/entities/items/pickup/. */

@@ -54,15 +54,17 @@ const n = (s: ShotState, k: string) => (typeof s[k] === 'number' ? (s[k] as numb
 
 /** A projectile's hit damage, explosion and crit chance once its shot's modifiers are applied. */
 export function projectileDamage(base: Projectile | undefined, state: ShotState) {
+  // Null Shot (damage_null_all) takes every kind of damage away, the blast's included.
+  const nulled = n(state, 'damage_null_all') > 0;
   const damage: Partial<Record<DamageType, number>> = {};
   for (const t of DAMAGE_TYPES) {
     const add = DAMAGE_ADD[t] ? n(state, DAMAGE_ADD[t]!) * HP_UNIT : 0;
-    const v = (base?.damage[t] ?? 0) + add;
+    const v = nulled ? 0 : (base?.damage[t] ?? 0) + add;
     if (Math.abs(v) > 1e-6) damage[t] = Math.round(v * 100) / 100;
   }
   let explosion: { damage: number; radius: number } | undefined;
   if (base?.explosion) {
-    const ed = base.explosion.damage + n(state, 'damage_explosion_add') * HP_UNIT;
+    const ed = nulled ? 0 : base.explosion.damage + n(state, 'damage_explosion_add') * HP_UNIT;
     const er = base.explosion.radius + n(state, 'explosion_radius');
     if (ed > 0 || er > 4) explosion = { damage: Math.round(ed * 100) / 100, radius: Math.round(er) };
   }

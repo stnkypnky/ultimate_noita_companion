@@ -91,6 +91,37 @@ export async function rangeKit(wak: Wak): Promise<{ kit: RangeKit; files: Record
   const atlas = await buildAtlas(table.map((w) => ({ key: String(w.file), png: wak.bytes(String(w.file)) })), 40);
   files['sprites/range_wands.png'] = atlas.png;
 
+  // ----- Status effects: what each effect entity does and for how long, with the game's indicator icon -----
+  const gameEffect = (file: string) => {
+    if (!wak.has(file)) return null;
+    const e = parseXml(wak.text(file)).find((x) => x.tag === 'Entity');
+    const g = comp(e, 'GameEffectComponent');
+    return g ? { effect: g.attrs.effect ?? 'NONE', frames: num(g.attrs.frames, -1), stops: g.attrs.disable_movement === '1' } : null;
+  };
+  const iconOf = new Map<string, string>();
+  for (const m of wak.text('data/scripts/status_effects/status_list.lua').matchAll(/\{([^{}]*)\}/g)) {
+    const icon = /ui_icon\s*=\s*"([^"]+)"/.exec(m[1]!)?.[1];
+    const ent = /effect_entity\s*=\s*"([^"]+)"/.exec(m[1]!)?.[1];
+    // Built-in effects (ON_FIRE) have no entity; their id is the effect.
+    const effect = ent ? gameEffect(ent)?.effect : /id\s*=\s*"([^"]+)"/.exec(m[1]!)?.[1];
+    if (icon && effect && effect !== 'NONE' && effect !== 'CUSTOM' && !iconOf.has(effect) && wak.has(icon)) iconOf.set(effect, icon);
+  }
+  // Effects with no status_list entry (FROZEN, ELECTROCUTION) use the indicator of the same name.
+  for (const f of wak.list('data/ui_gfx/status_indicators/')) {
+    const effect = f.split('/').pop()!.replace('.png', '').toUpperCase();
+    if (!iconOf.has(effect)) iconOf.set(effect, f);
+  }
+  const statusAtlas = await buildAtlas([...new Set(iconOf.values())].map((f) => ({ key: f, png: wak.bytes(f) })), 16);
+  files['sprites/range_status.png'] = statusAtlas.png;
+  const effects: RangeKit['effects'] = {};
+  for (const f of wak.list('data/entities/misc/')) {
+    if (!/\/effect_[\w]+\.xml$/.test(f)) continue;
+    const g = gameEffect(f);
+    if (!g) continue;
+    const icon = iconOf.get(g.effect);
+    effects[f.split('/').pop()!.replace('.xml', '')] = { ...g, ...(icon ? { icon: statusAtlas.rects.get(icon)! } : {}) };
+  }
+
   for (const [key, name] of Object.entries(HUD_ICONS)) files[`sprites/hud_${key}.png`] = wak.bytes(`data/ui_gfx/hud/${name}.png`);
   files['sprites/range_cursor.png'] = wak.bytes('data/ui_gfx/mouse_cursor.png');
   const cursor = await sharp(files['sprites/range_cursor.png']).metadata();
@@ -125,6 +156,7 @@ export async function rangeKit(wak: Wak): Promise<{ kit: RangeKit; files: Record
         needsRecharge: cd.flying_needs_recharge === '1',
       },
       hp: num(dm.hp, 4) * 25,
+      fireDamage: num(dm.fire_damage_amount, 0.2) * 25,
       hitbox: { minX: num(hb.aabb_min_x, -3), maxX: num(hb.aabb_max_x, 3), minY: num(hb.aabb_min_y, -12), maxY: num(hb.aabb_max_y, 3) },
     },
     arm: { w: aw, h: ah, ox: num(as.attrs.offset_x, 0), oy: num(as.attrs.offset_y, 2), hand },
@@ -141,6 +173,7 @@ export async function rangeKit(wak: Wak): Promise<{ kit: RangeKit; files: Record
       reloadTime: Number(w.reload_time ?? 0),
     })),
     cursor: { w: cursor.width ?? 0, h: cursor.height ?? 0 },
+    effects,
   };
   return { kit, files };
 }

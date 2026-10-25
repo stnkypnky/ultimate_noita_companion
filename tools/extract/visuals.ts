@@ -380,6 +380,7 @@ export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLo
         script: basename(String(l.attrs.script_source_file), '.lua'),
         every: num(l.attrs.execute_every_n_frame, 1),
         onAdded: l.attrs.execute_on_added === '1',
+        onRemoved: l.attrs.execute_on_removed === '1',
         times: l.attrs.remove_after_executed === '1' ? 1 : num(l.attrs.execute_times, 0),
       }));
     if (scripts.length) v.scripts = scripts;

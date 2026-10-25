@@ -1,4 +1,4 @@
-import type { RangeProp, SpriteLayer } from '@/data/types';
+import type { Icon, RangeProp, SpriteLayer } from '@/data/types';
 import { gameUrl } from '@/data/store';
 import { layerFrame } from './particles';
 import { animFrame } from './player';
@@ -19,6 +19,7 @@ export type RangeImages = {
   arm: HTMLImageElement;
   wands: HTMLImageElement;
   cursor: HTMLImageElement;
+  status: HTMLImageElement;
   hud: Record<HudIcon, HTMLImageElement>;
   rock: ImageData;
   bedrock: ImageData;
@@ -46,12 +47,12 @@ let assets: Promise<RangeImages> | null = null;
 export function loadRangeImages(props: Record<string, RangeProp>): Promise<RangeImages> {
   assets ??= Promise.all([
     Promise.all(
-      ['projectiles', 'range_dummy', 'range_player', 'range_player_sheet', 'range_arm', 'range_wands', 'range_cursor'].map((n) => loadImage(gameUrl(`sprites/${n}.png`))),
+      ['projectiles', 'range_dummy', 'range_player', 'range_player_sheet', 'range_arm', 'range_wands', 'range_cursor', 'range_status'].map((n) => loadImage(gameUrl(`sprites/${n}.png`))),
     ),
     Promise.all(HUD_ICONS.map((n) => loadImage(gameUrl(`sprites/hud_${n}.png`)))),
     loadImage(gameUrl('materials/rock_static.png')),
     loadImage(gameUrl('materials/rock_hard_border.png')),
-  ]).then(([[projectiles, dummy, player, playerSheet, arm, wands, cursor], hud, rock, bedrock]) => ({
+  ]).then(([[projectiles, dummy, player, playerSheet, arm, wands, cursor, status], hud, rock, bedrock]) => ({
     projectiles: projectiles!,
     dummy: dummy!,
     player: player!,
@@ -59,6 +60,7 @@ export function loadRangeImages(props: Record<string, RangeProp>): Promise<Range
     arm: arm!,
     wands: wands!,
     cursor: cursor!,
+    status: status!,
     hud: Object.fromEntries(HUD_ICONS.map((n, i) => [n, hud[i]!])) as Record<HudIcon, HTMLImageElement>,
     rock: pixels(rock),
     bedrock: pixels(bedrock),
@@ -245,6 +247,22 @@ export class RangeRenderer {
     ctx.filter = 'blur(3px)';
     ctx.drawImage(this.glow, 0, 0);
     ctx.restore();
+
+    // status effects: the game's indicator icons over each actor, frozen ones iced over
+    const effects = w.kit?.effects;
+    for (const a of w.actors) {
+      if (!a.status.size || !effects) continue;
+      if (a.status.has('FROZEN')) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = 0.35;
+        ctx.fillStyle = '#7fd4ff';
+        ctx.fillRect(Math.round(a.x - a.w / 2), Math.round(a.y - a.h), a.w, a.h);
+        ctx.globalAlpha = 1;
+      }
+      const icons = [...a.status.keys()].map((e) => Object.values(effects).find((f) => f.effect === e && f.icon)?.icon).filter((i): i is Icon => !!i);
+      ctx.globalCompositeOperation = 'source-over';
+      icons.forEach((ic, i) => ctx.drawImage(this.img.status, ic.x, ic.y, ic.w, ic.h, Math.round(a.x - (icons.length * 9) / 2 + i * 9), Math.round(a.y - a.h - 12), ic.w, ic.h));
+    }
 
     // damage numbers
     ctx.globalCompositeOperation = 'source-over';
