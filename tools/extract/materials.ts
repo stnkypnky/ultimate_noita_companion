@@ -1,6 +1,6 @@
 import type { Material, Reaction } from '../../src/data/types.ts';
 import { comp, num, parseXml, type El } from './entity.ts';
-import { tr, type Translations } from './translations.ts';
+import { humanize, tr, type Translations } from './translations.ts';
 
 /** "7fFF6060" (AARRGGBB) -> "#ff6060 7f" as #rrggbbaa */
 function argbToHex(v: string | undefined): string {
@@ -65,7 +65,7 @@ export function buildMaterials(xml: string, t: Translations): { materials: Mater
     const effects = comp(el, 'StatusEffects');
     materials.push({
       id,
-      name: tr(t, a.ui_name) || id,
+      name: tr(t, a.ui_name, humanize(id)),
       ...(el.attrs._parent ? { parent: el.attrs._parent } : {}),
       cellType,
       state,

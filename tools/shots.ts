@@ -33,6 +33,9 @@ const steps: Step[] = [
       await p.goto(`${base}/spells`); await p.waitForTimeout(1800);
     } },
   { name: 'spell-detail', run: async (p) => { await p.goto(`${base}/spells/LIGHT_BULLET_TRIGGER`); await p.waitForTimeout(1900); } },
+  { name: 'perk-detail', run: async (p) => { await p.goto(`${base}/perks/EDIT_WANDS_EVERYWHERE`); await p.waitForTimeout(1900); } },
+  { name: 'materials', run: async (p) => { await p.goto(`${base}/materials`); await p.waitForTimeout(1900); } },
+  { name: 'material-detail', run: async (p) => { await p.goto(`${base}/materials/water`); await p.waitForTimeout(1900); } },
 ];
 
 const browser = await chromium.launch();

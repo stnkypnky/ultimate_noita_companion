@@ -14,8 +14,11 @@ export function parseTranslations(csv: string): Translations {
 }
 
 /** Resolve "$key" (optionally with "$0"-style params left in place) to English. */
-export function tr(t: Translations, s: string | undefined | null): string {
-  if (!s) return '';
+export function tr(t: Translations, s: string | undefined | null, fallback = ''): string {
+  if (!s) return fallback;
   if (!s.startsWith('$')) return s;
-  return t.get(s.slice(1)) ?? s;
+  return t.get(s.slice(1)) ?? (fallback || s);
 }
+
+/** "gem_box2d_white" -> "Gem box2d white" */
+export const humanize = (id: string) => id.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
