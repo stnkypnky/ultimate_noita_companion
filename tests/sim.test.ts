@@ -93,6 +93,56 @@ describe('wand simulation (real gun.lua)', () => {
     expect(b!.mana_before).toBe(100);
   });
 
+  it('gives a modifier-made trigger the next spell as its payload (Add Trigger)', () => {
+    const [p] = sim(['ADD_TRIGGER', 'LIGHT_BULLET', 'BOMB']).casts[0]!.shot.projectiles;
+    expect(p!.file.endsWith(SPARK)).toBe(true);
+    expect(p!.trigger?.kind).toBe('hit');
+    expect(files(p!.trigger!.shot)).toEqual(['bomb.xml']);
+  });
+
+  it('uses the right trigger kind for timer and expiration variants', () => {
+    const timer = sim(['LIGHT_BULLET_TIMER', 'BOMB']).casts[0]!.shot.projectiles[0]!.trigger;
+    expect(timer?.kind).toBe('timer');
+    expect(timer?.delay).toBeGreaterThan(0);
+    expect(sim(['ADD_DEATH_TRIGGER', 'LIGHT_BULLET', 'BOMB']).casts[0]!.shot.projectiles[0]!.trigger?.kind).toBe('death');
+  });
+
+  it('casts the next spell several times with Divide By', () => {
+    expect(files(sim(['DIVIDE_2', 'LIGHT_BULLET']).casts[0]!.shot)).toEqual([SPARK, SPARK]);
+    expect(sim(['DIVIDE_10', 'LIGHT_BULLET']).casts[0]!.shot.projectiles).toHaveLength(10);
+  });
+
+  it('copies spells from elsewhere in the wand with the Greek letters', () => {
+    // Omega casts a copy of every spell in the wand.
+    const omega = sim(['LIGHT_BULLET', 'BOMB', 'OMEGA'], { spc: 1 }).casts.find((c) => c.played.includes('OMEGA'))!;
+    expect(files(omega.shot)).toEqual(expect.arrayContaining([SPARK, 'bomb.xml']));
+    // Alpha casts a copy of the first spell.
+    const alpha = sim(['BOMB', 'LIGHT_BULLET', 'ALPHA']).casts.find((c) => c.played.includes('ALPHA'))!;
+    expect(files(alpha.shot)).toEqual(['bomb.xml']);
+  });
+
+  it('lets Requirement spells depend on the caster (low health)', () => {
+    const run = (hp: number) => {
+      host.call('sim_reset', 1, false, 20, 3, 10, 0, 1, 1000, 100, 1000, hp, 100, 0, 0);
+      for (const id of ['IF_HP', 'LIGHT_BULLET', 'BOMB']) host.call('sim_add_card', id, -1);
+      return (JSON.parse(host.call<string>('sim_run', 6, false)) as SimResult).casts.flatMap((c) => files(c.shot));
+    };
+    expect(run(100)).not.toEqual(run(10));
+  });
+
+  it('runs a limited spell out of charges, then skips it', () => {
+    host.call('sim_reset', 1, false, 0, 2, 0, 0, 1, 10000, 10000, 10000, 100, 100, 0, 0);
+    host.call('sim_add_card', 'BOMB', 3);
+    host.call('sim_add_card', 'LIGHT_BULLET', -1);
+    const r = JSON.parse(host.call<string>('sim_run', 10, false)) as SimResult;
+    expect(r.casts.flatMap((c) => files(c.shot)).filter((f) => f === 'bomb.xml')).toHaveLength(3);
+  });
+
+  it('casts every spell exactly once per round on a shuffle wand', () => {
+    const r = sim(['LIGHT_BULLET', 'BOMB', 'BULLET', 'GRENADE'], { shuffle: true, casts: 4 });
+    expect(r.casts.flatMap((c) => c.played).sort()).toEqual(['BOMB', 'BULLET', 'GRENADE', 'LIGHT_BULLET']);
+  });
+
   it('does not call unimplemented engine functions for common spells', () => {
     const r = sim(['BURST_3', 'LIGHT_BULLET', 'DAMAGE', 'BOMB', 'LIGHT_BULLET_TRIGGER', 'BULLET']);
     expect(r.missing).toEqual([]);
