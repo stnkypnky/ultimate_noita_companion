@@ -61,7 +61,7 @@ type Hud = {
 
 /** Live pixel test range: hold the wand and cast it at a target dummy, with the wand's real mana and recharge. */
 export function RangePreview({ wand, options, active }: { wand: Wand; options: SimOptions; active: boolean }) {
-  const { projectiles, materials, materialById, spellById } = useData();
+  const { projectiles, materials, materialById, reactions, spellById } = useData();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<RangeWorld | null>(null);
@@ -109,6 +109,8 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
             materialColor: new Map(materials.map((m) => [m.id, m.color])),
             rockDurability: materialById.get('rock_static')?.durability ?? 0,
             kit,
+            materials,
+            reactions,
           },
         });
       })
@@ -116,7 +118,7 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
     return () => {
       live = false;
     };
-  }, [projectiles, materials, materialById]);
+  }, [projectiles, materials, materialById, reactions]);
 
   // A freshly built wand in hand whenever the wand changes.
   useEffect(() => {

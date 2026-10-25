@@ -5,7 +5,8 @@
 // lifetime, homing, sine waves, lasers, area damage, lightning) and ports the game's Lua for path modifiers,
 // bounce effects, orbits, the giga disc, chain bolt and teleports. Approximated: the engine's C++ internals
 // (exact homing maths, friction integration, Box2D physics for thrown bombs, arc damage) and falling-sand materials.
-import type { EntityVisual, ExplosionVisual, Projectile, RangeKit, WandSprite } from '@/data/types';
+import type { EntityVisual, ExplosionVisual, Material, Projectile, RangeKit, Reaction, WandSprite } from '@/data/types';
+import { Cells, K_LIQUID, K_POWDER, K_STATIC } from './cells';
 import { emitterStates, layerFrames, runEmitters, simpleParticle, stepParticles, type EmitterState, type Particle } from './particles';
 import { CRIT_MULT, projectileDamage } from '@/sim/analyze';
 import type { ShotState, SimCast, SimShot } from '@/sim/types';
@@ -19,6 +20,15 @@ export const H = 242;
 const DEATH_FRAMES = 90;
 /** Frames before a shot made friendly-fire by a modifier can hit its caster (clear of the wand). */
 const SHOT_FRIENDLY_GRACE = 6;
+/**
+ * Blasts whose config_explosion leaves max_durability_to_destroy unset (most) dig up to this durability.
+ * The engine default isn't documented; 9 lets them blow sand, soil and liquids away but not rock (10), as small blasts do.
+ */
+const EXPLOSION_DIG_DEFAULT = 9;
+/** Frames between checks of what actors are touching. */
+const MATERIAL_CHECK_FRAMES = 3;
+/** A material's stain (status_list id) and the GameEffect it is. */
+const STAIN_EFFECT: Record<string, string> = { POISONED: 'POISON' };
 /** Velocity (px/s) per point of knockback_force, and of explosion push at the blast's centre. */
 const KNOCKBACK_SCALE = 15;
 const DT = 1 / 60;
@@ -39,6 +49,9 @@ export type RangeData = {
   rockDurability: number;
   /** Player sprites and movement constants; without it the player uses player_base.xml defaults. */
   kit?: RangeKit;
+  /** The game's materials and reactions, for the falling-sand terrain. */
+  materials: Material[];
+  reactions: Reaction[];
 };
 
 /** A scheduled LuaComponent, remembering which entity (projectile or modifier effect) it belongs to. */
@@ -59,6 +72,8 @@ export type Actor = {
   pendingCrit: boolean;
   /** Status effects (GameEffect name) and frames left. */
   status: Map<string, number>;
+  /** Wading or swimming in a liquid. */
+  inLiquid?: boolean;
 };
 
 export type Proj = {
@@ -87,6 +102,7 @@ export type Proj = {
   penetrateWorld: boolean;
   penetrateEntities: boolean;
   dieOnCollision: boolean;
+  dieOnLiquid: boolean;
   dieOnLowVelocity: boolean;
   rotate: boolean;
   streak: boolean;
@@ -122,6 +138,8 @@ export type Proj = {
   hitEffect?: NonNullable<EntityVisual['hitEffect']>;
   /** Material trail colours from trail modifiers (fire trail, acid trail...). */
   trails: string[];
+  /** The trail modifier's material and amount. */
+  trail?: { material: string; amount: number };
   /** The projectile's own particle emitters and those of its modifiers. */
   emit: EmitterState[];
   light?: { color: string; radius: number };
@@ -185,7 +203,10 @@ function segmentHitsBox(x0: number, y0: number, x1: number, y1: number, l: numbe
 }
 
 export class RangeWorld {
-  readonly terrain = new Uint8Array(W * H);
+  /** The falling-sand world: rock, liquids, gases, fire. */
+  readonly cells: Cells;
+  private bedrock: number;
+  /** Bumped when terrain is carved or rebuilt. */
   terrainVersion = 0;
   projectiles: Proj[] = [];
   particles: Particle[] = [];
@@ -240,6 +261,8 @@ export class RangeWorld {
     const feetBelowEntity = (k?.feet ?? 17) - (k?.pivot[1] ?? 14);
     this.player = { id: 'player', x: 34, y: H - 34, w: hb.maxX - hb.minX, h: feetBelowEntity - hb.minY, homeX: 34, vy: 0, flash: 0, pending: 0, pendingCrit: false, status: new Map() };
     this.body = newPlayerState(k?.flight ?? DEFAULT_FLIGHT, k?.hp ?? 100);
+    this.cells = new Cells(W, H, data.materials, data.reactions);
+    this.bedrock = this.cells.addHard('range_bedrock', 'rock_hard_border');
     this.resetTerrain();
   }
 
@@ -301,46 +324,66 @@ export class RangeWorld {
 
   // ---------- terrain ----------
 
+  /**
+   * The cave: rock with a mound and a floating island, bedrock walls, and some of the game's materials
+   * to play with: a water pool, an oil puddle, sand on the island and a wooden ledge.
+   */
   resetTerrain() {
-    const t = this.terrain;
+    const c = this.cells;
+    c.clear();
+    const rock = c.index('rock_static');
+    const pool = (x0: number, x1: number, depth: number, m: number) => {
+      for (let x = x0; x <= x1; x++) {
+        // a rounded basin, filled to the floor
+        const d = Math.round(depth * Math.sqrt(Math.max(0, 1 - ((2 * (x - x0)) / (x1 - x0) - 1) ** 2)));
+        for (let y = this.floorY; y < this.floorY + d; y++) c.set(x, y, m);
+      }
+    };
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
-        let v = AIR;
-        if (y >= this.floorY || y < 16 || x >= W - 26) v = ROCK;
-        // a low mound mid-range and a floating island, for bounces and digging
-        if (((x - 150) / 22) ** 2 + ((y - this.floorY) / 9) ** 2 < 1) v = ROCK;
-        if (((x - 200) / 34) ** 2 + ((y - 64) / 8) ** 2 < 1) v = ROCK;
-        if (x < 3 || y < 3 || x >= W - 3 || y >= H - 3) v = BEDROCK;
-        t[y * W + x] = v;
+        let solid = y >= this.floorY || y < 16 || x >= W - 26;
+        if (((x - 150) / 22) ** 2 + ((y - this.floorY) / 9) ** 2 < 1) solid = true;
+        if (((x - 200) / 34) ** 2 + ((y - 64) / 8) ** 2 < 1) solid = true;
+        if (x < 3 || y < 3 || x >= W - 3 || y >= H - 3) c.set(x, y, this.bedrock);
+        else if (solid) c.set(x, y, rock);
       }
     }
+    pool(92, 126, 10, c.index('water'));
+    pool(178, 198, 6, c.index('oil'));
+    const sand = c.index('sand');
+    for (let x = 186; x <= 214; x++) for (let y = 56 - Math.round(4 * (1 - Math.abs(x - 200) / 14)); y < 57; y++) c.place(x, y, sand);
+    const wood = c.index('wood_static');
+    for (let x = 300; x <= 346; x++) for (let y = 150; y < 153; y++) c.set(x, y, wood);
     this.terrainVersion++;
     for (const a of this.actors) this.placeHome(a);
   }
 
+  /** What a cell is to things moving through it: AIR (empty, liquid, gas, fire), ROCK (solid, powder) or BEDROCK. */
   cell(x: number, y: number): number {
-    const ix = Math.floor(x);
-    const iy = Math.floor(y);
-    if (ix < 0 || iy < 0 || ix >= W || iy >= H) return BEDROCK;
-    return this.terrain[iy * W + ix]!;
+    const m = this.cells.at(x, y);
+    if (m < 0) return BEDROCK;
+    const info = this.cells.mats[m]!;
+    if (info.kind === K_STATIC || info.kind === K_POWDER) return info.hard ? BEDROCK : ROCK;
+    return AIR;
   }
 
-  /** Remove diggable terrain in a circle. */
-  carve(cx: number, cy: number, r: number, probability = 100) {
+  /** A liquid cell (projectiles with die_on_liquid_collision stop here; actors get wet). */
+  isLiquid(x: number, y: number) {
+    return this.cells.kindAt(x, y) === K_LIQUID;
+  }
+
+  /** Durability of the material at a point (what digging and drills have to beat). */
+  durabilityAt(x: number, y: number) {
+    const m = this.cells.at(x, y);
+    return m < 0 ? Infinity : this.cells.mats[m]!.hard ? Infinity : this.cells.mats[m]!.durability;
+  }
+
+  /** Remove terrain in a circle, up to a material durability (digging spells, explosions, beams). */
+  carve(cx: number, cy: number, r: number, probability = 100, maxDurability = Infinity) {
     if (r <= 0) return;
-    let changed = false;
-    for (let y = Math.max(0, Math.floor(cy - r)); y <= Math.min(H - 1, Math.ceil(cy + r)); y++) {
-      for (let x = Math.max(0, Math.floor(cx - r)); x <= Math.min(W - 1, Math.ceil(cx + r)); x++) {
-        if ((x - cx) ** 2 + (y - cy) ** 2 > r * r) continue;
-        const i = y * W + x;
-        if (this.terrain[i] === ROCK && (probability >= 100 || Math.random() * 100 < probability)) {
-          this.terrain[i] = AIR;
-          changed = true;
-          if (Math.random() < 0.08) this.spark(x, y, '#6b5d52', false, 30);
-        }
-      }
-    }
-    if (changed) this.terrainVersion++;
+    const removed = this.cells.carve(cx, cy, r, probability, maxDurability);
+    for (let i = 0; i < removed * 0.08; i++) this.spark(cx + rand(-r, r), cy + rand(-r, r), '#6b5d52', false, 30);
+    if (removed) this.terrainVersion++;
   }
 
   /** First solid cell along a segment (for scripts that raytrace surfaces). */
@@ -405,6 +448,12 @@ export class RangeWorld {
       const pos = stepPlayer(b, a, controls, k?.move ?? DEFAULT_MOVE, k?.flight ?? DEFAULT_FLIGHT, (x, y) => this.cell(x, y) !== AIR, DT);
       a.x = Math.max(6, Math.min(W - 6, pos.x));
       a.y = pos.y;
+      // In a liquid: dragged, and up swims instead of needing levitation.
+      if (a.inLiquid) {
+        b.vx *= 0.9;
+        b.vy *= 0.85;
+        if (controls.up) b.vy = Math.max(b.vy - 15, -70);
+      }
     }
     this.actorTick(a);
   }
@@ -440,6 +489,7 @@ export class RangeWorld {
   /** Hit flash, status effects wearing off (and burning), batched damage numbers. */
   private actorTick(a: Actor) {
     if (a.flash > 0) a.flash--;
+    if (this.frame % MATERIAL_CHECK_FRAMES === 0) a.inLiquid = this.touchMaterials(a);
     this.tickStatus(a);
     if (a.pending > 0 && this.frame % 10 === 0) {
       this.floater(a, a.pending, a.pendingCrit);
@@ -469,6 +519,34 @@ export class RangeWorld {
       const frames = fx.frames < 0 ? Infinity : fx.frames;
       a.status.set(fx.effect, Math.max(a.status.get(fx.effect) ?? 0, frames));
     }
+  }
+
+  /**
+   * What the actor is standing in: materials_that_damage hurt (acid, lava...), stains (water, oil,
+   * poison) apply their status for the usual 720 frames, fire and lava set it alight unless wet.
+   * Returns whether it's in a liquid.
+   */
+  private touchMaterials(a: Actor): boolean {
+    const box = this.actorBox(a);
+    const seen = new Set<number>();
+    for (let y = Math.floor(box.t); y < box.b; y += 2) for (let x = Math.floor(box.l); x <= box.r; x += 2) {
+      const m = this.cells.at(x, y);
+      if (m > 0) seen.add(m);
+    }
+    let liquid = false;
+    for (const m of seen) {
+      const info = this.cells.mats[m]!;
+      if (info.kind === K_LIQUID) liquid = true;
+      const dmg = this.data.kit?.player.materialDamage[info.id];
+      if (dmg) this.tick(a, dmg * MATERIAL_CHECK_FRAMES);
+      for (const s of info.stains) {
+        const effect = STAIN_EFFECT[s] ?? s;
+        if (effect === 'WET') a.status.delete('ON_FIRE');
+        a.status.set(effect, Math.max(a.status.get(effect) ?? 0, 720));
+      }
+      if (info.hot && !a.status.has('WET')) a.status.set('ON_FIRE', Math.max(a.status.get('ON_FIRE') ?? 0, 720));
+    }
+    return liquid;
   }
 
   /** Frozen or electrocuted: the effect has disable_movement. */
@@ -599,7 +677,8 @@ export class RangeWorld {
       .map((f) => this.data.visuals[f])
       .filter((v): v is EntityVisual => !!v);
     const all = [vis, ...extras].filter((v): v is EntityVisual => !!v);
-    const trailMat = typeof s.trail_material === 'string' && s.trail_material ? this.data.materialColor.get(s.trail_material.split(',')[0]!) : undefined;
+    const trailId = typeof s.trail_material === 'string' && s.trail_material ? s.trail_material.split(',')[0]! : '';
+    const trailMat = trailId ? this.data.materialColor.get(trailId)?.slice(0, 7) : undefined;
     const arc = all.find((v) => v.arc)?.arc;
     const laser = vis?.laser;
 
@@ -626,6 +705,7 @@ export class RangeWorld {
       penetrateWorld: base?.penetrateWorld ?? false,
       penetrateEntities: base?.penetrateEntities ?? false,
       dieOnCollision: base?.dieOnCollision ?? true,
+      dieOnLiquid: base?.dieOnLiquid ?? false,
       dieOnLowVelocity: vis?.physics?.dieOnLowVelocity ?? false,
       rotate: vis?.physics?.rotate ?? true,
       streak: vis?.physics?.streak ?? false,
@@ -668,6 +748,7 @@ export class RangeWorld {
       teleport: !!vis?.teleport,
       hitEffect: vis?.hitEffect,
       trails: trailMat ? [trailMat] : [],
+      ...(trailId ? { trail: { material: trailId, amount: num(s, 'trail_material_amount') } } : {}),
       emit: all.flatMap((v) => emitterStates(v)),
       light: all.find((v) => v.light && v.light.radius > 0)?.light,
       scripts: all.flatMap((v) => (v.scripts ?? []).map((sc) => ({ ...sc, runs: 0, from: v }))),
@@ -704,7 +785,8 @@ export class RangeWorld {
     this.updateActor(this.dummy);
 
     this.updateEffects();
-    this.particles = stepParticles(this.particles, (x, y) => this.cell(x, y) !== AIR);
+    this.particles = stepParticles(this.particles, (x, y) => this.cell(x, y) !== AIR || this.isLiquid(x, y), (x, y, m) => this.cells.place(x, y, this.cells.index(m)));
+    this.cells.step();
     for (const f of this.flashes) f.age++;
     this.flashes = this.flashes.filter((f) => f.age < f.life);
     this.shake *= 0.85;
@@ -793,9 +875,17 @@ export class RangeWorld {
 
     // Particle emitters of the projectile and its modifiers, and material trails from trail modifiers.
     runEmitters(p.emit, p.age, p.x, p.y, p.px, p.py, p.rot, this.addParticle);
-    for (const color of p.trails) {
-      const t = Math.random();
-      this.spark(p.px + (p.x - p.px) * t, p.py + (p.y - p.py) * t, color, true, randInt(10, 26), 8);
+    // Trail modifiers lay real material along the path (trail_material_amount, taken as cells per 10 frames).
+    if (p.trail) {
+      const m = this.cells.index(p.trail.material);
+      const n = Math.max(1, Math.round(p.trail.amount / 10));
+      for (let k = 0; k < n; k++) {
+        const t = Math.random();
+        const x = p.px + (p.x - p.px) * t;
+        const y = p.py + (p.y - p.py) * t;
+        if (m > 0) this.cells.place(x, y, m);
+        else this.spark(x, y, p.trails[0] ?? '#ffffff', true, randInt(10, 26), 8);
+      }
     }
   }
 
@@ -872,10 +962,11 @@ export class RangeWorld {
       const nx = p.x + (p.vx * DT) / steps;
       const ny = p.y + (p.vy * DT) / steps;
       const c = this.cell(nx, ny);
+      if (p.dieOnLiquid && this.isLiquid(nx, ny)) return this.die(p, 'hit');
       if (c !== AIR && p.collideWorld) {
-        if (c === ROCK && p.groundPen && p.groundPen.maxDurability >= this.data.rockDurability) {
+        if (c === ROCK && p.groundPen && p.groundPen.maxDurability >= this.durabilityAt(nx, ny)) {
           // Luminous drill: bores through rock it can break.
-          this.carve(nx, ny, 2);
+          this.carve(nx, ny, 2, 100, p.groundPen.maxDurability);
           p.x = nx;
           p.y = ny;
           continue;
@@ -1006,7 +1097,7 @@ export class RangeWorld {
     }
     const e = p.explosion;
     if (e && (reason === 'hit' ? e.onDeath : e.onTimeout || e.onDeath)) {
-      this.explode(p.x, p.y, e.radius, e.damage, e.digs && e.digDurability >= this.data.rockDurability, p.critChance, e.color, p.spareShooter, p.visual?.explosion);
+      this.explode(p.x, p.y, e.radius, e.damage, e.digs ? e.digDurability || EXPLOSION_DIG_DEFAULT : -1, p.critChance, e.color, p.spareShooter, p.visual?.explosion);
     }
     if (p.teleport) this.teleportPlayer(p);
     if (p.spawnOnHit && reason === 'hit') this.spawn(p.spawnOnHit, p.x, p.y, 0, 0);
@@ -1033,7 +1124,7 @@ export class RangeWorld {
    * A blast: damage in the radius and digging, drawn from its config_explosion when known (the animated
    * explosion sprite, its sparks, light, camera shake and the entities it leaves) or a generic flash.
    */
-  explode(x: number, y: number, r: number, damage: number, digs: boolean, crit = 0, color?: string, spareShooter = false, vis?: ExplosionVisual) {
+  explode(x: number, y: number, r: number, damage: number, digDurability: number, crit = 0, color?: string, spareShooter = false, vis?: ExplosionVisual) {
     const c = color ?? (r > 20 ? '#ffb347' : '#fff1c2');
     if (vis) {
       if (vis.sprite) this.addEffect('', x, y, vis.randomRotation ? Math.random() * Math.PI * 2 : 0, 1, { sprites: [vis.sprite], killAfterAnim: true });
@@ -1049,7 +1140,17 @@ export class RangeWorld {
       this.flashes.push({ x, y, r: Math.max(3, r), age: 0, life: 14, color: c });
       for (let i = 0; i < Math.min(60, 4 + r * 1.5); i++) this.spark(x, y, i % 3 ? c : '#fff1c2', true, randInt(8, 28), 60 + r * 4);
     }
-    if (digs) this.carve(x, y, r);
+    // max_durability_to_destroy against each cell's material; liquids are blown away regardless.
+    if (digDurability >= 0) this.carve(x, y, r, 100, digDurability);
+    // create_cell_material: the blast leaves fire, smoke, slime... in the hole.
+    if (vis?.cell) {
+      const m = this.cells.index(vis.cell.material);
+      for (let i = 0; i < r * r * 3 && m > 0; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const d = Math.sqrt(Math.random()) * r;
+        if (Math.random() * 100 < vis.cell.probability) this.cells.place(x + Math.cos(a) * d, y + Math.sin(a) * d, m);
+      }
+    }
     // Blasts throw the player about, strongest at the centre (the engine's explosion push, approximated).
     const pc = this.center(this.player);
     const d = Math.hypot(pc.x - x, pc.y - y);
@@ -1140,7 +1241,7 @@ export class RangeWorld {
     const hit = this.raycast(p.x, p.y, x1, y1);
     const ex = hit?.x ?? x1;
     const ey = hit?.y ?? y1;
-    if (hit && l.digDurability >= this.data.rockDurability) this.carve(ex, ey, l.beamRadius + 1);
+    if (hit) this.carve(ex, ey, l.beamRadius + 1, 100, l.digDurability);
     this.beams.push({ x0: p.x, y0: p.y, x1: ex, y1: ey, color: l.color, radius: l.beamRadius });
     for (const act of this.actors) {
       if (act.id === 'player' && p.spareShooter) continue;
@@ -1203,7 +1304,7 @@ export class RangeWorld {
     this.bolts.push({ points: this.jagged(p.x, p.y, ex, ey, 10), age: 0, life: 10, color: l.color });
     this.segments.push({ x0: p.x, y0: p.y, x1: ex, y1: ey, age: 0, life: 6, color: '#ffffff', width: 0.6 });
     if (struck) this.hurt(struck, p.hit, p.critChance);
-    this.explode(ex, ey, l.radius, l.damage, l.radius > 0 && 12 >= this.data.rockDurability, p.critChance, l.color, true, p.visual?.explosion);
+    this.explode(ex, ey, l.radius, l.damage, l.radius > 0 ? (p.visual?.explosion?.maxDurability ?? 12) : -1, p.critChance, l.color, true, p.visual?.explosion);
   }
 
   private jagged(x0: number, y0: number, x1: number, y1: number, amp: number): [number, number][] {

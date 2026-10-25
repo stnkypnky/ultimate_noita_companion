@@ -128,6 +128,7 @@ export function buildProjectile(file: string, loader: EntityLoader): Projectile 
     penetrateWorld: pc?.attrs.penetrate_world === '1',
     penetrateEntities: pc?.attrs.penetrate_entities === '1',
     dieOnCollision: pc ? pc.attrs.on_collision_die !== '0' : false,
+    dieOnLiquid: pc?.attrs.die_on_liquid_collision === '1',
     friendlyFire: pc?.attrs.friendly_fire === '1',
     damageEveryFrames: num(pc?.attrs.damage_every_x_frames, -1),
     effects,

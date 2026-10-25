@@ -23,6 +23,8 @@ export type Particle = {
   long: boolean;
   friction: number;
   airflow: number;
+  /** Real particles (create_real_particles, trail materials) become this material where they land. */
+  material?: string;
 };
 
 /** Per-entity bookkeeping for one emitter. */
@@ -88,6 +90,7 @@ export function runEmitters(states: EmitterState[], age: number, x: number, y: n
         long: e.long,
         friction: e.friction,
         airflow: e.airflow,
+        ...(e.real ? { material: e.material } : {}),
       });
     };
 
@@ -111,8 +114,8 @@ export function runEmitters(states: EmitterState[], age: number, x: number, y: n
   }
 }
 
-/** Move particles one frame; ones that hit rock stop there and burn out. */
-export function stepParticles(ps: Particle[], solid: (x: number, y: number) => boolean): Particle[] {
+/** Move particles one frame; ones that hit rock stop there and burn out, real ones settling as material. */
+export function stepParticles(ps: Particle[], solid: (x: number, y: number) => boolean, settle?: (x: number, y: number, material: string) => void): Particle[] {
   for (const q of ps) {
     q.vx += q.gx * DT;
     q.vy += q.gy * DT;
@@ -128,6 +131,11 @@ export function stepParticles(ps: Particle[], solid: (x: number, y: number) => b
     const nx = q.x + q.vx * DT;
     const ny = q.y + q.vy * DT;
     if (solid(nx, ny)) {
+      if (q.material && settle) {
+        settle(q.x, q.y, q.material);
+        q.life = q.max;
+        continue;
+      }
       q.vx = q.vy = 0;
       q.life = Math.max(q.life, q.max - 6);
     } else {
@@ -135,6 +143,7 @@ export function stepParticles(ps: Particle[], solid: (x: number, y: number) => b
       q.y = ny;
     }
     q.life++;
+    if (q.life >= q.max && q.material && settle) settle(q.x, q.y, q.material);
   }
   return ps.filter((q) => q.life < q.max);
 }

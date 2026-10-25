@@ -157,6 +157,9 @@ export async function rangeKit(wak: Wak): Promise<{ kit: RangeKit; files: Record
       },
       hp: num(dm.hp, 4) * 25,
       fireDamage: num(dm.fire_damage_amount, 0.2) * 25,
+      materialDamage: Object.fromEntries(
+        (dm.materials_that_damage ?? '').split(',').map((m, i) => [m.trim(), num((dm.materials_how_much_damage ?? '').split(',')[i], 0) * 25] as const).filter(([m]) => m),
+      ),
       hitbox: { minX: num(hb.aabb_min_x, -3), maxX: num(hb.aabb_max_x, 3), minY: num(hb.aabb_min_y, -12), maxY: num(hb.aabb_max_y, 3) },
     },
     arm: { w: aw, h: ah, ox: num(as.attrs.offset_x, 0), oy: num(as.attrs.offset_y, 2), hand },

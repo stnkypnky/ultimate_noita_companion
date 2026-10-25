@@ -2,7 +2,8 @@ import type { Icon, RangeProp, SpriteLayer } from '@/data/types';
 import { gameUrl } from '@/data/store';
 import { layerFrame } from './particles';
 import { animFrame } from './player';
-import { AIR, BEDROCK, H, W, type RangeWorld } from './world';
+import { K_FIRE, K_POWDER, K_STATIC } from './cells';
+import { H, W, type RangeWorld } from './world';
 
 /** Drawing scale over world pixels: sprites stay crisp, text stays readable. */
 export const SCALE = 2;
@@ -71,7 +72,10 @@ export function loadRangeImages(props: Record<string, RangeProp>): Promise<Range
 
 export class RangeRenderer {
   private terrain = document.createElement('canvas');
-  private terrainVersion = -1;
+  private terrainGlow = document.createElement('canvas');
+  private terrainImg = new ImageData(W, H);
+  private terrainGlowImg = new ImageData(W, H);
+  private textures = new Map<string, ImageData | 'loading'>();
   private backdrop: CanvasPattern | null = null;
   /** Bloom layer: glowing particles, emissive sprites and lights, blurred over the scene. */
   private glow = document.createElement('canvas');
@@ -82,8 +86,8 @@ export class RangeRenderer {
     private ctx: CanvasRenderingContext2D,
     private img: RangeImages,
   ) {
-    this.terrain.width = W;
-    this.terrain.height = H;
+    this.terrain.width = this.terrainGlow.width = W;
+    this.terrain.height = this.terrainGlow.height = H;
     this.glow.width = W;
     this.glow.height = H;
     this.glowCtx = this.glow.getContext('2d')!;
@@ -96,27 +100,96 @@ export class RangeRenderer {
     this.backdrop = ctx.createPattern(bg, 'repeat');
   }
 
-  /** Re-texture the terrain (only when it changed). Rock gets a lit top edge like Noita's surfaces. */
+  /**
+   * Repaint the chunks of the cell world that changed. Materials with a texture use it (world-aligned, as
+   * in the game), others their colour with a little per-cell grain; solids exposed to air get a lit top edge;
+   * fire flickers and burning cells glow; glowing materials also go to the bloom layer.
+   */
   private paintTerrain(w: RangeWorld) {
-    if (this.terrainVersion === w.terrainVersion) return;
-    this.terrainVersion = w.terrainVersion;
-    const out = new ImageData(W, H);
-    const { rock, bedrock } = this.img;
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const c = w.terrain[y * W + x]!;
-        if (c === AIR) continue;
-        const tex = c === BEDROCK ? bedrock : rock;
-        const si = ((y % tex.height) * tex.width + (x % tex.width)) * 4;
-        const di = (y * W + x) * 4;
-        const edge = y > 0 && w.terrain[(y - 1) * W + x] === AIR ? 1.35 : 1;
-        out.data[di] = Math.min(255, tex.data[si]! * edge);
-        out.data[di + 1] = Math.min(255, tex.data[si + 1]! * edge);
-        out.data[di + 2] = Math.min(255, tex.data[si + 2]! * edge);
-        out.data[di + 3] = 255;
+    const c = w.cells;
+    const mats = c.mats;
+    for (const m of mats) if (m.texture && !this.textures.has(m.texture)) this.loadTexture(m.texture, c);
+    const img = this.terrainImg;
+    const glow = this.terrainGlowImg;
+    const tctx = this.terrain.getContext('2d')!;
+    const gctx = this.terrainGlow.getContext('2d')!;
+    for (let cy = 0; cy < c.cy; cy++) {
+      for (let cx = 0; cx < c.cx; cx++) {
+        const k = cy * c.cx + cx;
+        if (!c.dirty[k]) continue;
+        c.dirty[k] = 0;
+        const x0 = cx * 32;
+        const y0 = cy * 32;
+        const x1 = Math.min(W, x0 + 32);
+        const y1 = Math.min(H, y0 + 32);
+        for (let y = y0; y < y1; y++) {
+          for (let x = x0; x < x1; x++) {
+            const i = y * W + x;
+            const di = i * 4;
+            const m = c.mat[i]!;
+            if (!m) {
+              img.data[di + 3] = 0;
+              glow.data[di + 3] = 0;
+              continue;
+            }
+            const info = mats[m]!;
+            const tex = info.texture ? this.textures.get(info.texture) : undefined;
+            let r: number;
+            let g: number;
+            let b: number;
+            let a = info.a;
+            if (tex && tex !== 'loading') {
+              const si = ((y % tex.height) * tex.width + (x % tex.width)) * 4;
+              r = tex.data[si]!;
+              g = tex.data[si + 1]!;
+              b = tex.data[si + 2]!;
+              a = Math.max(a, tex.data[si + 3]!);
+            } else {
+              const grain = (((x * 73856093) ^ (y * 19349663)) & 15) - 8;
+              r = info.r + grain;
+              g = info.g + grain;
+              b = info.b + grain;
+            }
+            if (info.kind === K_FIRE) {
+              const f = 0.7 + Math.random() * 0.6;
+              r *= f;
+              g *= f;
+              b *= f;
+              a = 255;
+            }
+            if (c.burning[i]) {
+              r = r * 0.4 + 255 * 0.6;
+              g = g * 0.4 + 120 * 0.6;
+              b *= 0.4;
+            }
+            const solid = info.kind === K_STATIC || info.kind === K_POWDER;
+            const edge = solid && y > 0 && !c.mat[i - W] ? 1.35 : 1;
+            img.data[di] = Math.min(255, Math.max(0, r * edge));
+            img.data[di + 1] = Math.min(255, Math.max(0, g * edge));
+            img.data[di + 2] = Math.min(255, Math.max(0, b * edge));
+            img.data[di + 3] = solid ? 255 : a;
+            const glows = info.glow || c.burning[i];
+            glow.data[di] = img.data[di]!;
+            glow.data[di + 1] = img.data[di + 1]!;
+            glow.data[di + 2] = img.data[di + 2]!;
+            glow.data[di + 3] = glows ? 255 : 0;
+          }
+        }
+        tctx.putImageData(img, 0, 0, x0, y0, x1 - x0, y1 - y0);
+        gctx.putImageData(glow, 0, 0, x0, y0, x1 - x0, y1 - y0);
       }
     }
-    this.terrain.getContext('2d')!.putImageData(out, 0, 0);
+  }
+
+  /** Material textures load on first sight; until then the material's colour stands in. */
+  private loadTexture(path: string, cells: RangeWorld['cells']) {
+    this.textures.set(path, 'loading');
+    const i = new Image();
+    i.onload = () => {
+      this.textures.set(path, pixels(i));
+      cells.dirty.fill(1);
+    };
+    i.src = gameUrl(`materials/${path.split('/').pop()}`);
   }
 
   draw(w: RangeWorld) {
@@ -152,6 +225,8 @@ export class RangeRenderer {
     g.globalCompositeOperation = 'source-over';
     g.globalAlpha = 1;
     g.clearRect(0, 0, W, H);
+    // fire, lava, burning cells and other glowing materials
+    g.drawImage(this.terrainGlow, 0, 0);
     const both = (draw: (c: CanvasRenderingContext2D) => void) => {
       draw(ctx);
       draw(g);

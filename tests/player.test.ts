@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RangeWorld, type RangeData } from '../src/features/range/world.ts';
 import { pickWandSprite } from '../src/features/range/player.ts';
-import type { EntityVisual, Material, Projectile, RangeKit } from '../src/data/types.ts';
+import type { EntityVisual, Material, Projectile, RangeKit, Reaction } from '../src/data/types.ts';
 
 const GAME = join(import.meta.dirname, '../public/game');
 const json = <T>(p: string) => JSON.parse(readFileSync(join(GAME, p), 'utf8')) as T;
@@ -20,6 +20,8 @@ beforeAll(() => {
     materialColor: new Map(materials.map((m) => [m.id, m.color])),
     rockDurability: materials.find((m) => m.id === 'rock_static')?.durability ?? 0,
     kit,
+    materials,
+    reactions: json<Reaction[]>('data/reactions.json'),
   };
 });
 
@@ -74,7 +76,7 @@ describe('player', () => {
   it('dies at 0 HP and respawns with full health', () => {
     const w = new RangeWorld(data);
     for (let i = 0; i < 70; i++) w.step(); // spawn invincibility wears off
-    w.explode(w.player.x, w.player.y - 6, 20, 500, false);
+    w.explode(w.player.x, w.player.y - 6, 20, 500, -1);
     expect(w.body.dead).toBeGreaterThan(0);
     for (let i = 0; i < 120; i++) w.step();
     expect(w.body.dead).toBe(0);

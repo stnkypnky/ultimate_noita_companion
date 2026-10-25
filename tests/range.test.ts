@@ -3,10 +3,10 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createLuaHost, loadGun, type LuaHost } from '../tools/extract/lua.ts';
-import { AIR, RangeWorld, type RangeData } from '../src/features/range/world.ts';
+import { AIR, H, RangeWorld, W, type RangeData } from '../src/features/range/world.ts';
 import { WandRuntime } from '../src/features/range/wand.ts';
 import { castWand, resetWand } from '../src/sim/protocol.ts';
-import type { EntityVisual, Material, Projectile, RangeKit } from '../src/data/types.ts';
+import type { EntityVisual, Material, Projectile, RangeKit, Reaction } from '../src/data/types.ts';
 import { projectileDamage } from '../src/sim/analyze.ts';
 import type { SimRequest, SimResult } from '../src/sim/types.ts';
 
@@ -25,6 +25,8 @@ beforeAll(async () => {
     materialColor: new Map(materials.map((m) => [m.id, m.color])),
     rockDurability: materials.find((m) => m.id === 'rock_static')?.durability ?? 0,
     kit: json<RangeKit>('data/range_kit.json'),
+    materials,
+    reactions: json<Reaction[]>('data/reactions.json'),
   };
 });
 
@@ -76,7 +78,12 @@ function world(deck: string[], frames: number, distance?: number) {
   return { w, spawned, maxBolts, maxBeams, maxSegments, orbiting, maxShift };
 }
 
-const rocks = (w: RangeWorld) => w.terrain.reduce((n, c) => n + (c !== AIR ? 1 : 0), 0);
+/** Cells of rock (and other solids) left in the range. */
+const rocks = (w: RangeWorld) => {
+  let n = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (w.cell(x, y) !== AIR) n++;
+  return n;
+};
 
 describe('test range basics', () => {
   it('spark bolts fly to the dummy and deal their damage', () => {
@@ -200,7 +207,7 @@ describe('looks and physics from the game data', () => {
     const { w } = world([], 0);
     for (let i = 0; i < 70; i++) w.step();
     const vx = w.body.vx;
-    w.explode(w.player.x - 12, w.player.y - 6, 30, 0, false, 0, undefined, false, data.visuals['data/entities/projectiles/bomb.xml']?.explosion);
+    w.explode(w.player.x - 12, w.player.y - 6, 30, 0, -1, 0, undefined, false, data.visuals['data/entities/projectiles/bomb.xml']?.explosion);
     expect(w.effects.length).toBeGreaterThan(0);
     expect(w.shake).toBeGreaterThan(0);
     expect(w.body.vx).toBeGreaterThan(vx + 20);
@@ -208,7 +215,7 @@ describe('looks and physics from the game data', () => {
 
   it('bounces reflect off the surface (a floor keeps the forward motion)', () => {
     const w = new RangeWorld(data);
-    const p = w.spawn('data/entities/projectiles/deck/bouncy_orb.xml', 120, w.floorY - 3, 120, 200, { bounces: 5 })!;
+    const p = w.spawn('data/entities/projectiles/deck/bouncy_orb.xml', 240, w.floorY - 3, 120, 200, { bounces: 5 })!;
     for (let i = 0; i < 4; i++) w.step();
     expect(p.vx).toBeGreaterThan(0);
     expect(p.vy).toBeLessThan(0);

@@ -75,6 +75,9 @@ export function buildMaterials(xml: string, t: Translations): { materials: Mater
       density: num(a.density, 1),
       burnable: a.burnable === '1',
       fireHp: num(a.fire_hp, 0),
+      lifetime: num(a.lifetime, 0),
+      glow: num(a.gfx_glow, 0) > 0,
+      liquidGravity: num(a.liquid_gravity, 0.5),
       hp: num(a.hp, 100),
       durability: num(a.durability, 0),
       conductive: a.electrical_conductivity === '1',
@@ -103,6 +106,7 @@ export function buildMaterials(xml: string, t: Translations): { materials: Mater
       outputs,
       fast: a.fast_reaction === '1',
       ...(a.req_lifetime ? { requiresLifetime: num(a.req_lifetime, 0) } : {}),
+      ...(a.direction ? { direction: a.direction } : {}),
       ...(comp(el, 'ExplosionConfig') ? { explosion: true } : {}),
       ...(a.entity ? { entity: a.entity } : {}),
     });

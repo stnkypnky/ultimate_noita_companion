@@ -42,6 +42,8 @@ export type Projectile = {
   penetrateWorld: boolean;
   penetrateEntities: boolean;
   dieOnCollision: boolean;
+  /** die_on_liquid_collision */
+  dieOnLiquid?: boolean;
   friendlyFire: boolean;
   /** Seconds a damage field ticks for, when damage_every_x_frames is set. */
   damageEveryFrames: number;
@@ -301,6 +303,8 @@ export type RangeKit = {
     hp: number;
     /** DamageModelComponent fire_damage_amount, in HP: what burning takes per second. */
     fireDamage: number;
+    /** materials_that_damage → materials_how_much_damage, in HP per frame of contact. */
+    materialDamage: Record<string, number>;
     /** Damage hitbox around the entity position. */
     hitbox: { minX: number; maxX: number; minY: number; maxY: number };
   };
@@ -340,6 +344,12 @@ export type Material = {
   density: number;
   burnable: boolean;
   fireHp: number;
+  /** Frames a cell lasts before vanishing (gases, fire); 0 = forever. */
+  lifetime?: number;
+  /** gfx_glow: drawn glowing. */
+  glow?: boolean;
+  /** How strongly the liquid/powder falls. */
+  liquidGravity?: number;
   hp: number;
   durability: number;
   conductive: boolean;
@@ -363,6 +373,8 @@ export type Reaction = {
   outputs: string[];
   fast: boolean;
   requiresLifetime?: number;
+  /** Only with the second material on this side of the first (moss grows on top of rock). */
+  direction?: string;
   explosion?: boolean;
   /** Entity spawned by the reaction, if any. */
   entity?: string;
