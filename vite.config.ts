@@ -18,7 +18,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'prompt',
-      includeAssets: ['icons/*.png', 'favicon.svg'],
+      includeAssets: ['icons/*.png'],
       manifest: {
         name: 'Ultimate Noita Companion',
         short_name: 'Noita Companion',

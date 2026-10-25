@@ -43,7 +43,7 @@ function Rail() {
       className="safe-top hidden w-[72px] shrink-0 flex-col border-r border-line bg-raised/80 backdrop-blur md:flex lg:w-[var(--rail-w)]"
     >
       <div className="flex items-center gap-3 px-4 py-5 lg:px-5">
-        <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="h-9 w-9" />
+        <img src={`${import.meta.env.BASE_URL}icons/favicon-64.png`} alt="" className="pixelated h-8 w-8 rounded-[22%]" />
         <div className="hidden leading-tight lg:block">
           <div className="font-display text-[10px] tracking-[0.3em] text-gold uppercase">Ultimate</div>
           <div className="font-display text-lg font-bold">Noita Companion</div>
