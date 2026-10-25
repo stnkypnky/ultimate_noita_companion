@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { motion } from 'motion/react';
-import { ArrowRight, Dices, EyeOff, FlaskConical, Plus } from 'lucide-react';
+import { ArrowRight, Dices, EyeOff, FlaskConical, Plus, RotateCcw, X } from 'lucide-react';
 import { useData } from '@/data/store';
 import type { Material, Reaction } from '@/data/types';
 import { ALCHEMY_KEY } from '@/data/spoilers';
@@ -57,6 +57,11 @@ function SeedRecipes() {
           aria-label="World seed"
           className="h-11 w-48 rounded-xl border border-line bg-surface px-3 font-mono tabular-nums focus:border-line-strong focus:outline-none"
         />
+        {seed && (
+          <button onClick={() => setSeed('')} className="inline-flex h-11 items-center gap-2 rounded-xl px-3 text-sm text-muted hover:text-ink" title="Clear seed">
+            <X size={16} /> Clear
+          </button>
+        )}
         <button onClick={() => setSeed(String(Math.floor(Math.random() * MAX_SEED)))} className="inline-flex h-11 items-center gap-2 rounded-xl px-3 text-sm text-muted hover:text-ink" title="Random seed">
           <Dices size={17} /> Random
         </button>
@@ -155,6 +160,17 @@ function Mixer() {
         <MaterialPicker value={a} onChange={setA} options={options} label="First material" />
         <Plus size={16} className="mx-auto shrink-0 text-faint sm:mx-0" />
         <MaterialPicker value={b} onChange={setB} options={options} label="Second material" />
+        {(a || b) && (
+          <button
+            onClick={() => {
+              setA(null);
+              setB(null);
+            }}
+            className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-sm text-muted hover:text-ink"
+          >
+            <RotateCcw size={15} /> Reset
+          </button>
+        )}
       </div>
       {a && b && (
         <div className="mt-4">
@@ -198,14 +214,14 @@ function ReactionResult({ r }: { r: Reaction }) {
 function MaterialPicker({ value, onChange, options, label }: { value: Material | null; onChange: (m: Material | null) => void; options: Material[]; label: string }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
-  const list = useMemo(() => options.filter((m) => m.name.toLowerCase().includes(q.toLowerCase()) || m.id.includes(q.toLowerCase())).slice(0, 40), [options, q]);
+  const list = useMemo(() => options.filter((m) => m.name.toLowerCase().includes(q.toLowerCase()) || m.id.includes(q.toLowerCase())), [options, q]);
   return (
     <div className="relative flex-1">
       <div className="flex h-11 items-center gap-2 rounded-xl border border-line bg-raised px-2 focus-within:border-line-strong">
         {value && <MaterialSwatch material={value} size={24} />}
         <input
           aria-label={label}
-          value={open ? q : value ? titleCase(value.name) : q}
+          value={open ? q : value ? titleCase(value.name) : ''}
           placeholder={label}
           onFocus={() => {
             setOpen(true);
@@ -215,6 +231,11 @@ function MaterialPicker({ value, onChange, options, label }: { value: Material |
           onChange={(e) => setQ(e.target.value)}
           className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none focus-visible:outline-none"
         />
+        {value && !open && (
+          <button aria-label={`Clear ${label.toLowerCase()}`} onClick={() => onChange(null)} className="rounded-md p-1.5 text-faint hover:text-ink">
+            <X size={15} />
+          </button>
+        )}
       </div>
       {open && (
         <ul className="scrollbar-thin absolute inset-x-0 top-12 z-20 max-h-64 overflow-y-auto rounded-xl border border-line-strong bg-surface-2 p-1 shadow-[var(--shadow)]">
