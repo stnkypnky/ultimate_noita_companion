@@ -5,11 +5,17 @@ import { router } from './routes';
 import { Splash } from './Splash';
 import { useGameData } from '@/data/store';
 import { useProgress } from '@/store/progress';
+import { useWand } from '@/features/wand/store';
 
 const MIN_SPLASH_MS = 1100;
 
-const subscribeHydration = (cb: () => void) => useProgress.persist.onFinishHydration(cb);
-const isHydrated = () => useProgress.persist.hasHydrated();
+// Persisted stores load asynchronously from IndexedDB; render only once both are in.
+const PERSISTED = [useProgress, useWand] as const;
+const subscribeHydration = (cb: () => void) => {
+  const offs = PERSISTED.map((s) => s.persist.onFinishHydration(cb));
+  return () => offs.forEach((off) => off());
+};
+const isHydrated = () => PERSISTED.every((s) => s.persist.hasHydrated());
 
 export function App() {
   const status = useGameData((s) => s.status);

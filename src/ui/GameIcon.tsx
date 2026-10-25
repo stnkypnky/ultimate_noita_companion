@@ -25,6 +25,17 @@ export const TYPE_LABEL: Record<SpellType, string> = {
   passive: 'Passive',
 };
 
+export const TYPE_SHORT: Record<SpellType, string> = {
+  projectile: 'Projectile',
+  static: 'Static',
+  modifier: 'Modifier',
+  multicast: 'Multicast',
+  material: 'Material',
+  other: 'Other',
+  utility: 'Utility',
+  passive: 'Passive',
+};
+
 export const TYPE_COLOR: Record<SpellType, string> = {
   projectile: '#e2445c',
   static: '#ff9b3d',

@@ -70,6 +70,13 @@ function OnActionPlayed(id)
   if rec then table.insert(rec.cast.played, id) end
 end
 
+-- Also note which deck slot each played action came from (-1 = always cast / generated).
+local orig_play_action = play_action
+function play_action(action)
+  if rec then table.insert(rec.cast.slots, action.inventoryitem_id or -1) end
+  return orig_play_action(action)
+end
+
 function OnNotEnoughManaForAction()
   if rec then rec.cast.no_mana = rec.cast.no_mana + 1 end
 end
@@ -155,7 +162,7 @@ function sim_run(max_casts, stop_on_reload)
     end
     __world.frame = frame
 
-    local cast = { index = i, frame = frame, mana_before = wand_mana, played = {}, uses = {}, events = {}, no_mana = 0 }
+    local cast = { index = i, frame = frame, mana_before = wand_mana, played = {}, slots = {}, uses = {}, events = {}, no_mana = 0 }
     rec = { stack = { new_shot() }, proj_stack = {}, cast = cast }
 
     _start_shot(wand_mana)

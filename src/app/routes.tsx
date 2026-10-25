@@ -9,6 +9,7 @@ import { MaterialsPage } from '@/features/materials/MaterialsPage';
 import { ProgressPage } from '@/features/progress/ProgressPage';
 import { ImportPage } from '@/features/progress/ImportPage';
 import { SettingsPage } from '@/features/settings/SettingsPage';
+import { WandPage } from '@/features/wand/WandPage';
 import { NotFound } from '@/ui/NotFound';
 
 export const router = createBrowserRouter(
@@ -18,7 +19,7 @@ export const router = createBrowserRouter(
       children: [
         { index: true, element: <HomePage /> },
         { path: 'more', element: <MorePage /> },
-        { path: 'wand', element: <Placeholder title="Wand Builder" /> },
+        { path: 'wand', element: <WandPage /> },
         { path: 'spells/:id?', element: <SpellsPage /> },
         { path: 'perks/:id?', element: <PerksPage /> },
         { path: 'items/:id?', element: <Placeholder title="Items" /> },

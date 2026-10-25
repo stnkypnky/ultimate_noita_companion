@@ -1,6 +1,7 @@
 // Compact, URL-safe encoding of a player's progress so a PC can hand it to a phone via QR code.
 import type { Enemy, Perk, Spell } from '@/data/types';
 import type { Progress, RunSummary } from '@/store/progress';
+import { fromBase64Url, packJson, toBase64Url, unpackJson } from '../../lib/encoding';
 
 type Lists = { spells: Pick<Spell, 'discoverFlag'>[]; perks: Pick<Perk, 'discoverFlag'>[]; enemies: Pick<Enemy, 'id'>[] };
 
@@ -18,18 +19,7 @@ type Payload = {
   r?: RunSummary;
 };
 
-// ---------- base64url / bitsets ----------
-
-export function toBase64Url(bytes: Uint8Array): string {
-  let s = '';
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-export function fromBase64Url(s: string): Uint8Array {
-  const b = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4));
-  return Uint8Array.from(b, (c) => c.charCodeAt(0));
-}
+// ---------- bitsets ----------
 
 function bitset(n: number, has: (i: number) => boolean): string {
   const bytes = new Uint8Array(Math.ceil(n / 8));
@@ -42,13 +32,6 @@ function readBits(s: string, n: number): number[] {
   const out: number[] = [];
   for (let i = 0; i < n; i++) if ((bytes[i >> 3] ?? 0) & (1 << (i & 7))) out.push(i);
   return out;
-}
-
-// ---------- compression ----------
-
-async function pipe(data: Uint8Array, stream: CompressionStream | DecompressionStream): Promise<Uint8Array> {
-  const out = new Response(new Blob([data as BlobPart]).stream().pipeThrough(stream));
-  return new Uint8Array(await out.arrayBuffer());
 }
 
 // ---------- public API ----------
@@ -68,8 +51,7 @@ export async function encodeProgress(progress: Progress, lists: Lists, gameHash:
     o: progress.orbs,
     ...(progress.runs ? { r: progress.runs } : {}),
   };
-  const json = new TextEncoder().encode(JSON.stringify(payload));
-  return toBase64Url(await pipe(json, new CompressionStream('deflate-raw')));
+  return packJson(payload);
 }
 
 export class SyncCodeError extends Error {}
@@ -77,8 +59,7 @@ export class SyncCodeError extends Error {}
 export async function decodeProgress(code: string, lists: Lists, gameHash: string): Promise<{ progress: Progress; versionMismatch: boolean }> {
   let payload: Payload;
   try {
-    const json = await pipe(fromBase64Url(code.trim()), new DecompressionStream('deflate-raw'));
-    payload = JSON.parse(new TextDecoder().decode(json)) as Payload;
+    payload = await unpackJson<Payload>(code);
   } catch {
     throw new SyncCodeError("That sync code couldn't be read. Make sure you copied all of it.");
   }
