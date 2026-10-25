@@ -1,0 +1,113 @@
+@import 'tailwindcss';
+
+/* ---------- Design tokens ---------- */
+:root {
+  --bg: #0d0b10;
+  --bg-raised: #15121a;
+  --surface: #1c1822;
+  --surface-2: #241f2c;
+  --surface-3: #2e2838;
+  --border: #352e40;
+  --border-strong: #4a4058;
+  --text: #f1ebe4;
+  --text-muted: #a99fb4;
+  --text-faint: #6f6679;
+  --ember: #ff7a1a;
+  --ember-soft: #ff7a1a26;
+  --gold: #e8c25a;
+  --gold-soft: #e8c25a22;
+  --arcane: #9b7bff;
+  --arcane-soft: #9b7bff22;
+  --toxic: #7bd65c;
+  --frost: #6cc8ff;
+  --blood: #e2445c;
+  --shadow: 0 8px 30px #0008;
+  --radius: 14px;
+  --radius-sm: 9px;
+  --nav-h: 64px;
+  --rail-w: 232px;
+  color-scheme: dark;
+}
+
+@theme {
+  --color-bg: var(--bg);
+  --color-raised: var(--bg-raised);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-ember: var(--ember);
+  --color-gold: var(--gold);
+  --color-arcane: var(--arcane);
+  --color-toxic: var(--toxic);
+  --color-frost: var(--frost);
+  --color-blood: var(--blood);
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Pixelify Sans', 'Inter Variable', ui-sans-serif, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
+}
+
+/* ---------- Base ---------- */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+::selection {
+  background: var(--ember-soft);
+}
+
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.pixelated {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* Subtle cave-glow backdrop used behind the app */
+.app-backdrop {
+  background:
+    radial-gradient(1200px 600px at 85% -10%, #ff7a1a14, transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, #9b7bff10, transparent 60%),
+    var(--bg);
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

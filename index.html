@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0d0b10" />
+    <meta name="description" content="Unofficial Noita companion: wand simulator, spell & perk database, materials and alchemy." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <title>Ultimate Noita Companion</title>
+    <style>
+      /* Static pre-splash so there is never a white flash before JS boots */
+      html, body { margin: 0; background: #0d0b10; }
+      #boot { position: fixed; inset: 0; display: grid; place-items: center; background: #0d0b10; }
+      #boot .orb { width: 72px; height: 72px; border-radius: 50%;
+        background: radial-gradient(circle at 35% 35%, #ffd27a, #ff7a1a 45%, #6b1d00 80%);
+        box-shadow: 0 0 60px #ff7a1a88; animation: boot-pulse 1.4s ease-in-out infinite; }
+      @keyframes boot-pulse { 50% { transform: scale(1.08); box-shadow: 0 0 90px #ff7a1aaa; } }
+    </style>
+  </head>
+  <body>
+    <div id="boot"><div class="orb"></div></div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
