@@ -114,10 +114,38 @@ export type EntityVisual = {
   light?: { color: string; radius: number };
   homing?: { coeff: number; velocityMultiplier: number; detectDistance: number; rotateOnly: boolean; maxTurnRate: number; targetShooter: boolean };
   sine?: { freq: number; m: number };
-  cellEater?: { radius: number };
+  cellEater?: { radius: number; probability: number };
   /** LuaComponents: script basename + schedule. The range implements the common ones. */
   scripts?: { script: string; every: number; onAdded: boolean; times: number }[];
-  physics?: { bounceEnergy: number; collideWithWorld: boolean; rotate: boolean; dieOnLowVelocity: boolean; digs?: boolean; digDurability?: number };
+  physics?: {
+    bounceEnergy: number;
+    collideWithWorld: boolean;
+    rotate: boolean;
+    dieOnLowVelocity: boolean;
+    /** velocity_sets_scale: drawn stretched along its motion. */
+    streak: boolean;
+    /** collide_with_shooter_frames: frames before friendly fire can hit the caster (-1 = never). */
+    shooterGrace: number;
+    /** explosion_dont_damage_shooter */
+    spareShooter: boolean;
+    groundPenetration?: { coeff: number; maxDurability: number };
+    digs?: boolean;
+    digDurability?: number;
+    explosionColor?: string;
+  };
+  /** LaserEmitterComponent beam (plasma beams). damage is HP per frame. */
+  laser?: { maxLength: number; beamRadius: number; damage: number; angleAdd: number; digDurability: number; color: string; emitting: boolean };
+  /** AreaDamageComponent: damage (HP) per update to anything inside the box. */
+  areaDamage?: { minX: number; minY: number; maxX: number; maxY: number; damage: number; every: number; enabled: boolean };
+  /** LightningComponent: lightning bolts strike instantly along their path. */
+  lightning?: { isProjectile: boolean; radius: number; damage: number; color: string };
+  /** ArcComponent: an arc to the previous arc-carrying projectile. */
+  arc?: { kind: 'lightning' | 'material'; color: string; material?: string; lifetime: number };
+  teleport?: { minDistanceFromWall: number };
+  hitEffect?: { effect: string; entity?: string };
+  physicsBody?: { throwCoeff: number };
+  vars?: Record<string, string>;
+  tags?: string[];
 };
 
 /** Backdrop sprites for the test range (game/sprites/range_<key>.png). */

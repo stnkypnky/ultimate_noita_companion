@@ -8,6 +8,9 @@ import { H, RangeWorld, W, type RangeData } from './world';
 import { RangeRenderer, SCALE, loadRangeImages, type RangeImages } from './render';
 
 const SPEEDS = [0.25, 0.5, 1] as const;
+const DEFAULT_DISTANCE = 228;
+const MIN_DISTANCE = 40;
+const MAX_DISTANCE = 340;
 
 let extra: Promise<{ visuals: Record<string, EntityVisual>; props: Record<string, RangeProp> }> | null = null;
 const loadExtra = () =>
@@ -29,7 +32,22 @@ export function RangePreview({ casts, active }: { casts: SimCast[]; active: bool
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
   const [onScreen, setOnScreen] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
-  const [hud, setHud] = useState({ dps: 0, total: 0, casts: 0, live: 0, unsupported: [] as string[] });
+  const [hud, setHud] = useState({ dps: 0, total: 0, self: 0, casts: 0, live: 0, unsupported: [] as string[] });
+  const [distance, setDistance] = useState(() => {
+    try {
+      return Number(localStorage.getItem('range-distance')) || DEFAULT_DISTANCE;
+    } catch {
+      return DEFAULT_DISTANCE;
+    }
+  });
+  useEffect(() => {
+    worldRef.current?.setDummyDistance(distance);
+    try {
+      localStorage.setItem('range-distance', String(distance));
+    } catch {
+      /* not remembered without storage */
+    }
+  }, [distance, ready]);
 
   // Load range data + sprites once.
   useEffect(() => {
@@ -57,9 +75,12 @@ export function RangePreview({ casts, active }: { casts: SimCast[]; active: bool
   // New cast cycle whenever the wand changes.
   useEffect(() => {
     if (!ready) return;
-    worldRef.current ??= new RangeWorld(ready.data);
+    if (!worldRef.current) {
+      worldRef.current = new RangeWorld(ready.data);
+      worldRef.current.setDummyDistance(distance);
+    }
     worldRef.current.setCycle(casts);
-  }, [ready, casts]);
+  }, [ready, casts]); // distance has its own effect; a new world just starts at the current setting
 
   // Pause when scrolled away or the tab is hidden.
   useEffect(() => {
@@ -99,7 +120,14 @@ export function RangePreview({ casts, active }: { casts: SimCast[]; active: bool
         hudTimer += dt;
         if (hudTimer > 0.25) {
           hudTimer = 0;
-          setHud({ dps: world.dps, total: world.totalDamage, casts: world.castsFired, live: world.projectiles.length, unsupported: [...world.unsupported] });
+          setHud({
+            dps: world.dps,
+            total: world.totalDamage,
+            self: world.selfDamage,
+            casts: world.castsFired,
+            live: world.projectiles.length,
+            unsupported: [...world.unsupported],
+          });
         }
       }
       raf = requestAnimationFrame(loop);
@@ -148,6 +176,11 @@ export function RangePreview({ casts, active }: { casts: SimCast[]; active: bool
         <div className="pointer-events-none absolute top-2 left-2 flex gap-1.5 text-[11px] tabular-nums">
           <span className="rounded bg-black/60 px-1.5 py-0.5 text-ember">{fmtNum(hud.dps, 0)} DPS</span>
           <span className="rounded bg-black/60 px-1.5 py-0.5 text-muted">{fmtNum(hud.total, 0)} total</span>
+          {hud.self > 0 && (
+            <span className="rounded bg-black/60 px-1.5 py-0.5 text-blood" title="Damage your own spells did to you">
+              {fmtNum(hud.self, 0)} to you
+            </span>
+          )}
         </div>
       </div>
 
@@ -181,6 +214,20 @@ export function RangePreview({ casts, active }: { casts: SimCast[]; active: bool
           {big ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
         </Btn>
       </div>
+      <label className="flex items-center gap-3 border-t border-line px-3 py-2 text-xs text-muted">
+        <span className="shrink-0">Dummy distance</span>
+        <input
+          type="range"
+          min={MIN_DISTANCE}
+          max={MAX_DISTANCE}
+          step={2}
+          value={distance}
+          onChange={(e) => setDistance(Number(e.target.value))}
+          className="h-1.5 min-w-0 flex-1 accent-[var(--ember)]"
+          aria-label="Dummy distance in pixels"
+        />
+        <span className="w-12 shrink-0 text-right tabular-nums">{distance} px</span>
+      </label>
       {hud.unsupported.length > 0 && (
         <p className="border-t border-line px-3 py-1.5 text-[11px] text-faint">
           Not shown in the preview yet: {hud.unsupported.map(humanize).join(', ')}. The Casts tab numbers aren't affected.

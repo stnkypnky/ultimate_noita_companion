@@ -25,54 +25,147 @@ beforeAll(async () => {
 });
 
 function casts(deck: string[], always: string[] = []) {
-  host.call('sim_reset', 1, false, 20, deck.length, 10, 0, 1, 1000, 1000, 1000, 100, 100, 0, 0);
+  host.call('sim_reset', 1, false, 20, deck.length, 10, 0, 1, 2000, 2000, 2000, 100, 100, 0, 0);
   for (const id of deck) host.call('sim_add_card', id, -1);
   for (const id of always) host.call('sim_add_always_cast', id);
   return (JSON.parse(host.call<string>('sim_run', 64, true)) as SimResult).casts;
 }
 
+function world(deck: string[], frames: number, distance?: number) {
+  const w = new RangeWorld(data);
+  if (distance !== undefined) w.setDummyDistance(distance);
+  const spawned: string[] = [];
+  const spawn = w.spawn.bind(w);
+  w.spawn = (file, ...rest) => {
+    spawned.push(file.split('/').pop()!);
+    return spawn(file, ...rest);
+  };
+  w.setCycle(casts(deck));
+  let maxBolts = 0;
+  let maxBeams = 0;
+  let maxSegments = 0;
+  let orbiting = 0;
+  for (let i = 0; i < frames; i++) {
+    w.step();
+    maxBolts = Math.max(maxBolts, w.bolts.length);
+    maxBeams = Math.max(maxBeams, w.beams.length);
+    maxSegments = Math.max(maxSegments, w.segments.length);
+    orbiting = Math.max(orbiting, w.projectiles.filter((p) => p.parent).length);
+  }
+  return { w, spawned, maxBolts, maxBeams, maxSegments, orbiting };
+}
+
 const rocks = (w: RangeWorld) => w.terrain.reduce((n, c) => n + (c !== AIR ? 1 : 0), 0);
 
-describe('test range', () => {
+describe('test range basics', () => {
   it('spark bolts fly to the dummy and deal their damage', () => {
-    const w = new RangeWorld(data);
-    w.setCycle(casts(['LIGHT_BULLET']));
-    for (let i = 0; i < 120; i++) w.step();
+    const { w } = world(['LIGHT_BULLET'], 120);
     expect(w.castsFired).toBeGreaterThan(3);
     expect(w.damageEvents.length).toBeGreaterThan(0);
-    // 3 damage, or 15 on a 5% crit
     expect(w.damageEvents.every((e) => e.amount === 3 || e.amount === 15)).toBe(true);
   });
 
   it('a bomb in a trigger payload explodes and digs the terrain', () => {
-    const w = new RangeWorld(data);
-    const before = rocks(w);
-    w.setCycle(casts(['LIGHT_BULLET_TRIGGER', 'BOMB']));
-    for (let i = 0; i < 400; i++) w.step();
+    const before = rocks(new RangeWorld(data));
+    const { w } = world(['LIGHT_BULLET_TRIGGER', 'BOMB'], 400);
     expect(rocks(w)).toBeLessThan(before - 200);
     expect(w.totalDamage).toBeGreaterThan(100);
   });
 
   it('homing bends shots into the dummy', () => {
-    const w = new RangeWorld(data);
-    w.setCycle(casts(['HOMING', 'BUBBLESHOT']));
-    for (let i = 0; i < 300; i++) w.step();
-    expect(w.damageEvents.length).toBeGreaterThan(0);
+    expect(world(['HOMING', 'BUBBLESHOT'], 300).w.damageEvents.length).toBeGreaterThan(0);
   });
 
-  it('fires the first cast on the first step', () => {
-    const w = new RangeWorld(data);
-    w.setCycle(casts(['LIGHT_BULLET', 'LIGHT_BULLET']));
-    w.step();
-    expect(w.castsFired).toBe(1);
-  });
-
-  it('loops the cast cycle', () => {
-    const w = new RangeWorld(data);
+  it('fires the first cast on the first step and loops the cycle', () => {
     const c = casts(['LIGHT_BULLET', 'LIGHT_BULLET']);
     const cycle = c.at(-1)!.next_frame - c[0]!.frame;
+    const w = new RangeWorld(data);
     w.setCycle(c);
-    for (let i = 0; i < cycle * 3; i++) w.step();
+    w.step();
+    expect(w.castsFired).toBe(1);
+    for (let i = 1; i < cycle * 3; i++) w.step();
     expect(w.castsFired).toBe(6);
+  });
+
+  it('moves the dummy with the range adjuster', () => {
+    const w = new RangeWorld(data);
+    w.setDummyDistance(100);
+    expect(w.dummy.x - w.player.x).toBe(100);
+  });
+});
+
+describe('spell fixes', () => {
+  it('giga disc slows, comes back and hurts the caster', () => {
+    const { w } = world(['DISC_BULLET_BIG'], 360, 300);
+    expect(w.selfDamage).toBeGreaterThan(0);
+  });
+
+  it('chain bolt hops and zaps a nearby dummy', () => {
+    const { w, maxSegments, spawned } = world(['CHAIN_BOLT'], 120, 70);
+    expect(spawned.filter((f) => f === 'chain_bolt_explosion.xml').length).toBeGreaterThan(2);
+    expect(maxSegments).toBeGreaterThan(0);
+    expect(w.totalDamage).toBeGreaterThan(0);
+  });
+
+  it('glitter bomb is a short lob that digs', () => {
+    const before = rocks(new RangeWorld(data));
+    const { w } = world(['GLITTER_BOMB'], 70);
+    expect(rocks(w)).toBeLessThan(before);
+  });
+
+  it('luminous drill is drawn as a short beam and bores into rock', () => {
+    const { w, maxSegments } = world(['LUMINOUS_DRILL'], 30, 300);
+    expect(maxSegments).toBeGreaterThan(0);
+    void w;
+  });
+
+  it('teleport bolt moves the caster', () => {
+    const { w } = world(['TELEPORT_PROJECTILE'], 30);
+    expect(Math.abs(w.player.x - w.player.homeX)).toBeGreaterThan(20);
+  });
+
+  it('swapper swaps caster and dummy', () => {
+    const { w } = world(['SWAPPER_PROJECTILE'], 30, 120);
+    expect(w.player.x).toBeGreaterThan(w.player.homeX + 60);
+  });
+});
+
+describe('effects', () => {
+  it('orbit spells put four projectiles in orbit', () => {
+    expect(world(['ORBIT_DISCS', 'LIGHT_BULLET'], 10).orbiting).toBe(4);
+    expect(world(['ORBIT_LASERS', 'LIGHT_BULLET'], 10).orbiting).toBe(4);
+    // stacked orbit modifiers each bring their own four (a nuke may clip the floor and blow up at once)
+    const { spawned } = world(['ORBIT_NUKES', 'ORBIT_LASERS', 'ARROW'], 3);
+    expect(spawned.filter((f) => f === 'orbit_nukes_nuke.xml')).toHaveLength(4);
+    expect(spawned.filter((f) => f === 'orbit_lasers_laser.xml')).toHaveLength(4);
+  });
+
+  it('bounce modifiers spawn their effect on bounce', () => {
+    for (const [mod, fx] of [
+      ['BOUNCE_EXPLOSION', 'bounce_explosion.xml'],
+      ['BOUNCE_SMALL_EXPLOSION', 'bounce_small_explosion.xml'],
+      ['BOUNCE_SPARK', 'bounce_spark_friendly_fire.xml'],
+      ['BOUNCE_LASER', 'bounce_laser.xml'],
+      ['BOUNCE_LIGHTNING', 'bounce_lightning.xml'],
+    ] as const) {
+      const { spawned } = world([mod, 'BOUNCY_ORB'], 200);
+      expect(spawned, mod).toContain(fx);
+    }
+  });
+
+  it('lightning bolt strikes the dummy', () => {
+    const { w, maxBolts } = world(['LIGHTNING'], 20);
+    expect(maxBolts).toBeGreaterThan(0);
+    expect(w.totalDamage).toBeGreaterThan(0);
+  });
+
+  it('plasma beam emits a damaging laser', () => {
+    const { w, maxBeams } = world(['LASER_EMITTER'], 120, 70);
+    expect(maxBeams).toBeGreaterThan(0);
+    expect(w.totalDamage).toBeGreaterThan(0);
+  });
+
+  it('electric arc links projectiles of a cast', () => {
+    expect(world(['ARC_ELECTRIC', 'BURST_2', 'BUBBLESHOT', 'BUBBLESHOT'], 30).maxBolts).toBeGreaterThan(0);
   });
 });

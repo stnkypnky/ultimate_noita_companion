@@ -97,9 +97,15 @@ for (const [id, tex] of textures) {
 console.log(`materials: ${materials.length}, reactions: ${reactions.length}, textures: ${textures.size}`);
 
 // ---------- Test range: projectile/effect visuals, dummy & player sprites ----------
-const materialColor = new Map(materials.map((m) => [m.id, m.color]));
+const materialLook = new Map(materials.map((m) => [m.id, { color: m.color, texture: textures.get(m.id) }]));
 const visualFiles = [...new Set([...spells.flatMap((s) => s.projectiles), ...spells.flatMap((s) => [...s.extraEntities, ...String(s.stats.extra_entities ?? '').split(',')])].filter(Boolean))];
-const vis = await collectVisuals(visualFiles, wak, loader, materialColor);
+const vis = await collectVisuals(visualFiles, wak, loader, materialLook);
+// Entities spells spawn indirectly (bounce effects, orbiting projectiles, chain-bolt hops) need projectile data too.
+for (const f of vis.entities) {
+  if (projectiles[f]) continue;
+  const p = buildProjectile(f, loader);
+  if (p) projectiles[f] = p;
+}
 const projAtlas = await buildAtlas(vis.images, 16);
 const visuals: Record<string, EntityVisual> = {};
 for (const [file, v] of Object.entries(vis.visuals)) {
