@@ -1,0 +1,82 @@
+import { AnimatePresence, motion } from 'motion/react';
+import { Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { useNavigate } from 'react-router';
+import { useProgress } from '@/store/progress';
+
+/** First launch: decide how spoilers are handled before showing any game content. */
+export function Onboarding() {
+  const onboarded = useProgress((s) => s.onboarded);
+  const setOnboarded = useProgress((s) => s.setOnboarded);
+  const setMode = useProgress((s) => s.setMode);
+  const navigate = useNavigate();
+
+  const choose = (mode: 'progress' | 'all', thenSync = false) => {
+    setMode(mode);
+    setOnboarded();
+    if (thenSync) navigate('/progress');
+  };
+
+  return (
+    <AnimatePresence>
+      {!onboarded && (
+        <motion.div
+          className="fixed inset-0 z-[60] grid place-items-end bg-black/70 backdrop-blur-sm sm:place-items-center"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="onboard-title"
+            className="safe-bottom w-full max-w-md rounded-t-[24px] border border-line-strong bg-surface p-6 sm:rounded-[24px]"
+            initial={{ y: 40, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 40, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+          >
+            <div className="font-display text-xs tracking-[0.3em] text-gold uppercase">Welcome, seeker</div>
+            <h2 id="onboard-title" className="mt-1 font-display text-2xl">How much do you want to know?</h2>
+            <p className="mt-2 text-sm text-muted">
+              Noita is full of secrets. The companion can hide everything you haven't discovered in-game yet.
+            </p>
+            <div className="mt-5 space-y-2">
+              <Option
+                icon={<RefreshCw size={18} />}
+                title="Sync my progress"
+                text="Show only what my save file says I've found. Best on the PC where Noita is installed."
+                onClick={() => choose('progress', true)}
+                primary
+              />
+              <Option
+                icon={<EyeOff size={18} />}
+                title="Hide everything for now"
+                text="Start fully spoiler-free. You can sync or reveal things one at a time later."
+                onClick={() => choose('progress')}
+              />
+              <Option icon={<Eye size={18} />} title="Show me everything" text="No spoiler protection. I've seen it all." onClick={() => choose('all')} />
+            </div>
+            <p className="mt-4 text-center text-[11px] text-faint">You can change this any time in Settings.</p>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function Option({ icon, title, text, onClick, primary }: { icon: React.ReactNode; title: string; text: string; onClick: () => void; primary?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition ${
+        primary ? 'border-ember/50 bg-ember/10 hover:bg-ember/15' : 'border-line bg-raised hover:border-line-strong'
+      }`}
+    >
+      <span className={`mt-0.5 ${primary ? 'text-ember' : 'text-muted'}`}>{icon}</span>
+      <span>
+        <span className="block font-semibold">{title}</span>
+        <span className="mt-0.5 block text-sm text-muted">{text}</span>
+      </span>
+    </button>
+  );
+}

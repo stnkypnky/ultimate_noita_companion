@@ -1,15 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { AnimatePresence } from 'motion/react';
 import { RouterProvider } from 'react-router';
 import { router } from './routes';
 import { Splash } from './Splash';
 import { useGameData } from '@/data/store';
+import { useProgress } from '@/store/progress';
 
 const MIN_SPLASH_MS = 1100;
 
+const subscribeHydration = (cb: () => void) => useProgress.persist.onFinishHydration(cb);
+const isHydrated = () => useProgress.persist.hasHydrated();
+
 export function App() {
   const status = useGameData((s) => s.status);
+  const error = useGameData((s) => s.error);
   const load = useGameData((s) => s.load);
+  const hydrated = useSyncExternalStore(subscribeHydration, isHydrated);
   const [minElapsed, setMinElapsed] = useState(false);
 
   useEffect(() => {
@@ -18,12 +24,28 @@ export function App() {
     return () => clearTimeout(t);
   }, [load]);
 
-  const ready = minElapsed && status !== 'loading';
+  const ready = minElapsed && hydrated && status !== 'loading';
 
   return (
     <>
-      {ready && <RouterProvider router={router} />}
+      {ready && status === 'ready' && <RouterProvider router={router} />}
+      {ready && status === 'missing' && <LoadError error={error} />}
       <AnimatePresence>{!ready && <Splash key="splash" />}</AnimatePresence>
     </>
+  );
+}
+
+function LoadError({ error }: { error?: string }) {
+  return (
+    <div className="grid h-full place-items-center p-6 text-center">
+      <div>
+        <h1 className="font-display text-2xl">The arcane files are missing</h1>
+        <p className="mt-2 text-sm text-muted">Game data couldn't be loaded. If you're offline, connect once so the app can cache it.</p>
+        {error && <code className="mt-4 block text-xs text-faint">{error}</code>}
+        <button onClick={() => location.reload()} className="mt-6 rounded-xl bg-ember px-4 py-2 font-semibold text-bg">
+          Try again
+        </button>
+      </div>
+    </div>
   );
 }

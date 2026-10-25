@@ -7,7 +7,10 @@ export type AtlasInput = { key: string; png: Buffer };
  * Packs small icons into one grid atlas. Cell size is the largest icon; each icon sits at its cell's top-left.
  * Returns the PNG and each key's rectangle.
  */
-export async function buildAtlas(inputs: AtlasInput[], columns = 32): Promise<{ png: Buffer; rects: Map<string, Icon> }> {
+export async function buildAtlas(
+  inputs: AtlasInput[],
+  columns = 32,
+): Promise<{ png: Buffer; rects: Map<string, Icon>; size: [number, number] }> {
   const metas = await Promise.all(
     inputs.map(async (i) => {
       const m = await sharp(i.png).metadata();
@@ -31,7 +34,7 @@ export async function buildAtlas(inputs: AtlasInput[], columns = 32): Promise<{ 
     .composite(composites)
     .png({ compressionLevel: 9 })
     .toBuffer();
-  return { png, rects };
+  return { png, rects, size: [cols * cw, rows * ch] };
 }
 
 /** First frame of an icon that might be a horizontal strip. */

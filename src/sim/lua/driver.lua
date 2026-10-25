@@ -190,8 +190,24 @@ end
 -- Reflection: what each action does to an empty shot (like the in-game tooltip)
 ---------------------------------------------------------------------------
 local reflect_projectiles = nil
+local reflect_trigger = nil
 function Reflection_RegisterProjectile(file)
   if reflect_projectiles then table.insert(reflect_projectiles, file) end
+end
+
+-- In reflection mode the trigger helpers return before drawing their payload, so note what they would draw.
+local orig_timer, orig_hit, orig_death = add_projectile_trigger_timer, add_projectile_trigger_hit_world, add_projectile_trigger_death
+function add_projectile_trigger_timer(file, delay, count)
+  if reflecting then reflect_trigger = { kind = "timer", draw = count, delay = delay } end
+  return orig_timer(file, delay, count)
+end
+function add_projectile_trigger_hit_world(file, count)
+  if reflecting then reflect_trigger = { kind = "hit", draw = count } end
+  return orig_hit(file, count)
+end
+function add_projectile_trigger_death(file, count)
+  if reflecting then reflect_trigger = { kind = "death", draw = count } end
+  return orig_death(file, count)
 end
 
 local STATIC_FIELDS = {
@@ -217,8 +233,10 @@ function reflect_actions()
     current_reload_time = 0
     deck, hand, discarded = {}, {}, {}
     reflect_projectiles = {}
+    reflect_trigger = nil
     set_current_action(a)
     local ok, err = pcall(a.action, 0, 0)
+    r.trigger = reflect_trigger
     if ok then
       r.stats = state_diff(c, DEFAULT_STATE)
       r.reload_delta = current_reload_time

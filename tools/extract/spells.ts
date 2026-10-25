@@ -26,6 +26,7 @@ export type RawAction = {
   reload_delta?: number;
   draw?: number;
   projectiles?: string[];
+  trigger?: { kind: 'hit' | 'timer' | 'death'; draw: number; delay?: number };
   reflect_error?: string;
 };
 
@@ -69,6 +70,7 @@ export function buildSpells(raw: RawAction[], t: Translations, icons: Map<string
       ...(a.spawn_requires_flag ? { requiresFlag: a.spawn_requires_flag } : {}),
       recursive: !!a.recursive,
       draw: a.draw ?? 0,
+      ...(a.trigger ? { trigger: a.trigger } : {}),
       stats,
       reloadDelta: round(a.reload_delta ?? 0),
       projectiles,

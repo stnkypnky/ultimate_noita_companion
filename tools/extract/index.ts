@@ -105,6 +105,7 @@ const version: GameVersion = {
   branch: existsSync(branchFile) ? readFileSync(branchFile, 'utf8').trim() : 'unknown',
   extractedAt: new Date().toISOString(),
   counts: { spells: spells.length, perks: perks.length, materials: materials.length, reactions: reactions.length, projectiles: Object.keys(projectiles).length },
+  atlases: { spells: spellAtlas.size, perks: perkAtlas.size },
 };
 await writeJson('version.json', version);
 wak.close();

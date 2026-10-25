@@ -6,6 +6,8 @@ export type GameVersion = {
   branch: string;
   extractedAt: string;
   counts: Record<string, number>;
+  /** Pixel size of each sprite atlas in game/sprites/. */
+  atlases: Record<string, [number, number]>;
 };
 
 export const SPELL_TYPES = ['projectile', 'static', 'modifier', 'multicast', 'material', 'other', 'utility', 'passive'] as const;
@@ -64,8 +66,10 @@ export type Spell = {
   /** Persistent flag needed before it can appear (secret unlocks). */
   requiresFlag?: string;
   recursive: boolean;
-  /** How many extra spells it draws (multicasts, triggers). */
+  /** How many extra spells it draws (multicasts, modifiers). */
   draw: number;
+  /** Trigger spells: when the payload fires and how many spells it carries. */
+  trigger?: { kind: 'hit' | 'timer' | 'death'; draw: number; delay?: number };
   /** Effect on the shot state, as seen by reflection (fire_rate_wait, spread_degrees, damage_*_add, ...). */
   stats: Record<string, number | string>;
   /** Frames added to recharge time. */

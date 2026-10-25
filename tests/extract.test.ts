@@ -65,4 +65,9 @@ describe('extracted game data', () => {
   it('reads multicast draw counts via reflection', () => {
     expect(byId.get('BURST_3')!.draw).toBe(3);
   });
+
+  it('records trigger payloads', () => {
+    expect(byId.get('LIGHT_BULLET_TRIGGER')!.trigger).toEqual({ kind: 'hit', draw: 1 });
+    expect(byId.get('LIGHT_BULLET_TIMER')!.trigger).toMatchObject({ kind: 'timer', draw: 1, delay: 10 });
+  });
 });

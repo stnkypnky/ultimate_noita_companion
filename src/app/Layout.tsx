@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { NavLink, useLocation, useOutlet } from 'react-router';
 import { MORE, NAV, type NavItem } from './nav';
 import { UpdateToast } from './UpdateToast';
+import { Onboarding } from './Onboarding';
 
 export function Layout() {
   const location = useLocation();
@@ -30,6 +31,7 @@ export function Layout() {
         <BottomNav />
       </div>
       <UpdateToast />
+      <Onboarding />
     </div>
   );
 }
