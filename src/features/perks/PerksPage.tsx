@@ -83,12 +83,11 @@ export function PerksPage() {
                 <li key={p.id}>
                   <button
                     onClick={() => navigate(`/perks/${p.id}`)}
-                    className={`flex w-full items-center gap-3 rounded-[var(--radius-sm)] border p-2.5 text-left transition-colors ${
-                      p.id === id ? 'border-ember/60 bg-surface-2' : 'border-line bg-surface hover:border-line-strong hover:bg-surface-2'
-                    }`}
+                    data-active={p.id === id || undefined}
+                    className="slot slot-hover flex w-full items-center gap-3 p-2.5 text-left"
                   >
                     <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-raised">
-                      {hidden ? <span className="font-display text-lg text-faint">?</span> : <AtlasIcon atlas="perks" icon={p.icon} scale={2} />}
+                      {hidden ? <span className="font-game text-[16px] text-faint">?</span> : <AtlasIcon atlas="perks" icon={p.icon} scale={2} />}
                     </span>
                     <span className={`truncate text-[13px] font-medium ${hidden ? 'text-faint' : ''}`}>{hidden ? '???' : p.name}</span>
                   </button>
@@ -118,11 +117,11 @@ function PerkDetail({ perk }: { perk: Perk }) {
   return (
     <article>
       <header className="flex items-start gap-4 pr-10 lg:pr-0">
-        <span className="grid h-20 w-20 shrink-0 place-items-center rounded-2xl border border-line bg-raised">
+        <span className="slot grid h-20 w-20 shrink-0 place-items-center">
           <AtlasIcon atlas="perks" icon={perk.icon} scale={4} />
         </span>
         <div className="min-w-0">
-          <h2 className="font-display text-2xl leading-tight">{perk.name}</h2>
+          <h2 className="font-game text-[24px] leading-tight">{perk.name}</h2>
           <code className="text-xs text-faint">{perk.id}</code>
         </div>
       </header>

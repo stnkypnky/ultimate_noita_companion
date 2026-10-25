@@ -44,7 +44,7 @@ export function BuildsPanel({ onLoaded }: { onLoaded?: () => void }) {
   return (
     <div className="space-y-5">
       <section>
-        <label className="text-xs font-semibold tracking-[0.14em] text-faint uppercase" htmlFor="wand-name">
+        <label className="font-game-caps text-[16px] text-gold/80" htmlFor="wand-name">
           Build name
         </label>
         <div className="mt-1.5 flex gap-2">
@@ -54,14 +54,14 @@ export function BuildsPanel({ onLoaded }: { onLoaded?: () => void }) {
             onChange={(e) => setStat('name', e.target.value)}
             className="h-10 min-w-0 flex-1 rounded-xl border border-line bg-raised px-3 text-sm focus:border-line-strong focus:outline-none"
           />
-          <button onClick={() => void save()} className="inline-flex h-10 items-center gap-2 rounded-xl bg-ember px-3 text-sm font-semibold text-bg">
+          <button onClick={() => void save()} className="inline-flex h-10 items-center gap-2 btn-game font-game text-[16px] px-3">
             {saved ? <Check size={16} /> : <Save size={16} />} {saved ? 'Saved' : 'Save'}
           </button>
         </div>
       </section>
 
       <section>
-        <h3 className="text-xs font-semibold tracking-[0.14em] text-faint uppercase">Share</h3>
+        <h3 className="font-game-caps text-[16px] text-gold/80">Share</h3>
         <div className="mt-2 flex items-start gap-4">
           <div className="w-32 shrink-0 overflow-hidden rounded-lg" dangerouslySetInnerHTML={{ __html: qr }} />
           <div className="min-w-0 text-sm text-muted">
@@ -72,7 +72,7 @@ export function BuildsPanel({ onLoaded }: { onLoaded?: () => void }) {
                 setCopied(true);
                 setTimeout(() => setCopied(false), 1500);
               }}
-              className="mt-2 inline-flex items-center gap-2 rounded-lg border border-line-strong bg-surface-2 px-3 py-1.5 text-ink"
+              className="mt-2 inline-flex items-center gap-2 btn-game quiet font-game text-[16px] px-3 py-1.5"
             >
               {copied ? <Check size={15} className="text-toxic" /> : <ClipboardCopy size={15} />} {copied ? 'Copied' : 'Copy link'}
             </button>
@@ -81,7 +81,7 @@ export function BuildsPanel({ onLoaded }: { onLoaded?: () => void }) {
       </section>
 
       <section>
-        <h3 className="text-xs font-semibold tracking-[0.14em] text-faint uppercase">Saved on this device</h3>
+        <h3 className="font-game-caps text-[16px] text-gold/80">Saved on this device</h3>
         {!builds?.length ? (
           <p className="mt-2 text-sm text-faint">No saved builds yet.</p>
         ) : (
@@ -114,7 +114,7 @@ function SavedRow({ name, code, onLoad, onDuplicate, onDelete }: { name: string;
   }, [code]);
   const [confirm, setConfirm] = useState(false);
   return (
-    <li className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-line bg-raised p-2">
+    <li className="flex items-center gap-2 slot p-2">
       <button onClick={onLoad} className="min-w-0 flex-1 text-left">
         <span className="block truncate text-sm font-medium">{name}</span>
         <span className="mt-1 flex gap-0.5 overflow-hidden">

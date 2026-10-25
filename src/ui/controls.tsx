@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, useRef, type ReactNode } from 'react';
 import { Search, X } from 'lucide-react';
 import { useHotkey } from './hooks';
+import { StatIcon, statIconFor, type StatIconName } from './game';
 
 export const SearchInput = forwardRef<HTMLInputElement, { value: string; onChange: (v: string) => void; placeholder?: string }>(
   function SearchInput({ value, onChange, placeholder = 'Search…' }, ref) {
@@ -13,7 +14,7 @@ export const SearchInput = forwardRef<HTMLInputElement, { value: string; onChang
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="h-11 w-full rounded-xl border border-line bg-surface pr-10 pl-10 text-[15px] text-ink placeholder:text-faint focus:border-line-strong focus:bg-surface-2 focus:outline-none"
+          className="h-11 w-full border-2 border-line-strong/70 bg-black/55 pr-10 pl-10 text-[15px] text-ink placeholder:text-faint focus:border-gold/70 focus:bg-black/70 focus:outline-none"
         />
         {value ? (
           <button aria-label="Clear search" className="absolute right-2 rounded-md p-1.5 text-faint hover:text-ink" onClick={() => onChange('')}>
@@ -45,11 +46,11 @@ export function Chip({ active, onClick, children, color }: { active?: boolean; o
     <button
       onClick={onClick}
       aria-pressed={active}
-      className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[13px] whitespace-nowrap transition-colors ${
-        active ? 'border-transparent bg-ink text-bg' : 'border-line bg-surface text-muted hover:border-line-strong hover:text-ink'
+      className={`slot slot-hover font-game inline-flex h-9 shrink-0 items-center gap-2 px-3 text-[16px] whitespace-nowrap transition-colors ${
+        active ? 'text-ink' : 'text-muted hover:text-ink'
       }`}
     >
-      {color && <span className="h-2 w-2 rounded-full" style={{ background: color }} />}
+      {color && <span className="h-2 w-2" style={{ background: color, boxShadow: `0 0 6px ${color}` }} />}
       {children}
     </button>
   );
@@ -66,7 +67,7 @@ export function Select<T extends string>({ value, onChange, options, label }: { 
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
-        className="h-8 rounded-lg border border-line bg-surface px-2 text-[13px] text-ink focus:outline-none"
+        className="h-9 border-2 border-line-strong/70 bg-black/55 px-2 text-[13px] text-ink focus:border-gold/70 focus:outline-none"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>
@@ -78,16 +79,25 @@ export function Select<T extends string>({ value, onChange, options, label }: { 
   );
 }
 
-export function StatTable({ rows }: { rows: { label: string; value: ReactNode; good?: boolean; bad?: boolean }[] }) {
+/** Stat rows like the game's tooltips: an inventory icon, a label, and the value in the game font. */
+export function StatTable({ rows }: { rows: { label: string; value: ReactNode; good?: boolean; bad?: boolean; icon?: StatIconName }[] }) {
   if (!rows.length) return null;
+  const icons = rows.map((r) => r.icon ?? statIconFor(r.label));
+  const iconColumn = icons.some(Boolean);
   return (
-    <dl className="divide-y divide-line overflow-hidden rounded-[var(--radius-sm)] border border-line bg-raised">
-      {rows.map((r, i) => (
-        <div key={i} className="flex items-center justify-between gap-4 px-3 py-2 text-sm">
-          <dt className="text-muted">{r.label}</dt>
-          <dd className={`text-right font-medium tabular-nums ${r.good ? 'text-toxic' : r.bad ? 'text-blood' : 'text-ink'}`}>{r.value}</dd>
+    <dl className="panel divide-y divide-line/70 px-1 py-0.5">
+      {rows.map((r, i) => {
+        const icon = icons[i];
+        return (
+        <div key={i} className="flex items-center justify-between gap-4 px-2.5 py-2 text-sm">
+          <dt className="flex items-center gap-2 text-muted">
+            {iconColumn && <span className="grid w-[18px] shrink-0 place-items-center">{icon && <StatIcon name={icon} />}</span>}
+            {r.label}
+          </dt>
+          <dd className={`font-game text-right text-[16px] ${r.good ? 'text-toxic' : r.bad ? 'text-blood' : 'text-ink'}`}>{r.value}</dd>
         </div>
-      ))}
+        );
+      })}
     </dl>
   );
 }
@@ -96,7 +106,7 @@ export function Section({ title, children, aside }: { title: string; children: R
   return (
     <section className="mt-5">
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-xs font-semibold tracking-[0.14em] text-faint uppercase">{title}</h3>
+        <h3 className="font-game-caps text-[16px] text-gold/80">{title}</h3>
         {aside}
       </div>
       {children}

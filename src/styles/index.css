@@ -1,29 +1,51 @@
 @import 'tailwindcss';
 
+/* ---------- The game's fonts (built from data/fonts by the extractor) ---------- */
+@font-face {
+  font-family: 'Noita Pixel';
+  src: url('/game/fonts/font_pixel_noshadow.otf') format('opentype');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Noita Pixel Caps';
+  src: url('/game/fonts/font_pixel_big.otf') format('opentype');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Noita Runes';
+  src: url('/game/fonts/font_pixel_runes.otf') format('opentype');
+  font-display: block;
+}
+
 /* ---------- Design tokens ---------- */
+/* Colours sampled from the game's UI: inventory slot browns, tooltip gold, important-message orange, HUD bars. */
 :root {
-  --bg: #0d0b10;
-  --bg-raised: #15121a;
-  --surface: #1c1822;
-  --surface-2: #241f2c;
-  --surface-3: #2e2838;
-  --border: #352e40;
-  --border-strong: #4a4058;
-  --text: #f1ebe4;
-  --text-muted: #a99fb4;
-  --text-faint: #6f6679;
-  --ember: #ff7a1a;
-  --ember-soft: #ff7a1a26;
-  --gold: #e8c25a;
-  --gold-soft: #e8c25a22;
+  --bg: #0a0807;
+  --bg-raised: #110d0b;
+  --surface: #191311;
+  --surface-2: #231a16;
+  --surface-3: #2e231d;
+  --border: #3b2a22;
+  --border-strong: #5f302c;
+  --text: #f3ede6;
+  --text-muted: #b9aa9c;
+  --text-faint: #807062;
+  --ember: #f89000;
+  --ember-soft: #f8900026;
+  --gold: #eda949;
+  --gold-soft: #eda94922;
   --arcane: #9b7bff;
   --arcane-soft: #9b7bff22;
   --toxic: #7bd65c;
   --frost: #6cc8ff;
   --blood: #e2445c;
-  --shadow: 0 8px 30px #0008;
-  --radius: 14px;
-  --radius-sm: 9px;
+  --mana: #42a8e2;
+  --shadow: 0 8px 30px #000a;
+  /* Pixel art corners: square, everywhere. */
+  --radius: 0px;
+  --radius-sm: 0px;
+  /* One game pixel in CSS pixels, for the game's frames and fonts. */
+  --px: 2px;
   --nav-h: 64px;
   --rail-w: 232px;
   color-scheme: dark;
@@ -46,9 +68,19 @@
   --color-toxic: var(--toxic);
   --color-frost: var(--frost);
   --color-blood: var(--blood);
+  --color-mana: var(--mana);
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
-  --font-display: 'Pixelify Sans', 'Inter Variable', ui-sans-serif, sans-serif;
+  /* The game font draws crisply at whole multiples of 8px (16, 24, 32…). */
+  --font-display: 'Noita Pixel', ui-sans-serif, sans-serif;
+  --font-caps: 'Noita Pixel Caps', 'Noita Pixel', ui-sans-serif, sans-serif;
+  --font-runes: 'Noita Runes', 'Noita Pixel', sans-serif;
   --font-mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
 }
 
 /* ---------- Base ---------- */
@@ -85,12 +117,150 @@ body {
   image-rendering: crisp-edges;
 }
 
-/* Subtle cave-glow backdrop used behind the app */
+/* The cave behind the app: the game's rock texture, deep in shadow, with a warm glow from above. */
 .app-backdrop {
+  position: relative;
+  isolation: isolate;
+  background: var(--bg);
+}
+.app-backdrop::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background:
-    radial-gradient(1200px 600px at 85% -10%, #ff7a1a14, transparent 60%),
-    radial-gradient(900px 500px at -10% 110%, #9b7bff10, transparent 60%),
-    var(--bg);
+    radial-gradient(1100px 560px at 80% -12%, #f8900018, transparent 62%),
+    radial-gradient(900px 520px at -12% 112%, #9b7bff0e, transparent 60%),
+    linear-gradient(#0a0807e0, #0a0807f0),
+    url('/game/materials/rock_static.png') 0 0 / 96px 90px;
+  image-rendering: pixelated;
+}
+
+/* ---------- The game's UI pieces ---------- */
+/* In the components layer so utilities (sticky, absolute, bg-*) can still override them. */
+@layer components {
+
+/* Text in the game font, with the 1-game-pixel drop shadow the game draws under its UI text. */
+.font-game {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-shadow: var(--px) var(--px) 0 #000b;
+  -webkit-font-smoothing: none;
+  font-smooth: never;
+}
+.font-game-caps {
+  font-family: var(--font-caps);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-shadow: var(--px) var(--px) 0 #000b;
+  -webkit-font-smoothing: none;
+}
+.font-runes {
+  font-family: var(--font-runes);
+  font-weight: 400;
+  -webkit-font-smoothing: none;
+}
+
+/* Tooltip/panel frame (ui_gfx/decorations/9piece0): 1px gold edge, cut corners, see-through black. */
+/* The frames are drawn on a pseudo-element so their pixelated scaling doesn't leak into the content. */
+.panel,
+.panel-quiet,
+.slot {
+  position: relative;
+  isolation: isolate;
+  background: none;
+}
+.panel::before,
+.panel-quiet::before,
+.slot::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border: calc(var(--px) * 2) solid transparent;
+  border-image: url('/game/ui/9piece0.png') 2 fill / calc(var(--px) * 2) stretch;
+  image-rendering: pixelated;
+}
+.panel-quiet::before {
+  border-image-source: url('/game/ui/9piece0_gray.png');
+}
+
+/* Inventory slot (ui_gfx/inventory/full_inventory_box): brown, with the game's dashed edge. The highlight
+   version has rounded corners 5 pixels deep, so both are sliced at 5 to keep the centre a flat fill. */
+.slot::before {
+  border-width: calc(var(--px) * 5);
+  border-image: url('/game/ui/full_inventory_box.png') 5 fill / calc(var(--px) * 5) round;
+}
+.slot-hover:hover::before,
+.slot[aria-pressed='true']::before,
+.slot[aria-current='page']::before,
+.slot[data-active]::before {
+  border-image-source: url('/game/ui/full_inventory_box_highlight.png');
+}
+
+/* The orange important-message box (ui_gfx/decorations/3piece_important_msg), one line tall. */
+.msg-box {
+  display: inline-flex;
+  align-items: center;
+  min-height: calc(var(--px) * 24);
+  border-style: solid;
+  border-width: 0 calc(var(--px) * 12);
+  border-image: url('/game/ui/3piece_important_msg.png') 0 12 fill / 0 calc(var(--px) * 12) stretch;
+  image-rendering: pixelated;
+  padding: 0 calc(var(--px) * 2);
+  color: #ffcf4a;
+}
+
+/* HUD bar, like the health/mana/reload bars: black outline, dark well, lighter top quarter on the fill. */
+.hud-bar {
+  height: calc(var(--px) * 4);
+  background: #2a1f1b;
+  box-shadow:
+    0 0 0 var(--px) #000,
+    0 0 0 calc(var(--px) * 2) #3b2a22;
+  overflow: hidden;
+}
+.hud-bar > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(color-mix(in srgb, var(--bar) 55%, white) 0 25%, var(--bar) 25% 100%);
+}
+
+/* A game-style button: chamfered pixel corners, a 1px highlight on top. */
+.btn-game {
+  --btn: var(--ember);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  background: var(--btn);
+  color: #120a04;
+  box-shadow:
+    inset 0 var(--px) 0 color-mix(in srgb, var(--btn) 50%, white),
+    inset 0 calc(var(--px) * -1) 0 color-mix(in srgb, var(--btn) 70%, black);
+  clip-path: polygon(
+    var(--px) 0,
+    calc(100% - var(--px)) 0,
+    100% var(--px),
+    100% calc(100% - var(--px)),
+    calc(100% - var(--px)) 100%,
+    var(--px) 100%,
+    0 calc(100% - var(--px)),
+    0 var(--px)
+  );
+  transition: filter 0.15s;
+  text-shadow: none;
+}
+.btn-game:hover {
+  filter: brightness(1.12);
+}
+.btn-game.quiet {
+  --btn: #3d302b;
+  color: var(--text);
+}
 }
 
 .scrollbar-thin {

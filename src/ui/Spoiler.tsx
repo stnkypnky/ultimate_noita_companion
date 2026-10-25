@@ -10,18 +10,18 @@ export function HiddenNotice({ what, onReveal }: { what: string; onReveal: () =>
       <span className="grid h-14 w-14 place-items-center rounded-2xl bg-surface-2 text-muted">
         <EyeOff size={24} />
       </span>
-      <h2 className="mt-4 font-display text-xl">Undiscovered {what}</h2>
+      <h2 className="mt-4 font-game text-[24px]">Undiscovered {what}</h2>
       <p className="mt-1 max-w-xs text-sm text-muted">
         You haven't found this one in-game yet. Sync your progress to unlock what you've discovered, or reveal just this
         one.
       </p>
       <div className="mt-5 flex flex-wrap justify-center gap-2">
         {confirm ? (
-          <button onClick={onReveal} className="inline-flex items-center gap-2 rounded-xl bg-ember px-4 py-2 text-sm font-semibold text-bg">
+          <button onClick={onReveal} className="inline-flex items-center gap-2 btn-game font-game text-[16px] px-4 py-2">
             <Eye size={16} /> Yes, show me
           </button>
         ) : (
-          <button onClick={() => setConfirm(true)} className="inline-flex items-center gap-2 rounded-xl border border-line-strong bg-surface-2 px-4 py-2 text-sm">
+          <button onClick={() => setConfirm(true)} className="inline-flex items-center gap-2 btn-game quiet font-game text-[16px] px-4 py-2">
             <Eye size={16} /> Reveal this {what}
           </button>
         )}

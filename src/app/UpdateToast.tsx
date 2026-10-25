@@ -30,7 +30,7 @@ export function UpdateToast() {
           </span>
           {needRefresh && (
             <button
-              className="rounded-lg bg-ember px-3 py-1.5 text-sm font-semibold text-bg"
+              className="btn-game font-game text-[16px] px-3 py-1.5"
               onClick={() => void updateServiceWorker(true)}
             >
               Reload

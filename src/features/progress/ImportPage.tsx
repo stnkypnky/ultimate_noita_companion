@@ -39,7 +39,7 @@ export function ImportPage() {
               importProgress(result.progress);
               navigate('/', { replace: true });
             }}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-ember px-4 py-3 font-semibold text-bg sm:w-auto"
+            className="inline-flex w-full items-center justify-center gap-2 btn-game font-game text-[16px] px-4 py-3 sm:w-auto"
           >
             <Download size={18} /> Use this progress on this device
           </button>

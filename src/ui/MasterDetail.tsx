@@ -34,7 +34,7 @@ export function MasterDetail({
     return (
       <div className="grid grid-cols-[minmax(0,1fr)_400px] gap-6 xl:grid-cols-[minmax(0,1fr)_460px]">
         <div className="min-w-0">{list}</div>
-        <aside className="sticky top-[calc(var(--page-header-h,88px)+4px)] h-[calc(100vh-var(--page-header-h,88px)-24px)] overflow-hidden rounded-[var(--radius)] border border-line bg-surface">
+        <aside className="sticky top-[calc(var(--page-header-h,88px)+4px)] h-[calc(100vh-var(--page-header-h,88px)-24px)] overflow-hidden panel">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={detailKey ?? 'empty'}
@@ -70,7 +70,7 @@ export function MasterDetail({
               key="sheet"
               role="dialog"
               aria-modal="true"
-              className="safe-bottom fixed inset-x-0 bottom-0 z-50 flex max-h-[88vh] flex-col rounded-t-[22px] border-t border-line-strong bg-surface shadow-[var(--shadow)]"
+              className="safe-bottom fixed inset-x-0 bottom-0 z-50 flex max-h-[88vh] flex-col border-t-2 border-gold/60 bg-[#0d0a09f2] shadow-[var(--shadow)]"
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
@@ -85,9 +85,9 @@ export function MasterDetail({
               }}
             >
               <div className="flex touch-none items-center justify-center pt-2.5 pb-3" onPointerDown={(e) => drag.start(e)}>
-                <span className="h-1.5 w-10 rounded-full bg-line-strong" />
+                <span className="h-1.5 w-10 bg-line-strong" />
               </div>
-              <button aria-label="Close" onClick={onClose} className="absolute top-3 right-3 rounded-full bg-surface-2 p-2 text-muted">
+              <button aria-label="Close" onClick={onClose} className="slot absolute top-3 right-3 p-2 text-muted">
                 <X size={16} />
               </button>
               <div className="scrollbar-thin overflow-y-auto overscroll-contain px-5 pt-2 pb-8">{detail}</div>

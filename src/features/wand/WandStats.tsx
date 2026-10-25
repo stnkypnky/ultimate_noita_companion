@@ -3,10 +3,12 @@ import { ChevronDown, ChevronUp, Shuffle } from 'lucide-react';
 import { FPS, fmtNum } from '@/data/format';
 import { MAX_CAPACITY, type Wand } from './model';
 import { useWand } from './store';
+import { StatIcon, type StatIconName } from '@/ui/game';
 
 type Field = {
   key: keyof Wand;
   label: string;
+  icon: StatIconName;
   unit?: string;
   /** Stored value -> what the user edits. */
   toInput: (v: number) => number;
@@ -20,13 +22,13 @@ const frames = { toInput: (v: number) => Math.round((v / FPS) * 100) / 100, from
 const same = { toInput: (v: number) => v, fromInput: (v: number) => v };
 
 const FIELDS: Field[] = [
-  { key: 'spellsPerCast', label: 'Spells / cast', step: 1, min: 1, max: MAX_CAPACITY, ...same },
-  { key: 'castDelay', label: 'Cast delay', unit: 's', step: 0.01, ...frames },
-  { key: 'rechargeTime', label: 'Recharge', unit: 's', step: 0.01, ...frames },
-  { key: 'manaMax', label: 'Mana max', step: 10, min: 0, ...same },
-  { key: 'manaChargeSpeed', label: 'Mana charge', unit: '/s', step: 10, min: 0, ...same },
-  { key: 'capacity', label: 'Capacity', step: 1, min: 1, max: MAX_CAPACITY, ...same },
-  { key: 'spread', label: 'Spread', unit: '°', step: 1, ...same },
+  { key: 'spellsPerCast', label: 'Spells / cast', icon: 'gun_actions_per_round', step: 1, min: 1, max: MAX_CAPACITY, ...same },
+  { key: 'castDelay', label: 'Cast delay', icon: 'fire_rate_wait', unit: 's', step: 0.01, ...frames },
+  { key: 'rechargeTime', label: 'Recharge', icon: 'gun_reload_time', unit: 's', step: 0.01, ...frames },
+  { key: 'manaMax', label: 'Mana max', icon: 'mana_max', step: 10, min: 0, ...same },
+  { key: 'manaChargeSpeed', label: 'Mana charge', icon: 'mana_charge_speed', unit: '/s', step: 10, min: 0, ...same },
+  { key: 'capacity', label: 'Capacity', icon: 'gun_capacity', step: 1, min: 1, max: MAX_CAPACITY, ...same },
+  { key: 'spread', label: 'Spread', icon: 'spread_degrees', unit: '°', step: 1, ...same },
 ];
 
 /** On phones the stats start collapsed to a one-line summary so the slots stay in view. */
@@ -41,7 +43,7 @@ export function WandStats({ collapsible }: { collapsible?: boolean }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] border border-line bg-raised px-3 py-2.5 text-left text-[13px]"
+        className="flex w-full items-center gap-2 slot px-3 py-2.5 text-left text-[13px]"
       >
         <span className="flex min-w-0 flex-1 flex-wrap gap-x-3 gap-y-0.5 text-muted tabular-nums">
           {wand.shuffle && <span className="text-blood">Shuffle</span>}
@@ -70,13 +72,14 @@ export function WandStats({ collapsible }: { collapsible?: boolean }) {
       <button
         onClick={() => setStat('shuffle', !wand.shuffle)}
         aria-pressed={wand.shuffle}
-        className={`flex items-center justify-between rounded-[var(--radius-sm)] border px-3 py-2 text-left transition-colors ${
-          wand.shuffle ? 'border-blood/50 bg-blood/10' : 'border-line bg-raised hover:border-line-strong'
-        }`}
+        className="slot slot-hover flex items-center justify-between px-3 py-2 text-left"
       >
         <span>
-          <span className="block text-[11px] tracking-wide text-faint uppercase">Shuffle</span>
-          <span className={`font-semibold ${wand.shuffle ? 'text-blood' : ''}`}>{wand.shuffle ? 'Yes' : 'No'}</span>
+          <span className="flex items-center gap-1.5 text-[11px] tracking-wide text-faint uppercase">
+            <StatIcon name="gun_shuffle" />
+            Shuffle
+          </span>
+          <span className={`font-game text-[16px] ${wand.shuffle ? 'text-blood' : ''}`}>{wand.shuffle ? 'Yes' : 'No'}</span>
         </span>
         <Shuffle size={16} className={wand.shuffle ? 'text-blood' : 'text-faint'} />
       </button>
@@ -111,8 +114,11 @@ function NumberStat({ field, value, onChange }: { field: Field; value: number; o
   };
 
   return (
-    <label className="block rounded-[var(--radius-sm)] border border-line bg-raised px-3 py-2 focus-within:border-ember/60">
-      <span className="block text-[11px] tracking-wide text-faint uppercase">{field.label}</span>
+    <label className="slot block px-3 py-2 focus-within:outline-2 focus-within:outline-solid focus-within:outline-gold/60">
+      <span className="flex items-center gap-1.5 text-[11px] tracking-wide text-faint uppercase">
+        <StatIcon name={field.icon} />
+        {field.label}
+      </span>
       <span className="flex items-baseline gap-1">
         <input
           inputMode="decimal"
@@ -129,7 +135,7 @@ function NumberStat({ field, value, onChange }: { field: Field; value: number; o
               onChange(field.fromInput(v));
             }
           }}
-          className="w-full min-w-0 bg-transparent font-semibold tabular-nums outline-none"
+          className="font-game w-full min-w-0 bg-transparent text-[16px] outline-none"
           aria-label={field.label}
         />
         {field.unit && <span className="text-xs text-faint">{field.unit}</span>}

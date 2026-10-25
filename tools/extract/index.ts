@@ -17,6 +17,7 @@ import { buildMaterials } from './materials.ts';
 import { buildEnemies, enemyIconFiles } from './enemies.ts';
 import { EntityLoader } from './entity.ts';
 import { buildAtlas, buildPackedAtlas, firstFrame } from './sprites.ts';
+import { bitmapFont } from './fonts.ts';
 
 const ROOT = join(import.meta.dirname, '../..');
 const OUT = join(ROOT, 'public/game');
@@ -135,6 +136,24 @@ await mkdir(join(OUT, 'ui'), { recursive: true });
 for (const f of wak.list('data/ui_gfx/inventory/')) {
   if (/(item_bg_|quick_inventory_box|full_inventory_box)/.test(f)) await writeFile(join(OUT, 'ui', f.split('/').pop()!), wak.bytes(f));
 }
+// Panel frames (the tooltip 9-piece, the important-message box, tabs) and the inventory stat icons.
+for (const f of ['9piece0.png', '9piece0_gray.png', '3piece_important_msg.png', 'tab.png', 'tab_hovered.png', 'tab_selected.png']) {
+  await writeFile(join(OUT, 'ui', f), wak.bytes(`data/ui_gfx/decorations/${f}`));
+}
+await mkdir(join(OUT, 'ui/icons'), { recursive: true });
+const statIcons = wak.list('data/ui_gfx/inventory/icon_').filter((f) => f.endsWith('.png'));
+for (const f of statIcons) await writeFile(join(OUT, 'ui/icons', f.split('/icon_').pop()!), wak.bytes(f));
+// The game's bitmap fonts live next to data.wak, not inside it.
+await mkdir(join(OUT, 'fonts'), { recursive: true });
+const fontsDir = join(noita, 'data/fonts');
+for (const [file, family] of [
+  ['font_pixel_noshadow', 'Noita Pixel'],
+  ['font_pixel_big', 'Noita Pixel Caps'],
+  ['font_pixel_runes', 'Noita Runes'],
+] as const) {
+  await writeFile(join(OUT, `fonts/${file}.otf`), await bitmapFont(fontsDir, file, family));
+}
+console.log(`ui: ${statIcons.length} stat icons, 3 fonts`);
 
 // ---------- Write ----------
 await mkdir(join(OUT, 'sprites'), { recursive: true });

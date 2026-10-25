@@ -31,14 +31,14 @@ export function Onboarding() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="onboard-title"
-            className="safe-bottom w-full max-w-md rounded-t-[24px] border border-line-strong bg-surface p-6 sm:rounded-[24px]"
+            className="panel safe-bottom w-full max-w-md p-6"
             initial={{ y: 40, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 40, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 320, damping: 30 }}
           >
-            <div className="font-display text-xs tracking-[0.3em] text-gold uppercase">Welcome, seeker</div>
-            <h2 id="onboard-title" className="mt-1 font-display text-2xl">How much do you want to know?</h2>
+            <div className="font-game-caps text-[16px] text-gold">Welcome, seeker</div>
+            <h2 id="onboard-title" className="mt-1 font-game text-[24px]">How much do you want to know?</h2>
             <p className="mt-2 text-sm text-muted">
               Noita is full of secrets. The companion can hide everything you haven't discovered in-game yet.
             </p>
@@ -70,13 +70,12 @@ function Option({ icon, title, text, onClick, primary }: { icon: React.ReactNode
   return (
     <button
       onClick={onClick}
-      className={`flex w-full items-start gap-3 rounded-2xl border p-4 text-left transition ${
-        primary ? 'border-ember/50 bg-ember/10 hover:bg-ember/15' : 'border-line bg-raised hover:border-line-strong'
-      }`}
+      data-active={primary || undefined}
+      className="slot slot-hover flex w-full items-start gap-3 p-4 text-left"
     >
       <span className={`mt-0.5 ${primary ? 'text-ember' : 'text-muted'}`}>{icon}</span>
       <span>
-        <span className="block font-semibold">{title}</span>
+        <span className="font-game block text-[16px]">{title}</span>
         <span className="mt-0.5 block text-sm text-muted">{text}</span>
       </span>
     </button>

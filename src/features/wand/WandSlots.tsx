@@ -99,7 +99,7 @@ function Slot({
           <Plus size={14} />
         </button>
       )}
-      {lit && <span className="pointer-events-none absolute inset-0 rounded-lg bg-ember/10" />}
+      {lit && <span className="pointer-events-none absolute inset-0 bg-ember/10" />}
     </div>
   );
 }

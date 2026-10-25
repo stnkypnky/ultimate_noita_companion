@@ -291,8 +291,8 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
         if (worldRef.current) worldRef.current.showCursor = false;
       }}
       onFocus={() => (engaged.current = true)}
-      className={`overflow-hidden bg-[#0b0910] outline-none ${
-        expanded ? 'fixed inset-0 z-[90] flex flex-col justify-center' : fullscreen ? 'flex h-full flex-col justify-center' : 'rounded-[var(--radius)] border border-line'
+      className={`overflow-hidden outline-none ${
+        expanded ? 'fixed inset-0 z-[90] flex flex-col justify-center bg-[#0b0910]' : fullscreen ? 'flex h-full flex-col justify-center bg-[#0b0910]' : 'panel p-0.5'
       }`}
     >
       <div className="relative">
@@ -346,7 +346,7 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
               key={key}
               aria-label={label}
               {...hold(key)}
-              className={`grid h-11 w-14 touch-none place-items-center rounded-xl bg-surface-2 text-ink select-none active:bg-ember active:text-bg ${key === 'up' ? 'ml-auto' : ''}`}
+              className={`slot grid h-11 w-14 touch-none place-items-center text-ink select-none active:text-ember ${key === 'up' ? 'ml-auto' : ''}`}
             >
               {icon}
             </button>
@@ -377,7 +377,7 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
           onClick={() => setAuto(!auto)}
           aria-pressed={auto}
           title="Auto-fire at the dummy (F)"
-          className={`ml-1 inline-flex items-center gap-1 rounded-lg px-2 py-1 ${auto ? 'bg-ember text-bg' : 'bg-surface-2 text-muted hover:text-ink'}`}
+          className={`slot slot-hover font-game ml-1 inline-flex items-center gap-1 px-2 py-0.5 text-[16px] ${auto ? 'text-ember' : 'text-muted hover:text-ink'}`}
         >
           <Bot size={14} /> Auto
         </button>

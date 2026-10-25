@@ -123,9 +123,8 @@ function SpellTile({ spell, hidden, active, index }: { spell: Spell; hidden: boo
     >
       <button
         onClick={() => navigate(`/spells/${spell.id}`)}
-        className={`flex w-full items-center gap-3 rounded-[var(--radius-sm)] border p-2 text-left transition-colors ${
-          active ? 'border-ember/60 bg-surface-2' : 'border-line bg-surface hover:border-line-strong hover:bg-surface-2'
-        }`}
+        data-active={active || undefined}
+        className="slot slot-hover flex w-full items-center gap-3 p-2 text-left"
       >
         <SpellIcon type={spell.type} icon={spell.icon} hidden={hidden} />
         <span className="min-w-0 flex-1">

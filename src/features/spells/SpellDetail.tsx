@@ -7,6 +7,7 @@ import { useSpoilers } from '@/store/progress';
 import { Section, StatTable } from '@/ui/controls';
 import { SpellIcon, TYPE_COLOR, TYPE_LABEL } from '@/ui/GameIcon';
 import { HiddenNotice, InlineSpoiler } from '@/ui/Spoiler';
+import { StatIcon, type StatIconName } from '@/ui/game';
 
 const DAMAGE_LABEL: Record<DamageType, string> = {
   projectile: 'Projectile', explosion: 'Explosion', melee: 'Melee', slice: 'Slice', fire: 'Fire', electricity: 'Electric',
@@ -30,9 +31,9 @@ export function SpellDetail({ spell }: { spell: Spell }) {
       <header className="flex items-start gap-4 pr-10 lg:pr-0">
         <SpellIcon type={spell.type} icon={spell.icon} scale={4} />
         <div className="min-w-0">
-          <h2 className="font-display text-2xl leading-tight">{spell.name}</h2>
+          <h2 className="font-game text-[24px] leading-tight">{spell.name}</h2>
           <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-            <span className="rounded-full px-2 py-0.5 font-medium" style={{ background: `${TYPE_COLOR[spell.type]}22`, color: TYPE_COLOR[spell.type] }}>
+            <span className="font-game px-2 py-0.5 text-[16px]" style={{ background: `${TYPE_COLOR[spell.type]}22`, color: TYPE_COLOR[spell.type] }}>
               {TYPE_LABEL[spell.type]}
             </span>
             <code className="text-faint">{spell.id}</code>
@@ -42,11 +43,12 @@ export function SpellDetail({ spell }: { spell: Spell }) {
 
       <p className="mt-4 text-[15px] leading-relaxed text-muted">{spell.description}</p>
 
-      <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4">
-        <Big label="Mana" value={fmtNum(spell.mana)} tone={spell.mana < 0 ? 'good' : undefined} />
-        <Big label="Uses" value={spell.maxUses === null ? '∞' : String(spell.maxUses)} />
-        <Big label="Cast delay" value={delay ? (delay > 0 ? '+' : '') + seconds(delay) : '—'} tone={delay < 0 ? 'good' : delay > 0 ? 'bad' : undefined} />
+      <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-2">
+        <Big icon="mana_drain" label="Mana" value={fmtNum(spell.mana)} tone={spell.mana < 0 ? 'good' : undefined} />
+        <Big icon="action_max_uses" label="Uses" value={spell.maxUses === null ? '∞' : String(spell.maxUses)} />
+        <Big icon="fire_rate_wait" label="Cast delay" value={delay ? (delay > 0 ? '+' : '') + seconds(delay) : '—'} tone={delay < 0 ? 'good' : delay > 0 ? 'bad' : undefined} />
         <Big
+          icon="gun_reload_time"
           label="Recharge"
           value={spell.reloadDelta ? (spell.reloadDelta > 0 ? '+' : '') + seconds(spell.reloadDelta) : '—'}
           tone={spell.reloadDelta < 0 ? 'good' : spell.reloadDelta > 0 ? 'bad' : undefined}
@@ -54,25 +56,24 @@ export function SpellDetail({ spell }: { spell: Spell }) {
       </div>
 
       {spell.trigger ? (
-        <p className="mt-3 rounded-[var(--radius-sm)] border border-gold/30 bg-gold/10 px-3 py-2 text-sm text-gold">
+        <p className="msg-box font-game mt-3 text-[16px]">
           Casts {spell.trigger.draw} {spell.trigger.draw === 1 ? 'spell' : 'spells'}{' '}
-          {spell.trigger.kind === 'hit' ? 'on impact' : spell.trigger.kind === 'death' ? 'when it expires' : `after ${seconds(spell.trigger.delay ?? 0)}`}.
+          {spell.trigger.kind === 'hit' ? 'on impact' : spell.trigger.kind === 'death' ? 'when it expires' : `after ${seconds(spell.trigger.delay ?? 0)}`}
         </p>
       ) : (
         spell.draw > 0 && (
-          <p className="mt-3 rounded-[var(--radius-sm)] border border-gold/30 bg-gold/10 px-3 py-2 text-sm text-gold">
+          <p className="msg-box font-game mt-3 text-[16px]">
             Draws {spell.draw} {spell.draw === 1 ? 'spell' : 'spells'}
-            {spell.type === 'multicast' ? ' and casts them together' : ''}.
+            {spell.type === 'multicast' ? ' and casts them together' : ''}
           </p>
         )
       )}
 
-      <Link
-        to={`/wand?add=${spell.id}`}
-        className="mt-4 inline-flex items-center gap-2 rounded-xl bg-ember px-4 py-2 text-sm font-semibold text-bg transition hover:brightness-110"
-      >
-        <Wand2 size={16} /> Add to wand
-      </Link>
+      <div>
+        <Link to={`/wand?add=${spell.id}`} className="btn-game font-game mt-4 text-[16px]">
+          <Wand2 size={16} /> Add to wand
+        </Link>
+      </div>
 
       {effects.filter((e) => !['Cast delay', 'Recharge time'].includes(e.label)).length > 0 && (
         <Section title="Shot modifiers">
@@ -90,7 +91,7 @@ export function SpellDetail({ spell }: { spell: Spell }) {
         <Section title="Adds effects">
           <div className="flex flex-wrap gap-1.5">
             {extra.map((e) => (
-              <span key={e} className="rounded-md bg-surface-2 px-2 py-1 text-xs text-muted">
+              <span key={e} className="slot px-2.5 py-1.5 text-xs text-muted">
                 {prettyEntity(e)}
               </span>
             ))}
@@ -117,11 +118,14 @@ export function SpellDetail({ spell }: { spell: Spell }) {
   );
 }
 
-function Big({ label, value, tone }: { label: string; value: string; tone?: 'good' | 'bad' }) {
+function Big({ label, value, tone, icon }: { label: string; value: string; tone?: 'good' | 'bad'; icon: StatIconName }) {
   return (
-    <div className="rounded-[var(--radius-sm)] border border-line bg-raised px-3 py-2.5">
-      <div className="text-[11px] tracking-wide text-faint uppercase">{label}</div>
-      <div className={`mt-0.5 text-lg font-semibold tabular-nums ${tone === 'good' ? 'text-toxic' : tone === 'bad' ? 'text-blood' : ''}`}>{value}</div>
+    <div className="slot px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-[11px] tracking-wide text-faint uppercase">
+        <StatIcon name={icon} />
+        {label}
+      </div>
+      <div className={`font-game mt-1 text-[24px] leading-none ${tone === 'good' ? 'text-toxic' : tone === 'bad' ? 'text-blood' : ''}`}>{value}</div>
     </div>
   );
 }
@@ -156,11 +160,11 @@ function SpawnChart({ spawn }: { spawn: Spell['spawn'] }) {
   const max = Math.max(...spawn.map((s) => s.prob), 0.0001);
   const tiers = Array.from({ length: 11 }, (_, i) => spawn.find((s) => s.level === i)?.prob ?? 0);
   return (
-    <div className="flex h-20 items-end gap-1 rounded-[var(--radius-sm)] border border-line bg-raised px-3 pt-3 pb-1.5">
+    <div className="panel flex h-20 items-end gap-1 px-3 pt-3 pb-1.5">
       {tiers.map((p, i) => (
         <div key={i} className="flex flex-1 flex-col items-center gap-1">
           <div
-            className="w-full rounded-sm bg-gradient-to-t from-ember/70 to-gold/80"
+            className="w-full bg-[linear-gradient(#ffcf4a_0_3px,#f89000_3px)]"
             style={{ height: `${(p / max) * 44}px`, opacity: p ? 1 : 0.15, minHeight: 2 }}
             title={`Tier ${i}: ${p}`}
           />

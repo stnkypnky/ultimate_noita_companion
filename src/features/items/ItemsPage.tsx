@@ -17,7 +17,7 @@ function ItemIcon({ item, scale, hidden }: { item: Item; scale: number; hidden?:
   return (
     <span className="grid shrink-0 place-items-center rounded-lg bg-raised" style={{ width: size, height: size }}>
       {hidden ? (
-        <span className="font-display text-faint" style={{ fontSize: 10 * scale }}>
+        <span className="font-game text-faint" style={{ fontSize: 8 * scale }}>
           ?
         </span>
       ) : item.icon.w ? (
@@ -58,7 +58,7 @@ export function ItemsPage() {
                 <header className="flex items-center gap-4 pr-10 lg:pr-0">
                   <ItemIcon item={selected} scale={3} />
                   <div className="min-w-0">
-                    <h2 className="font-display text-2xl leading-tight">{selected.name}</h2>
+                    <h2 className="font-game text-[24px] leading-tight">{selected.name}</h2>
                     <code className="text-xs text-faint">{selected.id}</code>
                   </div>
                 </header>
@@ -78,9 +78,8 @@ export function ItemsPage() {
                 <li key={it.id}>
                   <button
                     onClick={() => navigate(`/items/${it.id}`)}
-                    className={`flex w-full items-center gap-3 rounded-[var(--radius-sm)] border p-2 text-left transition-colors ${
-                      it.id === id ? 'border-ember/60 bg-surface-2' : 'border-line bg-surface hover:border-line-strong hover:bg-surface-2'
-                    }`}
+                    data-active={it.id === id || undefined}
+                    className="slot slot-hover flex w-full items-center gap-3 p-2 text-left"
                   >
                     <ItemIcon item={it} scale={2} hidden={hidden} />
                     <span className={`truncate text-[13px] font-medium ${hidden ? 'text-faint' : ''}`}>{hidden ? '???' : it.name}</span>

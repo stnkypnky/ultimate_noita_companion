@@ -41,7 +41,7 @@ export function ProgressSummary({ progress }: { progress: Progress }) {
 function Meter({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
   const pct = max ? (value / max) * 100 : 0;
   return (
-    <div className="rounded-[var(--radius-sm)] border border-line bg-raised p-3">
+    <div className="slot p-3">
       <div className="flex items-baseline justify-between">
         <span className="text-sm text-muted">{label}</span>
         <span className="font-semibold tabular-nums">
@@ -58,7 +58,7 @@ function Meter({ label, value, max, color }: { label: string; value: number; max
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[var(--radius-sm)] border border-line bg-raised px-3 py-2">
+    <div className="slot px-3 py-2">
       <div className="text-[11px] tracking-wide text-faint uppercase">{label}</div>
       <div className="font-semibold tabular-nums">{value}</div>
     </div>

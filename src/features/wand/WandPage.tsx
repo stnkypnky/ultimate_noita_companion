@@ -194,7 +194,7 @@ export function WandPage() {
       <IconButton label="Clear spells" onClick={() => store().clear()}>
         <Eraser size={17} />
       </IconButton>
-      <button onClick={() => setBuildsOpen(true)} className="ml-1 inline-flex items-center gap-2 rounded-xl border border-line-strong bg-surface-2 px-3 py-2 text-sm">
+      <button onClick={() => setBuildsOpen(true)} className="ml-1 inline-flex items-center gap-2 btn-game quiet font-game text-[16px] px-3 py-2">
         <FolderHeart size={16} /> <span className="hidden sm:inline">Builds &amp; share</span>
       </button>
     </div>
@@ -211,7 +211,7 @@ export function WandPage() {
               initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
-              className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-gold/40 bg-gold/5 px-3 py-2 text-sm"
+              className="panel mt-2 flex flex-wrap items-center gap-2 px-3 py-2 text-sm"
             >
               {selectedSpell ? (
                 <>
@@ -257,14 +257,15 @@ export function WandPage() {
     <Section
       title="Simulation"
       aside={
-        <div role="tablist" aria-label="Simulation view" className="inline-flex rounded-lg bg-surface-2 p-0.5 text-xs">
+        <div role="tablist" aria-label="Simulation view" className="inline-flex gap-1">
           {(['casts', 'preview'] as const).map((v) => (
             <button
               key={v}
               role="tab"
               aria-selected={view === v}
+              data-active={view === v || undefined}
               onClick={() => setView(v)}
-              className={`rounded-md px-2.5 py-1 font-medium ${view === v ? 'bg-ember text-bg' : 'text-muted hover:text-ink'}`}
+              className={`slot slot-hover font-game px-3 py-1 text-[16px] ${view === v ? 'text-ink' : 'text-muted hover:text-ink'}`}
             >
               {v === 'casts' ? 'Casts' : 'Preview'}
             </button>
@@ -298,7 +299,7 @@ export function WandPage() {
       >
         {desktop ? (
           <div className="grid grid-cols-[260px_minmax(0,1fr)_minmax(340px,420px)] gap-6">
-            <aside className="sticky top-[calc(var(--page-header-h,88px)+4px)] h-[calc(100vh-var(--page-header-h,88px)-24px)] rounded-[var(--radius)] border border-line bg-surface p-3">
+            <aside className="panel sticky top-[calc(var(--page-header-h,88px)+4px)] h-[calc(100vh-var(--page-header-h,88px)-24px)] p-3">
               <SpellPalette onPick={pick} scale={2} compact />
             </aside>
             <div className="min-w-0">{builder}</div>
@@ -317,18 +318,18 @@ export function WandPage() {
           <AnimatePresence>
             {paletteOpen && (
               <motion.div
-                className="fixed inset-x-0 bottom-[calc(var(--nav-h)+env(safe-area-inset-bottom))] z-30 h-[46vh] rounded-t-[20px] border-t border-line-strong bg-surface px-3 pt-2 shadow-[0_-10px_40px_#0009]"
+                className="fixed inset-x-0 bottom-[calc(var(--nav-h)+env(safe-area-inset-bottom))] z-30 h-[46vh] border-t-2 border-gold/60 bg-[#0d0a09f2] px-3 pt-2 shadow-[0_-10px_40px_#0009]"
                 initial={{ y: '100%' }}
                 animate={{ y: 0 }}
                 exit={{ y: '100%' }}
                 transition={{ type: 'spring', stiffness: 380, damping: 36 }}
               >
                 <div className="mb-1 flex items-center justify-between">
-                  <span className="flex items-center gap-2 text-sm font-medium">
+                  <span className="font-game flex items-center gap-2 text-[16px]">
                     <BookOpen size={15} className="text-ember" /> Spells
                   </span>
                   <span className="text-[11px] text-faint">Tap to add · hold &amp; drag to place</span>
-                  <button onClick={() => setPaletteOpen(false)} aria-label="Close spell list" className="rounded-full bg-surface-2 p-1.5 text-muted">
+                  <button onClick={() => setPaletteOpen(false)} aria-label="Close spell list" className="slot p-1.5 text-muted">
                     <X size={15} />
                   </button>
                 </div>
@@ -343,7 +344,7 @@ export function WandPage() {
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               onClick={() => setPaletteOpen(true)}
-              className="fixed right-4 bottom-[calc(var(--nav-h)+env(safe-area-inset-bottom)+16px)] z-30 inline-flex items-center gap-2 rounded-full bg-ember px-5 py-3.5 font-semibold text-bg shadow-[0_8px_30px_#ff7a1a66]"
+              className="fixed right-4 bottom-[calc(var(--nav-h)+env(safe-area-inset-bottom)+16px)] z-30 inline-flex items-center gap-2 btn-game font-game text-[16px] px-5 py-3.5"
             >
               <Plus size={19} /> Add spells
             </motion.button>
@@ -371,7 +372,7 @@ export function WandPage() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="fixed top-4 left-1/2 z-[80] -translate-x-1/2 rounded-full border border-line-strong bg-surface-2 px-4 py-2 text-sm shadow-[var(--shadow)]"
+            className="panel fixed top-4 left-1/2 z-[80] -translate-x-1/2 px-4 py-2 text-sm shadow-[var(--shadow)]"
           >
             {toast}
           </motion.div>

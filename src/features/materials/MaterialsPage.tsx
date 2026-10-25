@@ -99,9 +99,8 @@ export function MaterialsPage() {
                 <li key={m.id}>
                   <button
                     onClick={() => navigate(`/materials/${m.id}`)}
-                    className={`flex w-full items-center gap-3 rounded-[var(--radius-sm)] border p-2.5 text-left transition-colors ${
-                      m.id === id ? 'border-ember/60 bg-surface-2' : 'border-line bg-surface hover:border-line-strong hover:bg-surface-2'
-                    }`}
+                    data-active={m.id === id || undefined}
+                    className="slot slot-hover flex w-full items-center gap-3 p-2.5 text-left"
                   >
                     <MaterialSwatch material={m} hidden={hidden} />
                     <span className="min-w-0">
@@ -152,7 +151,7 @@ function MaterialDetail({ material: m }: { material: Material }) {
       <header className="flex items-center gap-4 pr-10 lg:pr-0">
         <MaterialSwatch material={m} size={64} />
         <div className="min-w-0">
-          <h2 className="font-display text-2xl leading-tight">{titleCase(m.name)}</h2>
+          <h2 className="font-game text-[24px] leading-tight">{titleCase(m.name)}</h2>
           <code className="text-xs text-faint">{m.id}</code>
         </div>
       </header>
@@ -194,7 +193,7 @@ function ReactionList({ reactions }: { reactions: Reaction[] }) {
   return (
     <ul className="space-y-1.5">
       {reactions.map((r, i) => (
-        <li key={i} className="flex flex-wrap items-center gap-1.5 rounded-[var(--radius-sm)] border border-line bg-raised px-2.5 py-2">
+        <li key={i} className="flex flex-wrap items-center gap-1.5 slot px-2.5 py-2">
           {r.inputs.map((x, j) => (
             <MatChip key={`i${j}`} id={x} />
           ))}

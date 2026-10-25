@@ -34,6 +34,13 @@ const steps: Step[] = [
     } },
   { name: 'spell-detail', run: async (p) => { await p.goto(`${base}/spells/LIGHT_BULLET_TRIGGER`); await p.waitForTimeout(1900); } },
   { name: 'perk-detail', run: async (p) => { await p.goto(`${base}/perks/EDIT_WANDS_EVERYWHERE`); await p.waitForTimeout(1900); } },
+  { name: 'wand', run: async (p) => {
+      for (const id of ['BURST_2', 'LIGHT_BULLET_TRIGGER', 'BOMB', 'LIGHT_BULLET']) {
+        await p.goto(`${base}/wand?add=${id}`);
+        await p.getByText(/^Added /).waitFor({ timeout: 15000 });
+      }
+      await p.waitForTimeout(1500);
+    } },
   { name: 'materials', run: async (p) => { await p.goto(`${base}/materials`); await p.waitForTimeout(1900); } },
   { name: 'material-detail', run: async (p) => { await p.goto(`${base}/materials/water`); await p.waitForTimeout(1900); } },
   { name: 'items', run: async (p) => { await p.goto(`${base}/items/heart`); await p.waitForTimeout(1900); } },

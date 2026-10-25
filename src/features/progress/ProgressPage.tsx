@@ -39,7 +39,7 @@ export function ProgressPage() {
           </div>
         </Section>
       ) : (
-        <p className="mt-2 rounded-[var(--radius)] border border-line bg-surface p-4 text-sm text-muted">
+        <p className="mt-2 panel p-4 text-sm text-muted">
           No progress synced yet. Until you sync, undiscovered spells, perks and secrets stay hidden (change this in Settings).
         </p>
       )}
@@ -57,7 +57,7 @@ export function ProgressPage() {
 
 function PhoneHowTo() {
   return (
-    <ol className="space-y-3 rounded-[var(--radius)] border border-line bg-surface p-4 text-sm text-muted">
+    <ol className="space-y-3 panel p-4 text-sm text-muted">
       <Step n={1} icon={<Laptop size={16} />}>
         Open this app on the PC where you play Noita and go to <b className="text-ink">Progress Sync</b>.
       </Step>
@@ -165,11 +165,11 @@ function ScanSave({ onScanned }: { onScanned: (p: Progress) => void }) {
       </button>
 
       <div className="mt-5 flex flex-wrap justify-center gap-2">
-        <button disabled={busy} onClick={choose} className="inline-flex items-center gap-2 rounded-xl bg-ember px-4 py-2.5 font-semibold text-bg disabled:opacity-60">
+        <button disabled={busy} onClick={choose} className="inline-flex items-center gap-2 btn-game font-game text-[16px] px-4 py-2.5 disabled:opacity-60">
           <FolderOpen size={17} /> {busy ? 'Reading…' : 'Choose save folder'}
         </button>
         {savedHandle && (
-          <button disabled={busy} onClick={resync} className="inline-flex items-center gap-2 rounded-xl border border-line-strong bg-surface-2 px-4 py-2.5 disabled:opacity-60">
+          <button disabled={busy} onClick={resync} className="inline-flex items-center gap-2 btn-game quiet font-game text-[16px] px-4 py-2.5 disabled:opacity-60">
             <RefreshCw size={16} /> Re-sync
           </button>
         )}
@@ -221,7 +221,7 @@ function ShareToPhone({ progress }: { progress: Progress }) {
 
   return (
     <>
-      <button onClick={() => setOpen(!open)} className="inline-flex items-center gap-2 rounded-xl bg-ember px-4 py-2 text-sm font-semibold text-bg">
+      <button onClick={() => setOpen(!open)} className="inline-flex items-center gap-2 btn-game font-game text-[16px] px-4 py-2">
         <Smartphone size={16} /> {open ? 'Hide QR code' : 'Send to phone'}
       </button>
       <AnimatePresence>
@@ -232,7 +232,7 @@ function ShareToPhone({ progress }: { progress: Progress }) {
             exit={{ opacity: 0, height: 0 }}
             className="w-full overflow-hidden"
           >
-            <div className="mt-2 flex flex-col items-center gap-4 rounded-[var(--radius)] border border-line bg-surface p-5 sm:flex-row sm:items-start">
+            <div className="mt-2 flex flex-col items-center gap-4 panel p-5 sm:flex-row sm:items-start">
               <div className="w-72 max-w-full shrink-0 overflow-hidden rounded-xl" dangerouslySetInnerHTML={{ __html: svg }} />
               <div className="text-sm text-muted">
                 <p>Scan with your phone's camera to open the companion with your progress.</p>
@@ -243,7 +243,7 @@ function ShareToPhone({ progress }: { progress: Progress }) {
                     setCopied(true);
                     setTimeout(() => setCopied(false), 1500);
                   }}
-                  className="mt-2 inline-flex items-center gap-2 rounded-lg border border-line-strong bg-surface-2 px-3 py-1.5 text-ink"
+                  className="mt-2 inline-flex items-center gap-2 btn-game quiet font-game text-[16px] px-3 py-1.5"
                 >
                   {copied ? <Check size={15} className="text-toxic" /> : <ClipboardCopy size={15} />} {copied ? 'Copied' : 'Copy link'}
                 </button>

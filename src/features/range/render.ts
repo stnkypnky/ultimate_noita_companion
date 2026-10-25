@@ -341,7 +341,7 @@ export class RangeRenderer {
 
     // damage numbers
     ctx.globalCompositeOperation = 'source-over';
-    ctx.font = '600 7px "Pixelify Sans", sans-serif';
+    ctx.font = '8px "Noita Pixel", sans-serif';
     ctx.textAlign = 'center';
     ctx.lineWidth = 2;
     for (const f of w.floaters) {
@@ -356,7 +356,7 @@ export class RangeRenderer {
     ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
     if (w.body.dead > 0) {
       ctx.globalCompositeOperation = 'source-over';
-      ctx.font = '700 12px "Pixelify Sans", sans-serif';
+      ctx.font = '16px "Noita Pixel", sans-serif';
       ctx.textAlign = 'center';
       ctx.lineWidth = 3;
       ctx.strokeStyle = '#000';
@@ -456,7 +456,7 @@ export class RangeRenderer {
       y += 10;
     };
     row('health', w.body.hp / w.maxHp, HUD.health, w.player.flash > 0);
-    ctx.font = '600 7px "Pixelify Sans", sans-serif';
+    ctx.font = '8px "Noita Pixel", sans-serif';
     ctx.textAlign = 'right';
     ctx.fillStyle = '#ffffffcc';
     ctx.fillText(String(Math.ceil(w.body.hp)), x - 13, y - 8);

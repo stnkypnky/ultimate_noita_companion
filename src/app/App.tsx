@@ -46,10 +46,10 @@ function LoadError({ error }: { error?: string }) {
   return (
     <div className="grid h-full place-items-center p-6 text-center">
       <div>
-        <h1 className="font-display text-2xl">The arcane files are missing</h1>
+        <h1 className="font-game text-[24px]">The arcane files are missing</h1>
         <p className="mt-2 text-sm text-muted">Game data couldn't be loaded. If you're offline, connect once so the app can cache it.</p>
         {error && <code className="mt-4 block text-xs text-faint">{error}</code>}
-        <button onClick={() => location.reload()} className="mt-6 rounded-xl bg-ember px-4 py-2 font-semibold text-bg">
+        <button onClick={() => location.reload()} className="mt-6 btn-game font-game text-[16px] px-4 py-2">
           Try again
         </button>
       </div>

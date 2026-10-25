@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { ArrowRight, Beaker, FlaskConical, RefreshCw, Sparkles, Wand2, type LucideIcon } from 'lucide-react';
 import { useGameData } from '@/data/store';
 import { useProgress } from '@/store/progress';
+import { HudBar, Runes } from '@/ui/game';
 
 const TILES: { to: string; title: string; text: string; icon: LucideIcon; accent: string }[] = [
   { to: '/wand', title: 'Wand Builder', text: 'Drag spells onto a wand and simulate every cast.', icon: Wand2, accent: 'var(--ember)' },
@@ -20,10 +21,10 @@ function ProgressCard() {
   if (!progress) {
     if (mode === 'all') return null;
     return (
-      <Link to="/progress" className="mt-6 flex items-center gap-4 rounded-[var(--radius)] border border-dashed border-line-strong bg-surface/60 p-5 transition hover:border-ember/50">
+      <Link to="/progress" className="slot slot-hover mt-6 flex items-center gap-4 p-5">
         <RefreshCw className="shrink-0 text-ember" size={22} />
         <span>
-          <span className="block font-semibold">Spoilers are hidden</span>
+          <span className="font-game block text-[16px]">Spoilers are hidden</span>
           <span className="block text-sm text-muted">Sync your save to unlock everything you've already discovered.</span>
         </span>
       </Link>
@@ -36,9 +37,9 @@ function ProgressCard() {
     { label: 'Creatures', n: progress.enemies.filter((e) => data.enemies.some((x) => x.id === e)).length, of: data.enemies.length, color: 'var(--blood)' },
   ];
   return (
-    <Link to="/progress" className="mt-6 block rounded-[var(--radius)] border border-line bg-surface p-5 transition hover:border-line-strong">
+    <Link to="/progress" className="panel mt-6 block p-5">
       <div className="flex items-baseline justify-between">
-        <span className="text-xs font-semibold tracking-[0.14em] text-faint uppercase">Your discoveries</span>
+        <span className="font-game-caps text-[16px] text-gold/80">Your discoveries</span>
         <span className="text-[11px] text-faint">synced {new Date(progress.syncedAt).toLocaleDateString()}</span>
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
@@ -46,14 +47,12 @@ function ProgressCard() {
           <div key={r.label}>
             <div className="flex justify-between text-sm">
               <span className="text-muted">{r.label}</span>
-              <span className="tabular-nums">
+              <span className="font-game text-[16px]">
                 {r.n}
                 <span className="text-faint">/{r.of}</span>
               </span>
             </div>
-            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-3">
-              <motion.div className="h-full rounded-full" style={{ background: r.color }} initial={{ width: 0 }} animate={{ width: `${(r.n / r.of) * 100}%` }} transition={{ duration: 0.8, ease: 'easeOut' }} />
-            </div>
+            <HudBar className="mt-2" value={r.n / r.of} color={r.color} label={`${r.label} discovered`} />
           </div>
         ))}
       </div>
@@ -70,16 +69,17 @@ export function HomePage() {
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
-        className="relative overflow-hidden rounded-[22px] border border-line bg-surface p-6 md:p-10"
+        className="panel overflow-hidden p-6 md:p-10"
       >
         <div
           aria-hidden
           className="pointer-events-none absolute -top-24 -right-16 h-72 w-72 rounded-full opacity-60 blur-3xl"
-          style={{ background: 'radial-gradient(circle, #ff7a1a66, transparent 70%)' }}
+          style={{ background: 'radial-gradient(circle, #f8900066, transparent 70%)' }}
         />
         <div className="relative">
-          <div className="font-display text-xs tracking-[0.35em] text-gold uppercase">Ultimate</div>
-          <h1 className="font-display text-3xl font-bold md:text-5xl">Noita Companion</h1>
+          <div className="font-game-caps text-[16px] text-gold">Ultimate</div>
+          <h1 className="font-game mt-1 text-[32px] leading-none md:text-[48px]">Noita Companion</h1>
+          <Runes className="mt-2 block text-[16px] text-gold/40">seek the wand that ends all wands</Runes>
           <p className="mt-3 max-w-xl text-muted">
             Wands, spells, perks and alchemy — pulled straight from your game files, with spoilers kept hidden until
             you've found them yourself.
@@ -87,13 +87,13 @@ export function HomePage() {
           <div className="mt-6 flex flex-wrap gap-3">
             <Link
               to="/wand"
-              className="inline-flex items-center gap-2 rounded-xl bg-ember px-4 py-2.5 font-semibold text-bg shadow-[0_0_30px_#ff7a1a55] transition hover:brightness-110"
+              className="inline-flex items-center gap-2 btn-game font-game text-[16px] px-4 py-2.5"
             >
               <Wand2 size={18} /> Build a wand
             </Link>
             <Link
               to="/progress"
-              className="inline-flex items-center gap-2 rounded-xl border border-line-strong bg-surface-2 px-4 py-2.5 font-medium transition hover:bg-surface-3"
+              className="inline-flex items-center gap-2 btn-game quiet font-game text-[16px] px-4 py-2.5"
             >
               <RefreshCw size={17} /> Sync progress
             </Link>
@@ -111,16 +111,16 @@ export function HomePage() {
           >
             <Link
               to={to}
-              className="group flex h-full items-start gap-4 rounded-[var(--radius)] border border-line bg-surface p-5 transition hover:-translate-y-0.5 hover:border-line-strong hover:bg-surface-2"
+              className="slot slot-hover group flex h-full items-start gap-4 p-5 transition hover:-translate-y-0.5"
             >
               <span
-                className="grid h-11 w-11 shrink-0 place-items-center rounded-xl"
-                style={{ background: `color-mix(in srgb, ${accent} 16%, transparent)`, color: accent }}
+                className="grid h-11 w-11 shrink-0 place-items-center"
+                style={{ background: `color-mix(in srgb, ${accent} 16%, #000a)`, color: accent, boxShadow: `inset 0 0 0 2px color-mix(in srgb, ${accent} 35%, transparent)` }}
               >
                 <Icon size={22} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2 font-semibold">
+                <span className="font-game flex items-center gap-2 text-[16px]">
                   {title}
                   <ArrowRight size={15} className="text-faint transition group-hover:translate-x-0.5 group-hover:text-ink" />
                 </span>

@@ -33,13 +33,13 @@ function SeedRecipes() {
 
   if (!visible(ALCHEMY_KEY)) {
     return (
-      <div className="mt-2 rounded-[var(--radius)] border border-line bg-surface p-6 text-center">
+      <div className="mt-2 panel p-6 text-center">
         <EyeOff className="mx-auto text-muted" />
-        <h2 className="mt-3 font-display text-xl">Secret recipes ahead</h2>
+        <h2 className="mt-3 font-game text-[24px]">Secret recipes ahead</h2>
         <p className="mx-auto mt-1 max-w-sm text-sm text-muted">
           Every world seed has two hidden alchemy recipes. Finding them is part of the mystery — reveal only if you want to know.
         </p>
-        <button onClick={() => reveal(ALCHEMY_KEY)} className="mt-4 rounded-xl border border-line-strong bg-surface-2 px-4 py-2 text-sm">
+        <button onClick={() => reveal(ALCHEMY_KEY)} className="mt-4 btn-game quiet font-game text-[16px] px-4 py-2">
           Reveal seed recipes
         </button>
       </div>
@@ -108,12 +108,12 @@ function RecipeCard({ title, recipe }: { title: string; recipe: Recipe }) {
       key={recipe.materials.join()}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-[var(--radius)] border border-line bg-surface p-4"
+      className="panel p-4"
     >
       <div className="flex items-center gap-3">
         {result && <MaterialSwatch material={result} size={36} />}
         <div>
-          <h3 className="font-display text-lg leading-tight">{title}</h3>
+          <h3 className="font-game text-[16px] leading-tight">{title}</h3>
           <p className="text-xs text-faint">Reaction chance {recipe.probability}%</p>
         </div>
       </div>
@@ -155,7 +155,7 @@ function Mixer() {
   const safe = found.filter((r) => r.outputs.every((o) => o.startsWith('[') || isVisible(o)));
 
   return (
-    <div className="rounded-[var(--radius)] border border-line bg-surface p-4">
+    <div className="panel p-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <MaterialPicker value={a} onChange={setA} options={options} label="First material" />
         <Plus size={16} className="mx-auto shrink-0 text-faint sm:mx-0" />
@@ -238,7 +238,7 @@ function MaterialPicker({ value, onChange, options, label }: { value: Material |
         )}
       </div>
       {open && (
-        <ul className="scrollbar-thin absolute inset-x-0 top-12 z-20 max-h-64 overflow-y-auto rounded-xl border border-line-strong bg-surface-2 p-1 shadow-[var(--shadow)]">
+        <ul className="scrollbar-thin absolute inset-x-0 top-12 z-20 max-h-64 overflow-y-auto panel p-1 shadow-[var(--shadow)]">
           {list.map((m) => (
             <li key={m.id}>
               <button

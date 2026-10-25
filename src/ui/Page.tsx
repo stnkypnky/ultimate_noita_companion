@@ -36,7 +36,7 @@ export function Page({
       <header ref={ref} className="safe-top sticky top-0 z-20 -mx-4 bg-bg/85 px-4 pt-5 pb-3 backdrop-blur-md md:-mx-8 md:px-8 md:pt-7">
         <div className="flex items-end gap-3">
           <div className="min-w-0 flex-1">
-            <h1 className="font-display text-2xl font-bold tracking-wide md:text-3xl">{title}</h1>
+            <h1 className="font-game text-[24px] leading-tight md:text-[32px]">{title}</h1>
             {subtitle && <p className="mt-0.5 text-sm text-muted">{subtitle}</p>}
           </div>
           {actions}

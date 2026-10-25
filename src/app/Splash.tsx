@@ -34,10 +34,10 @@ export function Splash() {
       <CastScene letters={letters} kicker={kicker} />
       <div className="relative grid h-full place-items-center">
         <div className="text-center">
-          <div ref={kicker} className="splash-kicker font-display text-xs tracking-[0.35em] text-gold uppercase">
+          <div ref={kicker} className="splash-kicker font-game-caps text-[16px] text-gold">
             Ultimate
           </div>
-          <h1 aria-label={TITLE} className="font-display text-3xl font-bold tracking-wide text-ink sm:text-4xl">
+          <h1 aria-label={TITLE} className="font-game mt-1 text-[32px] text-ink sm:text-[48px]">
             {[...TITLE].map((ch, i) => (
               <span
                 key={i}

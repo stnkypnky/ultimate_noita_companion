@@ -23,8 +23,8 @@ export default defineConfig({
         name: 'Ultimate Noita Companion',
         short_name: 'Noita Companion',
         description: 'Wand simulator, spell & perk database, materials and alchemy for Noita.',
-        theme_color: '#0d0b10',
-        background_color: '#0d0b10',
+        theme_color: '#0a0807',
+        background_color: '#0a0807',
         display: 'standalone',
         orientation: 'any',
         start_url: '.',
@@ -37,7 +37,7 @@ export default defineConfig({
       },
       workbox: {
         // Everything the app needs offline: shell, game data, sprites, Lua sources, wasm.
-        globPatterns: ['**/*.{js,css,html,svg,png,webp,json,lua,wasm,woff2}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,webp,json,lua,wasm,woff2,otf}'],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         navigateFallback: 'index.html',
       },

@@ -79,7 +79,7 @@ export function SpellIcon({ type, icon, scale = 2, hidden }: { type: SpellType; 
       }}
     >
       {hidden ? (
-        <span className="font-display text-muted" style={{ fontSize: 9 * scale }}>
+        <span className="font-game text-muted" style={{ fontSize: 8 * scale }}>
           ?
         </span>
       ) : (

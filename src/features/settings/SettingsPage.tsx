@@ -38,7 +38,7 @@ export function SettingsPage() {
       </Section>
 
       <Section title="About">
-        <div className="space-y-2 rounded-[var(--radius)] border border-line bg-surface p-4 text-sm text-muted">
+        <div className="space-y-2 panel p-4 text-sm text-muted">
           <p>
             Ultimate Noita Companion is an unofficial fan project and isn't affiliated with Nolla Games. Game data, art and scripts are © Nolla
             Games and are extracted from the game for reference.

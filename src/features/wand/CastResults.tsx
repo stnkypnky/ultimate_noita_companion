@@ -1,15 +1,17 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { AlertTriangle, CornerDownRight, Loader2, Timer, Zap } from 'lucide-react';
+import { AlertTriangle, CornerDownRight, Loader2 } from 'lucide-react';
 import { useData } from '@/data/store';
 import { fmtNum, seconds } from '@/data/format';
 import type { CastView, ProjectileView } from '@/sim/analyze';
 import { SpellIcon } from '@/ui/GameIcon';
 import type { SimState } from './useSimulation';
+import { Runes, StatIcon, type StatIconName } from '@/ui/game';
 
 export function CastResults({ sim, onHoverCast }: { sim: SimState; onHoverCast: (c: CastView | null) => void }) {
   if (sim.status === 'idle') {
     return (
-      <div className="rounded-[var(--radius)] border border-dashed border-line-strong p-8 text-center text-sm text-muted">
+      <div className="slot p-8 text-center text-sm text-muted">
+        <Runes className="mb-3 block text-[16px] text-gold/40">an empty wand casts nothing</Runes>
         Add spells to the wand to see every cast simulated with the game's own casting code.
       </div>
     );
@@ -24,15 +26,15 @@ export function CastResults({ sim, onHoverCast }: { sim: SimState; onHoverCast: 
       )}
       {s && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Tile label="Casts / cycle" value={String(s.casts)} />
-          <Tile label="Cycle time" value={seconds(s.cycleFrames)} />
-          <Tile label="Mana / cycle" value={fmtNum(s.manaUsed, 0)} />
-          <Tile label="Damage / sec" value={fmtNum(s.dps, 0)} accent hint="Expected, one hit per projectile, crits averaged" />
+          <Tile icon="gun_actions_per_round" label="Casts / cycle" value={String(s.casts)} />
+          <Tile icon="gun_reload_time" label="Cycle time" value={seconds(s.cycleFrames)} />
+          <Tile icon="mana_drain" label="Mana / cycle" value={fmtNum(s.manaUsed, 0)} />
+          <Tile icon="damage_projectile" label="Damage / sec" value={fmtNum(s.dps, 0)} accent hint="Expected, one hit per projectile, crits averaged" />
         </div>
       )}
       {s && s.skippedForMana > 0 && (
-        <p className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-gold/40 bg-gold/10 px-3 py-2 text-sm text-gold">
-          <Zap size={15} /> Not enough mana: {s.skippedForMana} spell{s.skippedForMana > 1 ? 's were' : ' was'} skipped.
+        <p className="msg-box font-game text-[16px]">
+          Not enough mana: {s.skippedForMana} spell{s.skippedForMana > 1 ? 's' : ''} skipped
         </p>
       )}
       {s && !s.recharged && <p className="text-xs text-faint">Showing the first {s.casts} casts — the wand hasn't recharged yet.</p>}
@@ -52,7 +54,7 @@ export function CastResults({ sim, onHoverCast }: { sim: SimState; onHoverCast: 
               onFocus={() => onHoverCast(c)}
               onBlur={() => onHoverCast(null)}
               tabIndex={0}
-              className="rounded-[var(--radius)] border border-line bg-surface p-3 outline-none focus-visible:border-ember/60 hover:border-line-strong"
+              className="panel p-3 outline-none focus-visible:border-ember/60 hover:border-line-strong"
             >
               <CastCard view={c} />
             </motion.li>
@@ -68,11 +70,14 @@ export function CastResults({ sim, onHoverCast }: { sim: SimState; onHoverCast: 
   );
 }
 
-function Tile({ label, value, accent, hint }: { label: string; value: string; accent?: boolean; hint?: string }) {
+function Tile({ label, value, accent, hint, icon }: { label: string; value: string; accent?: boolean; hint?: string; icon: StatIconName }) {
   return (
-    <div className="rounded-[var(--radius-sm)] border border-line bg-raised px-3 py-2" title={hint}>
-      <div className="text-[11px] tracking-wide text-faint uppercase">{label}</div>
-      <div className={`text-lg font-semibold tabular-nums ${accent ? 'text-ember' : ''}`}>{value}</div>
+    <div className="slot px-3 py-2" title={hint}>
+      <div className="flex items-center gap-1.5 text-[11px] tracking-wide text-faint uppercase">
+        <StatIcon name={icon} />
+        {label}
+      </div>
+      <div className={`font-game mt-1 text-[24px] leading-none ${accent ? 'text-ember' : ''}`}>{value}</div>
     </div>
   );
 }
@@ -83,15 +88,15 @@ function CastCard({ view }: { view: CastView }) {
   return (
     <>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-        <span className="font-display text-base text-gold">Cast {c.index}</span>
+        <span className="font-game text-[16px] text-gold">Cast {c.index}</span>
         <span className="text-faint">{seconds(c.frame)}</span>
         <span className="ml-auto flex items-center gap-3 text-xs text-muted tabular-nums">
-          <span title="Cast delay">
-            <Timer size={12} className="mr-1 inline align-[-1px]" />
+          <span title="Cast delay" className="flex items-center gap-1">
+            <StatIcon name="fire_rate_wait" />
             {seconds(c.cast_delay)}
           </span>
-          <span title="Mana">
-            <Zap size={12} className="mr-0.5 inline align-[-1px] text-frost" />
+          <span title="Mana" className="flex items-center gap-1">
+            <StatIcon name="mana_drain" />
             {fmtNum(c.mana_before, 0)} → {fmtNum(c.mana_after, 0)}
           </span>
         </span>

@@ -8,7 +8,7 @@ export function MorePage() {
   const items = NAV.filter((n) => !n.mobile);
   return (
     <Page title="More">
-      <ul className="mt-2 divide-y divide-line overflow-hidden rounded-[var(--radius)] border border-line bg-surface">
+      <ul className="mt-2 divide-y divide-line overflow-hidden panel">
         {items.map(({ to, label, icon: Icon }) => (
           <li key={to}>
             <Link to={to} className="flex items-center gap-4 px-4 py-4 active:bg-surface-2">

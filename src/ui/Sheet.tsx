@@ -28,8 +28,8 @@ export function Sheet({ open, onClose, title, children }: { open: boolean; onClo
             aria-modal="true"
             aria-label={title}
             onClick={(e) => e.stopPropagation()}
-            className={`safe-bottom flex max-h-[85vh] w-full flex-col border border-line-strong bg-surface shadow-[var(--shadow)] ${
-              desktop ? 'max-w-lg rounded-[22px]' : 'rounded-t-[22px]'
+            className={`safe-bottom flex max-h-[85vh] w-full flex-col shadow-[var(--shadow)] ${
+              desktop ? 'panel max-w-lg' : 'border-t-2 border-gold/60 bg-[#0d0a09f2]'
             }`}
             initial={desktop ? { scale: 0.96, opacity: 0 } : { y: '100%' }}
             animate={desktop ? { scale: 1, opacity: 1 } : { y: 0 }}
@@ -37,8 +37,8 @@ export function Sheet({ open, onClose, title, children }: { open: boolean; onClo
             transition={{ type: 'spring', stiffness: 380, damping: 34 }}
           >
             <header className="flex items-center justify-between px-5 pt-4 pb-2">
-              <h2 className="font-display text-xl">{title}</h2>
-              <button aria-label="Close" onClick={onClose} className="rounded-full bg-surface-2 p-2 text-muted hover:text-ink">
+              <h2 className="font-game text-[24px]">{title}</h2>
+              <button aria-label="Close" onClick={onClose} className="slot slot-hover p-2 text-muted hover:text-ink">
                 <X size={16} />
               </button>
             </header>
