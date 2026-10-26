@@ -38,6 +38,8 @@ export type Projectile = {
   airFriction: number;
   /** VelocityComponent terminal_velocity: top speed, px/s. */
   terminalVelocity?: number;
+  /** VelocityComponent mass (knockback scales with it). */
+  mass?: number;
   knockback: number;
   penetrateWorld: boolean;
   /** penetrate_world_velocity_coeff: speed multiplier while inside terrain (default 0.6). */
@@ -328,7 +330,12 @@ export type RangeKit = {
     flight: { timeMax: number; rechargeAir: number; rechargeGround: number; airWaitFrames: number; needsRecharge: boolean };
     /** Max HP. */
     hp: number;
-    /** DamageModelComponent fire_damage_amount, in HP: what burning takes per second. */
+    /** CharacterDataComponent mass (knockback divides by it). */
+    mass?: number;
+    /** In liquid, velocity *= swimDrag each frame, and x also *= swimDragX. */
+    swimDrag?: number;
+    swimDragX?: number;
+    /** DamageModelComponent fire_damage_amount, in HP (kept for reference; burning is 2% of max HP a second). */
     fireDamage: number;
     /** materials_that_damage → materials_how_much_damage, in HP per frame of contact. */
     materialDamage: Record<string, number>;

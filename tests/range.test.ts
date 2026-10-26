@@ -277,6 +277,14 @@ describe('looks and physics from the game data', () => {
     expect(d.explosion?.damage ?? 0).toBe(0);
   });
 
+  it('burning takes 2% of max HP a second (wiki)', () => {
+    const w = new RangeWorld(data);
+    w.body.invincible = 0;
+    w.applyEffects(w.player, ['data/entities/misc/effect_apply_on_fire.xml']);
+    for (let i = 0; i < 60; i++) w.step();
+    expect(w.selfDamage).toBeCloseTo(w.maxHp * 0.02, 1);
+  });
+
   it('an explosion that sets no damage does the engine default, 125 (Meteor)', () => {
     expect(data.projectiles['data/entities/projectiles/deck/meteor.xml']?.explosion?.damage).toBe(125);
   });

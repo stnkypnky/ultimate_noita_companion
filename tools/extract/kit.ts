@@ -155,6 +155,11 @@ export async function rangeKit(wak: Wak): Promise<{ kit: RangeKit; files: Record
         airWaitFrames: num(cd.flying_in_air_wait_frames, 38),
         needsRecharge: cd.flying_needs_recharge === '1',
       },
+      // CharacterDataComponent mass (1 = the player) and the swim drags (velocity *= swim_drag each frame in
+      // liquid, x also *= swim_extra_horizontal_drag), with the documented defaults.
+      mass: num(cd.mass, 1),
+      swimDrag: num(cp.swim_drag, 0.95),
+      swimDragX: num(cp.swim_extra_horizontal_drag, 0.9),
       hp: num(dm.hp, 4) * 25,
       fireDamage: num(dm.fire_damage_amount, 0.2) * 25,
       materialDamage: Object.fromEntries(

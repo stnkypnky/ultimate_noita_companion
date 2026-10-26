@@ -30,8 +30,8 @@ const EXPLOSION_DIG_DEFAULT = 9;
 const MATERIAL_CHECK_FRAMES = 3;
 /** A material's stain (status_list id) and the GameEffect it is. */
 const STAIN_EFFECT: Record<string, string> = { POISONED: 'POISON' };
-/** Velocity (px/s) per point of knockback_force, and of explosion push at the blast's centre. */
-const KNOCKBACK_SCALE = 15;
+/** Explosion push at the blast's centre, px/s per point (the engine's blast push isn't documented; a guess). */
+const BLAST_PUSH = 15;
 const DT = 1 / 60;
 const MAX_PROJECTILES = 700;
 const MAX_PARTICLES = 6000;
@@ -462,10 +462,12 @@ export class RangeWorld {
       const pos = stepPlayer(b, a, controls, k?.move ?? DEFAULT_MOVE, k?.flight ?? DEFAULT_FLIGHT, (x, y) => this.cell(x, y) !== AIR, DT);
       a.x = Math.max(6, Math.min(W - 6, pos.x));
       a.y = pos.y;
-      // In a liquid: dragged, and up swims instead of needing levitation.
+      // In a liquid: CharacterPlatformingComponent swim_drag (and extra horizontal drag) each frame, and up
+      // swims instead of needing levitation.
       if (a.inLiquid) {
-        b.vx *= 0.9;
-        b.vy *= 0.85;
+        const drag = k?.swimDrag ?? 0.95;
+        b.vx *= drag * (k?.swimDragX ?? 0.9);
+        b.vy *= drag;
         if (controls.up) b.vy = Math.max(b.vy - 15, -70);
       }
     }
@@ -550,7 +552,11 @@ export class RangeWorld {
     let liquid = false;
     for (const m of seen) {
       const info = this.cells.mats[m]!;
-      if (info.kind === K_LIQUID) liquid = true;
+      // Nearly any liquid (oil too) puts out a fire (wiki: Status Effects).
+      if (info.kind === K_LIQUID) {
+        liquid = true;
+        if (!info.hot) a.status.delete('ON_FIRE');
+      }
       const dmg = this.data.kit?.player.materialDamage[info.id];
       if (dmg) this.tick(a, dmg * MATERIAL_CHECK_FRAMES);
       for (const s of info.stains) {
@@ -584,8 +590,8 @@ export class RangeWorld {
           const p = r();
           this.addParticle({ ...simpleParticle(p.x, p.y, Math.random() < 0.5 ? '#ff6000' : '#ffac0f', true, randInt(12, 24), 6, -40) });
         }
-        // Burning takes the DamageModel's fire_damage_amount, taken here as per second, in small steps.
-        if (this.frame % 10 === 0) this.tick(a, (this.data.kit?.player.fireDamage ?? 5) / 6);
+        // Burning takes 2% of max HP a second (wiki: Status Effects), in small steps. The dummy counts as 100 HP.
+        if (this.frame % 10 === 0) this.tick(a, ((a.id === 'player' ? this.maxHp : 100) * 0.02) / 6);
       } else if (effect === 'ELECTROCUTION' && this.frame % 2 === 0) {
         const p = r();
         this.spark(p.x, p.y, '#27b4f6', true, randInt(4, 10), 40);
@@ -1109,7 +1115,11 @@ export class RangeWorld {
       p.hitActors.add(a.id);
       this.hurt(a, p.hit, p.critChance, p);
       this.applyEffects(a, p.effects);
-      if (a.id === 'player' && p.knockback > 0) this.push(Math.atan2(p.vy, p.vx), p.knockback * KNOCKBACK_SCALE);
+      // ProjectileComponent: final_knockback = knockback_force × velocity × mass / who_we_hit.mass.
+      if (a.id === 'player' && p.knockback > 0) {
+        const mass = this.data.projectiles[p.file]?.mass ?? 0.05;
+        this.push(Math.atan2(p.vy, p.vx), (p.knockback * speedOf(p) * mass) / (this.data.kit?.player.mass ?? 1));
+      }
       this.applyHitEffect(p, a);
       // A timer that hits something before it runs out acts like a trigger; a piercing one keeps
       // releasing copies into each enemy it passes through until its time is up.
@@ -1210,7 +1220,7 @@ export class RangeWorld {
     const pc = this.center(this.player);
     const d = Math.hypot(pc.x - x, pc.y - y);
     const reach = r * 1.5 + 4;
-    if (r > 0 && d < reach && this.body.dead === 0) this.push(Math.atan2(pc.y - y, pc.x - x), (1 - d / reach) * (4 + r * 0.25) * KNOCKBACK_SCALE);
+    if (r > 0 && d < reach && this.body.dead === 0) this.push(Math.atan2(pc.y - y, pc.x - x), (1 - d / reach) * (4 + r * 0.25) * BLAST_PUSH);
     if (damage <= 0) return;
     for (const a of this.actors) {
       if (a.id === 'player' && spareShooter) continue;
