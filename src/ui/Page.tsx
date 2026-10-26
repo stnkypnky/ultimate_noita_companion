@@ -33,7 +33,11 @@ export function Page({
 
   return (
     <div className={`mx-auto w-full ${wide ? 'max-w-[1600px]' : 'max-w-5xl'} px-4 md:px-8`}>
-      <header ref={ref} className="safe-top sticky top-0 z-20 -mx-4 bg-bg/85 px-4 pt-5 pb-3 backdrop-blur-md md:-mx-8 md:px-8 md:pt-7">
+      {/* The shadow + clip-path stretch the header's backing across the whole content area, not just this column. */}
+      <header
+        ref={ref}
+        className="safe-top sticky top-0 z-20 -mx-4 bg-bg/85 px-4 pt-5 pb-3 shadow-[0_0_0_100vmax_#0a0807d9] backdrop-blur-md [clip-path:inset(0_-100vmax)] md:-mx-8 md:px-8 md:pt-7"
+      >
         <div className="flex items-end gap-3">
           <div className="min-w-0 flex-1">
             <h1 className="font-game text-[24px] leading-tight md:text-[32px]">{title}</h1>
