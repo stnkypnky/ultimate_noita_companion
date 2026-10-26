@@ -22,7 +22,7 @@ export function Onboarding() {
     <AnimatePresence>
       {!onboarded && !importing && (
         <motion.div
-          className="fixed inset-0 z-[60] grid place-items-end bg-black/70 backdrop-blur-sm sm:place-items-center"
+          className="fixed inset-0 z-[60] grid place-items-end bg-black/80 sm:place-items-center"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}

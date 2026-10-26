@@ -32,6 +32,8 @@ function settle(w: RangeWorld) {
 describe('player', () => {
   it('walks at the game speed', () => {
     const w = new RangeWorld(data);
+    // On flat dry ground (from the start spot a second's walk ends at the water pool's edge).
+    w.player.x = 205;
     settle(w);
     const x0 = w.player.x;
     w.controls.right = true;

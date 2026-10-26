@@ -364,11 +364,24 @@ describe('spells with their own scripts', () => {
   });
 
   it("Worm Launcher's worm only starts homing after 40 frames", () => {
-    const w = fly(['WORM_SHOT'], 5);
-    const worm = live(w, 'worm_shot')[0]!;
-    expect(worm.homing).toBeUndefined();
-    for (let i = 0; i < 45; i++) w.step();
-    expect(worm.homing?.targetShooter).toBe(true);
+    // Worms pass through the ground and can fall out of the range, so check every live one by its age.
+    const w = fly(['WORM_SHOT'], 1);
+    let young = 0;
+    let old = 0;
+    for (let i = 0; i < 90; i++) {
+      w.step();
+      for (const worm of live(w, 'worm_shot')) {
+        if (worm.age < 40) {
+          expect(worm.homing).toBeUndefined();
+          young++;
+        } else if (worm.age > 40) {
+          expect(worm.homing?.targetShooter).toBe(true);
+          old++;
+        }
+      }
+    }
+    expect(young).toBeGreaterThan(0);
+    expect(old).toBeGreaterThan(0);
   });
 
   it('Spells to Power uses up the other projectiles and takes their damage', () => {

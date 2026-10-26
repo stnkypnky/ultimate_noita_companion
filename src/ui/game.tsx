@@ -191,10 +191,12 @@ export function Embers() {
       last = now;
       // Resting (and gone) while the test range runs.
       if (document.documentElement.dataset.rangeRunning) {
-        if (!resting) ctx.clearRect(0, 0, w, h);
+        // Hidden altogether, so the page has one less full-screen layer to composite.
+        if (!resting) canvas.style.visibility = 'hidden';
         resting = true;
         return;
       }
+      if (resting) canvas.style.visibility = '';
       resting = false;
       while (embers.length < count()) embers.push(spawn(false));
       ctx.clearRect(0, 0, w, h);

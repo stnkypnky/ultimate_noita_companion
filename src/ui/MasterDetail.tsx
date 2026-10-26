@@ -60,7 +60,7 @@ export function MasterDetail({
           <>
             <motion.div
               key="backdrop"
-              className="fixed inset-0 z-40 bg-black/55 backdrop-blur-[2px]"
+              className="fixed inset-0 z-40 bg-black/65"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}

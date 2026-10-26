@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { Link } from 'react-router';
+import { rangeSettings, setRangeSetting, type RangeSettings } from '@/features/range/settings';
 import { Eye, EyeOff, RotateCcw } from 'lucide-react';
 import { useGameData } from '@/data/store';
 import { useProgress } from '@/store/progress';
@@ -37,6 +39,17 @@ export function SettingsPage() {
         </div>
       </Section>
 
+      <Section title="Test range">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <RangeToggle
+            setting="performance"
+            title="Performance mode"
+            text="For slower tablets and phones: no glow, fewer particles, and the picture redrawn 30 times a second. Spells behave the same."
+          />
+          <RangeToggle setting="showFps" title="Show frame rate" text="Frame rate and timings in the corner of the range, to see how your device keeps up." />
+        </div>
+      </Section>
+
       <Section title="About">
         <div className="space-y-2 panel p-4 text-sm text-muted">
           <p>
@@ -59,18 +72,37 @@ export function SettingsPage() {
   );
 }
 
-function ModeCard({ active, onClick, icon, title, text }: { active: boolean; onClick: () => void; icon: React.ReactNode; title: string; text: string }) {
+/** An on/off test range setting (stored on this device). */
+function RangeToggle({ setting, title, text }: { setting: keyof RangeSettings; title: string; text: string }) {
+  const [on, setOn] = useState(() => rangeSettings()[setting]);
   return (
     <button
-      onClick={onClick}
-      aria-pressed={active}
-      className={`flex items-start gap-3 rounded-[var(--radius)] border p-4 text-left transition ${
-        active ? 'border-ember/60 bg-ember/10' : 'border-line bg-surface hover:border-line-strong'
-      }`}
+      onClick={() => {
+        setRangeSetting(setting, !on);
+        setOn(!on);
+      }}
+      role="switch"
+      aria-checked={on}
+      data-active={on || undefined}
+      className="slot slot-hover flex items-start gap-3 p-4 text-left"
     >
+      <span className={`mt-0.5 grid h-5 w-9 shrink-0 items-center px-0.5 ${on ? 'bg-ember' : 'bg-black/60'}`} aria-hidden>
+        <span className={`h-4 w-4 bg-ink transition-transform ${on ? 'translate-x-4' : ''}`} />
+      </span>
+      <span>
+        <span className="font-game block text-[16px]">{title}</span>
+        <span className="mt-0.5 block text-sm text-muted">{text}</span>
+      </span>
+    </button>
+  );
+}
+
+function ModeCard({ active, onClick, icon, title, text }: { active: boolean; onClick: () => void; icon: React.ReactNode; title: string; text: string }) {
+  return (
+    <button onClick={onClick} aria-pressed={active} className="slot slot-hover flex items-start gap-3 p-4 text-left">
       <span className={active ? 'text-ember' : 'text-muted'}>{icon}</span>
       <span>
-        <span className="block font-semibold">{title}</span>
+        <span className="font-game block text-[16px]">{title}</span>
         <span className="mt-0.5 block text-sm text-muted">{text}</span>
       </span>
     </button>

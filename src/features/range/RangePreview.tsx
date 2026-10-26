@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowBigUp, ArrowLeftRight, Bot, ChevronLeft, ChevronRight, Dices, Gauge, Maximize2, Minimize2, Mountain, Pause, Play, Sun } from 'lucide-react';
+import { ArrowBigUp, ArrowLeftRight, Bot, ChevronLeft, ChevronRight, Dices, Gauge, Maximize2, Minimize2, Mountain, Pause, Play } from 'lucide-react';
 import { fetchJson, useData } from '@/data/store';
 import type { EntityVisual, RangeKit, RangeProp } from '@/data/types';
 import { fmtNum } from '@/data/format';
@@ -11,6 +11,7 @@ import { H, RangeWorld, W, type RangeData } from './world';
 import { RangeRenderer, SCALE, loadRangeImages, type RangeImages } from './render';
 import { pickWandSprite, type Controls } from './player';
 import { WandRuntime } from './wand';
+import { rangeSettings } from './settings';
 
 const SPEEDS = [0.25, 0.5, 1] as const;
 const DEFAULT_DISTANCE = 228;
@@ -74,14 +75,10 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
   const [fullscreen, setFullscreen] = useState(false);
   const [auto, setAuto] = useState(() => remembered('range-auto', '0') === '1');
   const [look, setLook] = useState(0);
-  // Glow (bloom and light halos): 'auto' turns it off by itself when frames run slow (tablets).
-  const [quality, setQuality] = useState(() => remembered('range-quality', 'auto') as 'auto' | 'full' | 'lite');
-  const [slow, setSlow] = useState(false);
-  const lite = quality === 'lite' || (quality === 'auto' && slow);
-  const liteRef = useRef(lite);
-  liteRef.current = lite;
-  useEffect(() => remember('range-quality', quality), [quality]);
+  // Performance mode and the frame-rate readout come from the Settings page.
+  const [settings] = useState(rangeSettings);
   const [hud, setHud] = useState<Hud>({ dps: 0, total: 0, self: 0, casts: 0, live: 0, unsupported: [], wandError: null, deck: null, played: [] });
+  const [fps, setFps] = useState<{ fps: number; step: number; draw: number } | null>(null);
   const req = useMemo(() => toSimRequest(wand, options, spellById).req, [wand, options, spellById]);
   const empty = req.deck.length === 0 && req.alwaysCasts.length === 0;
   const wandSprite = useMemo(() => (ready?.data.kit ? pickWandSprite(ready.data.kit.wands, wand, look) : undefined), [ready, wand, look]);
@@ -159,33 +156,31 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
     const canvas = canvasRef.current;
     const world = worldRef.current;
     if (!ready || !canvas || !world) return;
-    const renderer = new RangeRenderer(canvas.getContext('2d')!, ready.images);
+    // Opaque (every frame paints the whole scene), so the browser needn't blend it with the page behind.
+    const renderer = new RangeRenderer(canvas.getContext('2d', { alpha: false })!, ready.images);
+    // Performance mode: no glow, a quarter of the particles, and the picture redrawn about 30 times a second.
+    renderer.lite = settings.performance;
+    world.particleBudget = settings.performance ? 1500 : 6000;
     renderer.draw(world);
     if (!running) return;
     let raf = 0;
     let last = performance.now();
+    let lastDraw = 0;
     let acc = 0;
     let hudTimer = 0;
+    // Frame-rate readout (Settings → Show frame rate): pictures drawn, and time spent simulating and drawing.
+    let drawn = 0;
+    let stepMs = 0;
+    let stepCount = 0;
+    let drawMs = 0;
     // Timing probe for performance checks: on when localStorage has range-perf=1 (read by scratch perf scripts).
     const probe =
       remembered('range-perf', '0') === '1'
         ? ((window as unknown as { __rangePerf?: { step: number[]; draw: number[]; frame: number[] } }).__rangePerf ??= { step: [], draw: [], frame: [] })
         : null;
-    // Frame times for 'auto' glow: if half of 60 frames (after a 30-frame warm-up) miss 40 fps, glow goes off.
-    let slowFrames = 0;
-    let frames = 0;
     const loop = (now: number) => {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
-      renderer.lite = liteRef.current;
-      if (!document.hidden && !liteRef.current && ++frames > 30) {
-        slowFrames += dt > 1 / 40 ? 1 : 0;
-        if (frames >= 90) {
-          if (slowFrames > 30) setSlow(true);
-          frames = 30;
-          slowFrames = 0;
-        }
-      }
       if (!document.hidden) {
         acc += dt * speed;
         let steps = 0;
@@ -199,7 +194,14 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
         }
         if (acc > 1 / 60) acc = 0;
         const t1 = performance.now();
-        renderer.draw(world);
+        stepMs += t1 - t0;
+        stepCount += steps;
+        if (!settings.performance || now - lastDraw >= 1000 / 30 - 2) {
+          lastDraw = now;
+          renderer.draw(world);
+          drawn++;
+          drawMs += performance.now() - t1;
+        }
         if (probe) {
           probe.step.push(steps ? (t1 - t0) / steps : 0);
           probe.draw.push(performance.now() - t1);
@@ -207,6 +209,9 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
         }
         hudTimer += dt;
         if (hudTimer > 0.25) {
+          if (settings.showFps) setFps({ fps: drawn / hudTimer, step: stepCount ? stepMs / stepCount : 0, draw: drawn ? drawMs / drawn : 0 });
+          drawn = stepCount = 0;
+          stepMs = drawMs = 0;
           hudTimer = 0;
           const rt = world.wand;
           setHud({
@@ -231,7 +236,7 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
       cancelAnimationFrame(raf);
       delete document.documentElement.dataset.rangeRunning;
     };
-  }, [ready, running, speed]);
+  }, [ready, running, speed, settings]);
 
   // Keyboard: active while the pointer is over the range or it has focus, so the builder's own keys keep working.
   const engaged = useRef(false);
@@ -363,6 +368,11 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
         <div className="pointer-events-none absolute top-2 left-2 flex gap-1.5 text-[11px] tabular-nums">
           <span className="rounded bg-black/60 px-1.5 py-0.5 text-ember">{fmtNum(hud.dps, 0)} DPS</span>
           <span className="rounded bg-black/60 px-1.5 py-0.5 text-muted">{fmtNum(hud.total, 0)} total</span>
+          {fps && (
+            <span className="rounded bg-black/60 px-1.5 py-0.5 text-gold" title="Pictures drawn per second · time per game step · time per picture">
+              {fmtNum(fps.fps, 0)} fps · {fmtNum(fps.step, 1)} / {fmtNum(fps.draw, 1)} ms
+            </span>
+          )}
           {hud.self > 0 && (
             <span className="rounded bg-black/60 px-1.5 py-0.5 text-blood" title="Damage your own spells did to you">
               {fmtNum(hud.self, 0)} to you
@@ -426,14 +436,6 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
         <Btn label="Another wand sprite for these stats" onClick={() => setLook(look + 1)}>
           <Dices size={15} />
         </Btn>
-        <button
-          onClick={() => setQuality(lite ? 'full' : 'lite')}
-          aria-pressed={!lite}
-          title={lite ? 'Glow is off (turned off automatically on slow devices). Turn it on' : 'Glow is on. Turn it off for a smoother range on slow devices'}
-          className={`rounded-lg p-1.5 hover:bg-surface-2 ${lite ? 'text-faint' : 'text-gold'}`}
-        >
-          <Sun size={15} />
-        </button>
         <Btn
           label="Rebuild terrain"
           onClick={() => {

@@ -243,6 +243,8 @@ export class RangeWorld {
   /** Which of the game's wand sprites is in hand (its tip is where spells leave). */
   wandSprite: WandSprite | undefined;
   readonly unsupported = new Set<string>();
+  /** Most cosmetic particles alive at once (performance mode lowers it). */
+  particleBudget = MAX_PARTICLES;
   damageEvents: { frame: number; amount: number }[] = [];
   totalDamage = 0;
   selfDamage = 0;
@@ -945,7 +947,7 @@ export class RangeWorld {
   }
 
   addParticle = (q: Particle) => {
-    if (this.particles.length < MAX_PARTICLES) this.particles.push(q);
+    if (this.particles.length < this.particleBudget) this.particles.push(q);
   };
 
   private heading(p: Proj) {
@@ -1031,7 +1033,10 @@ export class RangeWorld {
       p.y = ny;
       if (!p.physicsBody && p.damageEveryFrames <= 0 && this.touchActors(p)) return;
     }
-    if (p.x < -40 || p.x > W + 40 || p.y < -40 || p.y > H + 40) p.dead = true;
+    // Gone once well off the range. Things that pass through the ground get more room: in the game the world
+    // goes on, so a Worm Launcher worm that dips under the floor can still turn back for its caster.
+    const margin = p.collideWorld && !p.penetrateWorld ? 40 : 200;
+    if (p.x < -margin || p.x > W + margin || p.y < -margin || p.y > H + margin) p.dead = true;
   }
 
   /**

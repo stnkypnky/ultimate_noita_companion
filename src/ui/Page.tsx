@@ -36,7 +36,7 @@ export function Page({
       {/* The shadow + clip-path stretch the header's backing across the whole content area, not just this column. */}
       <header
         ref={ref}
-        className="safe-top sticky top-0 z-20 -mx-4 bg-bg/85 px-4 pt-5 pb-3 shadow-[0_0_0_100vmax_#0a0807d9] backdrop-blur-md [clip-path:inset(0_-100vmax)] md:-mx-8 md:px-8 md:pt-7"
+        className="safe-top sticky top-0 z-20 -mx-4 bg-bg px-4 pt-5 pb-3 shadow-[0_0_0_100vmax_var(--bg)] [clip-path:inset(0_-100vmax)] md:-mx-8 md:px-8 md:pt-7"
       >
         <div className="flex items-end gap-3">
           <div className="min-w-0 flex-1">

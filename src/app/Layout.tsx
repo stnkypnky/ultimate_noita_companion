@@ -42,7 +42,7 @@ function Rail() {
   return (
     <nav
       aria-label="Main"
-      className="safe-top hidden w-[72px] shrink-0 flex-col border-r-2 border-line-strong/60 bg-raised/85 backdrop-blur md:flex lg:w-[var(--rail-w)]"
+      className="safe-top hidden w-[72px] shrink-0 flex-col border-r-2 border-line-strong/60 bg-raised md:flex lg:w-[var(--rail-w)]"
     >
       <div className="flex items-center gap-3 px-4 py-5 lg:px-5">
         <img src={`${import.meta.env.BASE_URL}icons/favicon-64.png`} alt="" className="pixelated h-8 w-8" />
@@ -100,7 +100,7 @@ function BottomNav() {
   return (
     <nav
       aria-label="Main"
-      className="safe-bottom fixed inset-x-0 bottom-0 z-30 border-t-2 border-line-strong/70 bg-raised/92 backdrop-blur-lg md:hidden"
+      className="safe-bottom fixed inset-x-0 bottom-0 z-30 border-t-2 border-line-strong/70 bg-raised md:hidden"
     >
       <ul className="flex h-[var(--nav-h)] items-stretch">
         {items.map((item) => {
