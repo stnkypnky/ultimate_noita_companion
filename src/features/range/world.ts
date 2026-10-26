@@ -1287,7 +1287,7 @@ export class RangeWorld {
     this.floaters.push({
       x: a.x + rand(-8, 8),
       y: a.y - a.h - 4 - same * 7,
-      text: dealt >= 10 ? String(Math.round(dealt)) : dealt.toFixed(1),
+      text: dealt >= 10 ? String(Math.round(dealt)) : String(Number(dealt.toFixed(1))),
       age: 0,
       crit,
       self: a.id === 'player',

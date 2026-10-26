@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowBigUp, ArrowLeftRight, Bot, ChevronLeft, ChevronRight, Dices, Gauge, Maximize2, Minimize2, Mountain, Pause, Play } from 'lucide-react';
+import { ArrowBigUp, ArrowLeftRight, Bot, ChevronLeft, ChevronRight, Dices, Gauge, Maximize2, Minimize2, Mountain, Pause, Play, Sun } from 'lucide-react';
 import { fetchJson, useData } from '@/data/store';
 import type { EntityVisual, RangeKit, RangeProp } from '@/data/types';
 import { fmtNum } from '@/data/format';
@@ -74,6 +74,13 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
   const [fullscreen, setFullscreen] = useState(false);
   const [auto, setAuto] = useState(() => remembered('range-auto', '0') === '1');
   const [look, setLook] = useState(0);
+  // Glow (bloom and light halos): 'auto' turns it off by itself when frames run slow (tablets).
+  const [quality, setQuality] = useState(() => remembered('range-quality', 'auto') as 'auto' | 'full' | 'lite');
+  const [slow, setSlow] = useState(false);
+  const lite = quality === 'lite' || (quality === 'auto' && slow);
+  const liteRef = useRef(lite);
+  liteRef.current = lite;
+  useEffect(() => remember('range-quality', quality), [quality]);
   const [hud, setHud] = useState<Hud>({ dps: 0, total: 0, self: 0, casts: 0, live: 0, unsupported: [], wandError: null, deck: null, played: [] });
   const req = useMemo(() => toSimRequest(wand, options, spellById).req, [wand, options, spellById]);
   const empty = req.deck.length === 0 && req.alwaysCasts.length === 0;
@@ -159,20 +166,47 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
     let last = performance.now();
     let acc = 0;
     let hudTimer = 0;
+    // Timing probe for performance checks: on when localStorage has range-perf=1 (read by scratch perf scripts).
+    const probe =
+      remembered('range-perf', '0') === '1'
+        ? ((window as unknown as { __rangePerf?: { step: number[]; draw: number[]; frame: number[] } }).__rangePerf ??= { step: [], draw: [], frame: [] })
+        : null;
+    // Frame times for 'auto' glow: if half of 60 frames (after a 30-frame warm-up) miss 40 fps, glow goes off.
+    let slowFrames = 0;
+    let frames = 0;
     const loop = (now: number) => {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
+      renderer.lite = liteRef.current;
+      if (!document.hidden && !liteRef.current && ++frames > 30) {
+        slowFrames += dt > 1 / 40 ? 1 : 0;
+        if (frames >= 90) {
+          if (slowFrames > 30) setSlow(true);
+          frames = 30;
+          slowFrames = 0;
+        }
+      }
       if (!document.hidden) {
         acc += dt * speed;
         let steps = 0;
-        while (acc >= 1 / 60 && steps < 6) {
+        const t0 = performance.now();
+        // Catch up at most 3 steps; a device that can't keep up runs a little slow rather than spiralling into
+        // ever longer frames.
+        while (acc >= 1 / 60 && steps < 3) {
           world.step();
           acc -= 1 / 60;
           steps++;
         }
+        if (acc > 1 / 60) acc = 0;
+        const t1 = performance.now();
         renderer.draw(world);
+        if (probe) {
+          probe.step.push(steps ? (t1 - t0) / steps : 0);
+          probe.draw.push(performance.now() - t1);
+          probe.frame.push(dt * 1000);
+        }
         hudTimer += dt;
-        if (hudTimer > 0.1) {
+        if (hudTimer > 0.25) {
           hudTimer = 0;
           const rt = world.wand;
           setHud({
@@ -191,7 +225,12 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
+    // The background embers rest while the range runs (one animation at a time on slow devices).
+    document.documentElement.dataset.rangeRunning = '1';
+    return () => {
+      cancelAnimationFrame(raf);
+      delete document.documentElement.dataset.rangeRunning;
+    };
   }, [ready, running, speed]);
 
   // Keyboard: active while the pointer is over the range or it has focus, so the builder's own keys keep working.
@@ -387,6 +426,14 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
         <Btn label="Another wand sprite for these stats" onClick={() => setLook(look + 1)}>
           <Dices size={15} />
         </Btn>
+        <button
+          onClick={() => setQuality(lite ? 'full' : 'lite')}
+          aria-pressed={!lite}
+          title={lite ? 'Glow is off (turned off automatically on slow devices). Turn it on' : 'Glow is on. Turn it off for a smoother range on slow devices'}
+          className={`rounded-lg p-1.5 hover:bg-surface-2 ${lite ? 'text-faint' : 'text-gold'}`}
+        >
+          <Sun size={15} />
+        </button>
         <Btn
           label="Rebuild terrain"
           onClick={() => {

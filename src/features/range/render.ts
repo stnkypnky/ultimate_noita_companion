@@ -5,9 +5,14 @@ import { animFrame } from './player';
 import { K_FIRE, K_POWDER, K_STATIC } from './cells';
 import { H, W, type RangeWorld } from './world';
 
-/** Drawing scale over world pixels: sprites stay crisp, text stays readable. */
-export const SCALE = 2;
+/**
+ * Drawing scale over world pixels. 1, like the game's own 427×242 frame: CSS scales the canvas up with crisp
+ * pixels. (Drawing at 2× cost four times the fill and made the range crawl on slow tablets.)
+ */
+export const SCALE = 1;
 const MAX_LIGHTS = 160;
+/** The bloom layer is shrunk this much and stretched back (a cheap, soft blur). */
+const BLOOM_SHRINK = 4;
 
 const HUD_ICONS = ['health', 'flying', 'mana', 'reload', 'delay'] as const;
 type HudIcon = (typeof HUD_ICONS)[number];
@@ -42,6 +47,48 @@ function pixels(img: HTMLImageElement): ImageData {
   const ctx = c.getContext('2d')!;
   ctx.drawImage(img, 0, 0);
   return ctx.getImageData(0, 0, img.width, img.height);
+}
+
+/**
+ * A world-sized layer written pixel by pixel and painted in one go. Thousands of particles as single fillRects
+ * (each with its own colour, alpha and blend mode) are what made the range crawl on slow tablets.
+ */
+class PixelLayer {
+  readonly canvas = document.createElement('canvas');
+  readonly img = new ImageData(W, H);
+  private ctx: CanvasRenderingContext2D;
+  /** Something was written since the last clear. */
+  dirty = false;
+  private shown = false;
+
+  constructor() {
+    this.canvas.width = W;
+    this.canvas.height = H;
+    this.ctx = this.canvas.getContext('2d')!;
+  }
+
+  clear() {
+    if (this.dirty) this.img.data.fill(0);
+    this.dirty = false;
+  }
+
+  /** Upload the pixels (skipped while the layer stays empty). */
+  flush() {
+    if (!this.dirty && !this.shown) return;
+    this.ctx.putImageData(this.img, 0, 0);
+    this.shown = this.dirty;
+  }
+}
+
+/** #rrggbb(aa) → 0xrrggbb, cached. */
+const rgbCache = new Map<string, number>();
+function rgbOf(color: string) {
+  let v = rgbCache.get(color);
+  if (v === undefined) {
+    v = parseInt(color.slice(1, 7), 16) || 0xffffff;
+    rgbCache.set(color, v);
+  }
+  return v;
 }
 
 let assets: Promise<RangeImages> | null = null;
@@ -80,7 +127,15 @@ export class RangeRenderer {
   /** Bloom layer: glowing particles, emissive sprites and lights, blurred over the scene. */
   private glow = document.createElement('canvas');
   private glowCtx: CanvasRenderingContext2D;
+  /** Particles: normally blended, and additive (glowing materials). */
+  private partOver = new PixelLayer();
+  private partAdd = new PixelLayer();
+  /** The bloom, shrunk: stretched back with smoothing it blurs for a fraction of a blur filter's cost. */
+  private bloomSmall = document.createElement('canvas');
+  private bloomCtx: CanvasRenderingContext2D;
   private stillCamera = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /** Light mode for slow devices: no bloom and no light halos (the scene and the game stay the same). */
+  lite = false;
 
   constructor(
     private ctx: CanvasRenderingContext2D,
@@ -92,6 +147,10 @@ export class RangeRenderer {
     this.glow.height = H;
     this.glowCtx = this.glow.getContext('2d')!;
     this.glowCtx.imageSmoothingEnabled = false;
+    this.bloomSmall.width = Math.ceil(W / BLOOM_SHRINK);
+    this.bloomSmall.height = Math.ceil(H / BLOOM_SHRINK);
+    this.bloomCtx = this.bloomSmall.getContext('2d')!;
+    this.bloomCtx.imageSmoothingEnabled = true;
     ctx.imageSmoothingEnabled = false;
     const bg = document.createElement('canvas');
     bg.width = img.rock.width;
@@ -181,6 +240,60 @@ export class RangeRenderer {
     }
   }
 
+  /**
+   * Particles into the two pixel layers: glowing ones add their light, the rest blend over (as 'lighter' and
+   * 'source-over' did per particle). Streaks are plotted along their last frame of motion.
+   */
+  private drawParticles(w: RangeWorld) {
+    const over = this.partOver;
+    const add = this.partAdd;
+    over.clear();
+    add.clear();
+    const od = over.img.data;
+    const ad = add.img.data;
+    for (const q of w.particles) {
+      const a = Math.min(1, q.alpha * (q.fade ? 1 - q.life / q.max : 1));
+      if (a <= 0.02) continue;
+      const c = rgbOf(q.color);
+      const r = c >> 16;
+      const g = (c >> 8) & 255;
+      const b = c & 255;
+      let x0 = q.x;
+      let y0 = q.y;
+      let n = 0;
+      if (q.long) {
+        x0 = q.x - q.vx / 60;
+        y0 = q.y - q.vy / 60;
+        n = Math.min(12, Math.ceil(Math.max(Math.abs(q.x - x0), Math.abs(q.y - y0))));
+      }
+      for (let k = 0; k <= n; k++) {
+        const t = n ? k / n : 1;
+        const xi = Math.round(x0 + (q.x - x0) * t);
+        const yi = Math.round(y0 + (q.y - y0) * t);
+        if (xi < 0 || yi < 0 || xi >= W || yi >= H) continue;
+        const i = (yi * W + xi) * 4;
+        if (q.glow) {
+          ad[i] = Math.min(255, ad[i]! + r * a);
+          ad[i + 1] = Math.min(255, ad[i + 1]! + g * a);
+          ad[i + 2] = Math.min(255, ad[i + 2]! + b * a);
+          ad[i + 3] = 255;
+          add.dirty = true;
+        } else {
+          const da = od[i + 3]! / 255;
+          const oa = a + da * (1 - a);
+          const keep = (da * (1 - a)) / oa;
+          od[i] = r * (a / oa) + od[i]! * keep;
+          od[i + 1] = g * (a / oa) + od[i + 1]! * keep;
+          od[i + 2] = b * (a / oa) + od[i + 2]! * keep;
+          od[i + 3] = oa * 255;
+          over.dirty = true;
+        }
+      }
+    }
+    over.flush();
+    add.flush();
+  }
+
   /** Material textures load on first sight; until then the material's colour stands in. */
   private loadTexture(path: string, cells: RangeWorld['cells']) {
     this.textures.set(path, 'loading');
@@ -219,43 +332,34 @@ export class RangeRenderer {
     if (dm) this.actorSprite(this.img.dummy, dm, w.dummy.x, w.dummy.y, 1, w.dummy.flash);
     this.drawPlayer(w);
 
-    // Glowing things are drawn twice: into the scene and into a bloom layer that's blurred on top.
+    // Glowing things are drawn twice: into the scene and into a bloom layer that's blurred on top (not in lite mode).
+    const bloom = !this.lite;
     const g = this.glowCtx;
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    g.globalCompositeOperation = 'source-over';
-    g.globalAlpha = 1;
-    g.clearRect(0, 0, W, H);
-    // fire, lava, burning cells and other glowing materials
-    g.drawImage(this.terrainGlow, 0, 0);
+    if (bloom) {
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.globalCompositeOperation = 'source-over';
+      g.globalAlpha = 1;
+      g.clearRect(0, 0, W, H);
+      // fire, lava, burning cells and other glowing materials
+      g.drawImage(this.terrainGlow, 0, 0);
+    }
     const both = (draw: (c: CanvasRenderingContext2D) => void) => {
       draw(ctx);
-      draw(g);
+      if (bloom) draw(g);
     };
 
     // particles: glowing materials (sparks, plasma) add light; fades follow fade_based_on_lifetime
-    for (const q of w.particles) {
-      const a = q.alpha * (q.fade ? 1 - q.life / q.max : 1);
-      if (a <= 0.02) continue;
-      const draw = (c: CanvasRenderingContext2D) => {
-        c.globalCompositeOperation = q.glow ? 'lighter' : 'source-over';
-        c.globalAlpha = Math.min(1, a);
-        if (q.long) {
-          c.strokeStyle = q.color;
-          c.lineWidth = 1;
-          c.beginPath();
-          c.moveTo(q.x - q.vx / 60, q.y - q.vy / 60);
-          c.lineTo(q.x, q.y);
-          c.stroke();
-        } else {
-          c.fillStyle = q.color;
-          c.fillRect(Math.round(q.x), Math.round(q.y), 1, 1);
-        }
-      };
-      if (q.glow) both(draw);
-      else draw(ctx);
+    this.drawParticles(w);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(this.partOver.canvas, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.drawImage(this.partAdd.canvas, 0, 0);
+    if (bloom) {
+      g.globalCompositeOperation = 'lighter';
+      g.drawImage(this.partAdd.canvas, 0, 0);
+      g.globalAlpha = 1;
     }
     ctx.globalAlpha = 1;
-    g.globalAlpha = 1;
 
     // laser beams: glow, then a bright core
     for (const b of w.beams) {
@@ -295,7 +399,7 @@ export class RangeRenderer {
         ctx.globalAlpha = 0.85 + 0.15 * Math.sin(p.age / 6);
         ctx.drawImage(this.img.wands, ws.icon.x, ws.icon.y, ws.icon.w, ws.icon.h, -ws.grip[0], -ws.grip[1], ws.icon.w, ws.icon.h);
         ctx.restore();
-        glow(g, p.x, p.y, 10, '#9fd8ff', 0.45);
+        if (bloom) glow(g, p.x, p.y, 10, '#9fd8ff', 0.45);
       } else if (p.body && layers?.length) {
         // A worm: the head, then each body part 16 px further back along the path it took (part_distance).
         const at = (dist: number) => {
@@ -326,7 +430,7 @@ export class RangeRenderer {
         ctx.fillStyle = p.light?.color ?? p.visual?.trail?.color ?? '#ffffff';
         ctx.fillRect(Math.round(p.x) - 1, Math.round(p.y) - 1, 2, 2);
       }
-      if (p.light && lights < MAX_LIGHTS) {
+      if (bloom && p.light && lights < MAX_LIGHTS) {
         lights++;
         glow(g, p.x, p.y, Math.min(28, p.light.radius * 0.45), p.light.color, 0.5);
       }
@@ -340,16 +444,21 @@ export class RangeRenderer {
     for (const f of w.flashes) {
       const t = f.age / f.life;
       glow(ctx, f.x, f.y, f.r * (0.7 + t * 0.6), f.color, 0.6 * (1 - t));
-      glow(g, f.x, f.y, f.r * (0.7 + t * 0.6), f.color, 0.8 * (1 - t));
+      if (bloom) glow(g, f.x, f.y, f.r * (0.7 + t * 0.6), f.color, 0.8 * (1 - t));
     }
 
-    // bloom
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = 0.85;
-    ctx.filter = 'blur(3px)';
-    ctx.drawImage(this.glow, 0, 0);
-    ctx.restore();
+    // bloom: the glow layer shrunk and stretched back smoothly, added over the scene
+    if (!this.lite) {
+      const bc = this.bloomCtx;
+      bc.globalCompositeOperation = 'copy';
+      bc.drawImage(this.glow, 0, 0, this.bloomSmall.width, this.bloomSmall.height);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.9;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(this.bloomSmall, 0, 0, W, H);
+      ctx.restore();
+    }
 
     // status effects: the game's indicator icons over each actor, frozen ones iced over
     const effects = w.kit?.effects;
@@ -420,7 +529,7 @@ export class RangeRenderer {
       c.restore();
     };
     draw(this.ctx);
-    if (l.additive || l.emissive) draw(this.glowCtx);
+    if (!this.lite && (l.additive || l.emissive)) draw(this.glowCtx);
   }
 
   /** Mina: the animation frame for what she's doing, mirrored to face the aim, with arm and wand rotated to it. */
@@ -556,14 +665,31 @@ function polyline(ctx: CanvasRenderingContext2D, pts: [number, number][], color:
   ctx.globalAlpha = 1;
 }
 
+/** One soft round light per colour, drawn once and stretched to any radius (gradients per light are slow). */
+const glowSprites = new Map<string, HTMLCanvasElement>();
+function glowSprite(color: string) {
+  let c = glowSprites.get(color);
+  if (!c) {
+    c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d')!;
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, color);
+    grad.addColorStop(1, 'transparent');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    glowSprites.set(color, c);
+  }
+  return c;
+}
+
 function glow(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string, alpha: number) {
   if (r < 1 || alpha <= 0) return;
-  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-  g.addColorStop(0, color);
-  g.addColorStop(1, 'transparent');
   ctx.globalCompositeOperation = 'lighter';
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = g;
-  ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  ctx.globalAlpha = Math.min(1, alpha);
+  const smooth = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(glowSprite(color), x - r, y - r, r * 2, r * 2);
+  ctx.imageSmoothingEnabled = smooth;
   ctx.globalAlpha = 1;
 }

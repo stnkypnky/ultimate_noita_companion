@@ -183,11 +183,19 @@ export function Embers() {
 
     let raf = 0;
     let last = performance.now();
+    let resting = false;
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
       const dt = Math.min(0.1, (now - last) / 1000);
       if (dt < 1 / 30) return;
       last = now;
+      // Resting (and gone) while the test range runs.
+      if (document.documentElement.dataset.rangeRunning) {
+        if (!resting) ctx.clearRect(0, 0, w, h);
+        resting = true;
+        return;
+      }
+      resting = false;
       while (embers.length < count()) embers.push(spawn(false));
       ctx.clearRect(0, 0, w, h);
       for (let i = embers.length - 1; i >= 0; i--) {
