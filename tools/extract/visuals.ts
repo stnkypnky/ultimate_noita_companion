@@ -4,6 +4,7 @@ import sharp from 'sharp';
 import type { Emitter, EntityVisual, ExplosionVisual, SpriteLayer } from '../../src/data/types.ts';
 import { comp, comps, num, parseXml, type El, type EntityLoader } from './entity.ts';
 import type { Wak } from './wak.ts';
+import { EXPLOSION_DAMAGE_DEFAULT } from './spells.ts';
 
 const MAX_SPRITE = 64;
 /** Animation frames are kept up to this size; bigger ones are stored shrunk and drawn scaled back up. */
@@ -362,6 +363,8 @@ export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLo
         rotateOnly: homing.attrs.just_rotate_towards_target === '1',
         maxTurnRate: num(homing.attrs.max_turn_rate, 0.05),
         targetShooter: homing.attrs.target_who_shot === '1',
+        // Some start switched off and a script turns them on (Worm Launcher after 40 frames).
+        ...(homing.attrs._enabled === '0' ? { enabled: false } : {}),
       };
     }
 
@@ -418,7 +421,7 @@ export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLo
       v.lightning = {
         isProjectile: lightning.attrs.is_projectile === '1',
         radius: num(ex?.attrs.explosion_radius, 0),
-        damage: num(ex?.attrs.damage, 0) * HP,
+        damage: num(ex?.attrs.damage, EXPLOSION_DAMAGE_DEFAULT) * HP,
         color: color(ex?.attrs.spark_material) ?? '#9fd8ff',
       };
     }
@@ -440,6 +443,10 @@ export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLo
     if (e.attrs.tags) v.tags = String(e.attrs.tags).split(',').filter(Boolean);
 
     const pc = comp(e, 'ProjectileComponent');
+    // Shot with its ProjectileComponent off: it waits where it was made until a script launches it (Megalaser beams).
+    if (pc?.attrs._enabled === '0') v.held = true;
+    // No projectile or velocity at all (Matosade's worm spawner): it stays where it was cast.
+    if (!pc && !comp(e, 'VelocityComponent')) v.inert = true;
     // The blast: from the projectile, a lightning strike or a plain ExplosionComponent (bounce explosions).
     const blast = comp(pc, 'config_explosion') ?? comp(lightning, 'config_explosion') ?? comp(comp(e, 'ExplosionComponent'), 'config_explosion');
     if (blast) {

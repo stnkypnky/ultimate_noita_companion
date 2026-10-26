@@ -130,6 +130,17 @@ export class Cells {
     return this.mats.length - 1;
   }
 
+  /** A falling copy of a solid (same look), for ground shaken loose by Earthquake. */
+  loose(m: number) {
+    const base = this.mats[m]!;
+    const id = `${base.id}:loose`;
+    const have = this.byId.get(id);
+    if (have !== undefined) return have;
+    this.byId.set(id, this.mats.length);
+    this.mats.push({ ...base, id, kind: K_POWDER, hard: false });
+    return this.mats.length - 1;
+  }
+
   index(id: string) {
     return this.byId.get(id) ?? -1;
   }

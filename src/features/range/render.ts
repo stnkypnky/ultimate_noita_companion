@@ -285,6 +285,34 @@ export class RangeRenderer {
         const c = p.trails[0] ?? p.visual?.trail?.color ?? p.light?.color ?? '#ffffff';
         both((cx) => line(cx, p.spawnX, p.spawnY, p.x, p.y, c, 2.5, 0.5));
         line(ctx, p.spawnX, p.spawnY, p.x, p.y, '#ffffff', 0.8, 0.9);
+      } else if (p.wand) {
+        // A haunted wand: one of the game's wand sprites, pointing at what it shoots, with a pale glow.
+        const ws = p.wand;
+        ctx.save();
+        ctx.translate(Math.round(p.x), Math.round(p.y));
+        ctx.rotate(p.rot);
+        if (Math.cos(p.rot) < 0) ctx.scale(1, -1);
+        ctx.globalAlpha = 0.85 + 0.15 * Math.sin(p.age / 6);
+        ctx.drawImage(this.img.wands, ws.icon.x, ws.icon.y, ws.icon.w, ws.icon.h, -ws.grip[0], -ws.grip[1], ws.icon.w, ws.icon.h);
+        ctx.restore();
+        glow(g, p.x, p.y, 10, '#9fd8ff', 0.45);
+      } else if (p.body && layers?.length) {
+        // A worm: the head, then each body part 16 px further back along the path it took (part_distance).
+        const at = (dist: number) => {
+          let left = dist;
+          let prev = { x: p.x, y: p.y };
+          for (const q of p.body!) {
+            const d = Math.hypot(q.x - prev.x, q.y - prev.y);
+            if (d >= left && d > 0) return { x: prev.x + ((q.x - prev.x) * left) / d, y: prev.y + ((q.y - prev.y) * left) / d, rot: Math.atan2(prev.y - q.y, prev.x - q.x) };
+            left -= d;
+            prev = q;
+          }
+          return { x: prev.x, y: prev.y, rot: p.rot };
+        };
+        for (let k = layers.length - 1; k >= 0; k--) {
+          const s = k === 0 ? { x: p.x, y: p.y, rot: p.rot } : at(k * 16);
+          this.layer(layers[k]!, p.age, s.x, s.y, s.rot, 1, 1);
+        }
       } else if (layers?.length) {
         const rot = p.physicsBody ? p.spin : p.rotate || p.parent ? p.rot : 0;
         // velocity_sets_scale: stretched along the motion, like the game's spark bolts

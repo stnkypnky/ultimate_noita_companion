@@ -31,6 +31,11 @@ export type RawAction = {
 };
 
 const HP = 25;
+/**
+ * config_explosion's damage when the XML leaves it out. The engine default is 5 (125 HP): Summon Rock Spirit's
+ * blast sets none and the wiki lists it at 125.
+ */
+export const EXPLOSION_DAMAGE_DEFAULT = 5;
 // Copied into the shot state by set_current_action(), not effects of the spell.
 const NON_STAT_KEYS = new Set(['custom_xml_file', 'sound_loop_tag', 'reload_time']);
 const round = (n: number) => Math.round(n * 1000) / 1000;
@@ -103,7 +108,7 @@ export function buildProjectile(file: string, loader: EntityLoader): Projectile 
   const onTimeout = pc?.attrs.on_lifetime_out_explode === '1';
   const explosion =
     ex && (onDeath || onTimeout)
-      ? { damage: round(num(ex.attrs.damage, 0) * HP), radius: num(ex.attrs.explosion_radius, 0), onDeath, onTimeout }
+      ? { damage: round(num(ex.attrs.damage, EXPLOSION_DAMAGE_DEFAULT) * HP), radius: num(ex.attrs.explosion_radius, 0), onDeath, onTimeout }
       : undefined;
 
   let lifetime = num(pc?.attrs.lifetime, -1);
@@ -126,6 +131,7 @@ export function buildProjectile(file: string, loader: EntityLoader): Projectile 
     terminalVelocity: num(vel?.attrs.terminal_velocity, 1000),
     knockback: num(pc?.attrs.knockback_force, 0),
     penetrateWorld: pc?.attrs.penetrate_world === '1',
+    penetrateWorldCoeff: num(pc?.attrs.penetrate_world_velocity_coeff, 0.6),
     penetrateEntities: pc?.attrs.penetrate_entities === '1',
     dieOnCollision: pc ? pc.attrs.on_collision_die !== '0' : false,
     dieOnLiquid: pc?.attrs.die_on_liquid_collision === '1',

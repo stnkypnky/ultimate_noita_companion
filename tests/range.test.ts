@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createLuaHost, loadGun, type LuaHost } from '../tools/extract/lua.ts';
-import { AIR, H, RangeWorld, W, type RangeData } from '../src/features/range/world.ts';
+import { AIR, H, RangeWorld, W, type Proj, type RangeData } from '../src/features/range/world.ts';
 import { WandRuntime } from '../src/features/range/wand.ts';
 import { castWand, resetWand } from '../src/sim/protocol.ts';
 import type { EntityVisual, Material, Projectile, RangeKit, Reaction } from '../src/data/types.ts';
@@ -275,5 +275,125 @@ describe('looks and physics from the game data', () => {
     const d = projectileDamage(bomb, { damage_null_all: 1 });
     expect(d.hit).toBe(0);
     expect(d.explosion?.damage ?? 0).toBe(0);
+  });
+
+  it('an explosion that sets no damage does the engine default, 125 (Meteor)', () => {
+    expect(data.projectiles['data/entities/projectiles/deck/meteor.xml']?.explosion?.damage).toBe(125);
+  });
+});
+
+/** Run a fresh range with the wand auto-firing for `frames` and hand back the world. */
+function fly(deck: string[], frames: number, setup?: (w: RangeWorld) => void) {
+  const w = new RangeWorld(data);
+  setup?.(w);
+  equip(w, deck);
+  for (let i = 0; i < frames; i++) w.step();
+  return w;
+}
+const live = (w: RangeWorld, name: string) => w.projectiles.filter((p) => !p.dead && p.file.endsWith(`/${name}.xml`));
+
+describe('spells with their own scripts', () => {
+  it('Intense Concentrated Light: five beams wait at the wand, then launch together', () => {
+    const w = fly(['MEGALASER'], 10);
+    const waiting = live(w, 'megalaser_beam');
+    expect(waiting).toHaveLength(5);
+    expect(waiting.every((b) => b.held)).toBe(true);
+    for (let i = 0; i < 30; i++) w.step();
+    const beams = live(w, 'megalaser_beam');
+    expect(beams.length).toBeGreaterThan(0);
+    expect(beams.every((b) => !b.held && Math.hypot(b.x - b.spawnX, b.y - b.spawnY) > 20)).toBe(true);
+  });
+
+  it('Magic Guard: four parts circle the caster 16 px out', () => {
+    const w = fly(['MAGIC_SHIELD'], 20);
+    const parts = live(w, 'magic_shield_part');
+    expect(parts).toHaveLength(4);
+    const c = w.playerCenter;
+    for (const p of parts) expect(Math.hypot(p.x - c.x, p.y - c.y)).toBeCloseTo(16, 0);
+  });
+
+  it('Horizontal Barrier lays a line of 19 wall pieces both ways', () => {
+    const w = new RangeWorld(data);
+    const pieces: Proj[] = [];
+    const spawn = w.spawn.bind(w);
+    w.spawn = (file, ...rest) => {
+      const p = spawn(file, ...rest);
+      if (p && file.endsWith('/wall_piece.xml')) pieces.push(p);
+      return p;
+    };
+    // Out in the open, so neither builder runs into the cave wall.
+    w.player.x = 150;
+    equip(w, ['WALL_HORIZONTAL']);
+    // One cast: the builders live 10 frames.
+    for (let i = 0; i < 14; i++) w.step();
+    expect(w.castsFired).toBe(1);
+    expect(pieces).toHaveLength(19);
+    const xs = pieces.map((p) => p.spawnX);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(100);
+    expect(new Set(pieces.map((p) => Math.round(p.spawnY))).size).toBeLessThanOrEqual(2);
+  });
+
+  it('Powder Vacuum Field sucks up sand and spills it when it ends', () => {
+    const sand = (w: RangeWorld) => {
+      let n = 0;
+      const m = w.materialIndex('sand');
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (w.cells.at(x, y) === m) n++;
+      return n;
+    };
+    // Cast it over the sand on the island.
+    const w = new RangeWorld(data);
+    const before = sand(w);
+    equip(w, ['VACUUM_POWDER']);
+    w.step();
+    const field = live(w, 'vacuum_powder')[0]!;
+    field.x = 200;
+    field.y = 60;
+    for (let i = 0; i < 100; i++) w.step();
+    expect(sand(w)).toBeLessThan(before);
+    for (let i = 0; i < 260; i++) w.step();
+    expect(field.dead).toBe(true);
+    expect(sand(w)).toBeGreaterThan(before * 0.8);
+  });
+
+  it("Worm Launcher's worm only starts homing after 40 frames", () => {
+    const w = fly(['WORM_SHOT'], 5);
+    const worm = live(w, 'worm_shot')[0]!;
+    expect(worm.homing).toBeUndefined();
+    for (let i = 0; i < 45; i++) w.step();
+    expect(worm.homing?.targetShooter).toBe(true);
+  });
+
+  it('Spells to Power uses up the other projectiles and takes their damage', () => {
+    const w = new RangeWorld(data);
+    equip(w, ['BURST_4', 'SPELLS_TO_POWER', 'LIGHT_BULLET', 'LIGHT_BULLET', 'LIGHT_BULLET']);
+    w.step();
+    w.step();
+    const sparks = live(w, 'light_bullet');
+    expect(sparks).toHaveLength(1);
+    expect(sparks[0]!.hit).toBeCloseTo(9, 5);
+  });
+
+  it('Destruction wipes out the dummy and costs the caster 12.5 HP', () => {
+    const w = fly(['DESTRUCTION'], 3);
+    expect(w.floaters.some((f) => f.text === 'destroyed')).toBe(true);
+    expect(w.body.hp).toBeCloseTo(w.maxHp - 12.5, 5);
+  });
+
+  it('Mass Polymorph turns the caster into a sheep, who then cannot cast', () => {
+    const w = fly(['MASS_POLYMORPH', 'LIGHT_BULLET'], 3);
+    expect(w.polymorphed).toBe(true);
+    const casts = w.castsFired;
+    for (let i = 0; i < 60; i++) w.step();
+    expect(w.castsFired).toBe(casts);
+  });
+
+  it('Earthquake shakes the ground loose where the shot ends', () => {
+    const w = fly(['CRUMBLING_EARTH_PROJECTILE', 'LIGHT_BULLET'], 60);
+    expect(w.cells.mats.some((m) => m.id.endsWith(':loose'))).toBe(true);
+  });
+
+  it('Matosade drops giant worms that swim through the rock', () => {
+    const w = fly(['WORM_RAIN'], 90);
+    expect(live(w, 'worm_big_worm_rain').length).toBeGreaterThan(0);
   });
 });

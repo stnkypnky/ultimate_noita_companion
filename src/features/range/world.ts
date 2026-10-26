@@ -9,6 +9,7 @@ import type { EntityVisual, ExplosionVisual, Material, Projectile, RangeKit, Rea
 import { Cells, K_LIQUID, K_POWDER, K_STATIC } from './cells';
 import { emitterStates, layerFrames, runEmitters, simpleParticle, stepParticles, type EmitterState, type Particle } from './particles';
 import { CRIT_MULT, projectileDamage } from '@/sim/analyze';
+import { HP_UNIT } from '@/data/format';
 import type { ShotState, SimCast, SimShot } from '@/sim/types';
 import { DEFAULT_FLIGHT, DEFAULT_MOVE, newPlayerState, stepPlayer, wandPose, type Controls, type PlayerState } from './player';
 import type { WandRuntime } from './wand';
@@ -100,6 +101,8 @@ export type Proj = {
   bounceFx?: string;
   collideWorld: boolean;
   penetrateWorld: boolean;
+  /** Speed multiplier while inside terrain when penetrating it. */
+  penetrateCoeff: number;
   penetrateEntities: boolean;
   dieOnCollision: boolean;
   dieOnLiquid: boolean;
@@ -152,6 +155,14 @@ export type Proj = {
   parent?: Proj;
   orbitIndex: number;
   orbitGroup?: string;
+  /** Made with its ProjectileComponent off (Megalaser beams): sits still, unaged, until a script launches it. */
+  held?: boolean;
+  /** MaterialSuckerComponent (vacuum fields): what it pulls in, how fast, from how far, and what it holds. */
+  sucker?: { kind: number; perFrame: number; reach: number; held: Map<number, number> };
+  /** A haunted wand (Summon Taikasauva) drawn with one of the game's wand sprites. */
+  wand?: WandSprite;
+  /** Where a worm's head has been, newest first; its body segments follow this path. */
+  body?: { x: number; y: number }[];
   dead: boolean;
 };
 
@@ -173,6 +184,9 @@ const COSMETIC = new Set([
   'colour_spell', 'orbit_shot_init', 'spells_to_power_tag',
   // Sound only (the instruments), seeing through walls, and sky checks that don't apply on the range.
   'ocarina', 'kantele', 'xray_effect', 'touch_grass', 'duck_init', 'friend_fly_init',
+  // Summon Portal only opens near a particular place in the game world, which the range doesn't have; what's
+  // left is the portal throbbing.
+  'summon_portal_vibrate', 'summon_portal_position_check',
 ]);
 
 /** bounce_fx_file each bounce modifier sets (from data/scripts/projectiles/bounce_*.lua). */
@@ -703,6 +717,7 @@ export class RangeWorld {
       bounceEnergy: vis?.physics?.bounceEnergy ?? 0.5,
       collideWorld: vis?.physics?.collideWithWorld ?? true,
       penetrateWorld: base?.penetrateWorld ?? false,
+      penetrateCoeff: base?.penetrateWorldCoeff ?? 0.6,
       penetrateEntities: base?.penetrateEntities ?? false,
       dieOnCollision: base?.dieOnCollision ?? true,
       dieOnLiquid: base?.dieOnLiquid ?? false,
@@ -736,7 +751,7 @@ export class RangeWorld {
       stuck: false,
       visual: vis,
       // Copied: scripts like Accelerating Homing tune them per projectile.
-      homing: ((h) => (h ? { ...h } : undefined))(all.find((v) => v.homing)?.homing),
+      homing: ((h) => (h ? { ...h } : undefined))(all.find((v) => v.homing && v.homing.enabled !== false)?.homing),
       sine: all.find((v) => v.sine)?.sine,
       cellEater: Math.max(0, ...all.map((v) => v.cellEater?.radius ?? 0)),
       groundPen: vis?.physics?.groundPenetration,
@@ -755,9 +770,19 @@ export class RangeWorld {
       vars: {},
       children: [],
       orbitIndex: 0,
+      ...(vis?.held ? { held: true } : {}),
       dead: false,
     };
     if (p.arc) this.lastArc = p;
+    // Entities with no projectile or velocity (Matosade's spawner) sit where they're made for their lifetime.
+    if (vis?.inert) {
+      p.vx = p.vy = 0;
+      p.gravity = 0;
+      p.collideWorld = false;
+      p.dieOnCollision = false;
+      p.hit = 0;
+      p.lifetime = vis.lifetime ?? -1;
+    }
 
     // Lightning bolts strike instantly along their path.
     if (vis?.lightning?.isProjectile) {
@@ -774,12 +799,12 @@ export class RangeWorld {
 
   step() {
     this.frame++;
-    this.wand?.tick(this.frame, this.auto || this.trigger || this.tapped);
+    this.wand?.tick(this.frame, (this.auto || this.trigger || this.tapped) && !this.polymorphed);
     this.tapped = false;
 
     this.beams = [];
     // Copy: updates may spawn new projectiles (they start moving next frame).
-    for (const p of [...this.projectiles]) if (!p.dead && p.age >= 0) this.update(p);
+    for (const p of [...this.projectiles]) if (!p.dead && p.age >= 0 && !p.held) this.update(p);
     this.projectiles = this.projectiles.filter((p) => !p.dead);
     this.updatePlayer();
     this.updateActor(this.dummy);
@@ -815,7 +840,9 @@ export class RangeWorld {
     p.px = p.x;
     p.py = p.y;
     if (p.rehitCooldown > 0) p.rehitCooldown--;
-    for (const sc of p.scripts) {
+    // Nothing runs on the frame its lifetime ends (a 10-frame barrier builder lays 9 pieces: 19 per barrier).
+    const lastFrame = p.lifetime > 0 && p.age >= p.lifetime;
+    for (const sc of lastFrame ? [] : p.scripts) {
       if (ONCE.has(sc.script) || sc.onAdded || sc.onRemoved || sc.every < 0 || (sc.times > 0 && sc.runs >= sc.times)) continue;
       if (p.age % Math.max(1, sc.every) === 0) this.runScript(p, sc);
     }
@@ -865,6 +892,7 @@ export class RangeWorld {
       }
     }
     if (p.cellEater > 0 && p.age % 2 === 0) this.carve(p.x, p.y, p.cellEater, p.visual?.cellEater?.probability ?? 100);
+    if (p.sucker) this.suck(p);
     if (p.trigger?.kind === 'timer' && p.age === (p.trigger.delay ?? 0)) {
       const t = p.trigger;
       delete p.trigger;
@@ -971,10 +999,10 @@ export class RangeWorld {
           p.y = ny;
           continue;
         }
-        if (p.penetrateWorld && c === ROCK) {
-          // Drilling shot: moves through rock at a tenth of its speed.
-          p.x += (nx - p.x) * 0.1;
-          p.y += (ny - p.y) * 0.1;
+        if (p.penetrateWorld) {
+          // penetrate_world: through the ground at penetrate_world_velocity_coeff of its speed (Clipping Shot: 0.1).
+          p.x += (nx - p.x) * p.penetrateCoeff;
+          p.y += (ny - p.y) * p.penetrateCoeff;
           continue;
         }
         if (p.physicsBody) {
@@ -1125,6 +1153,7 @@ export class RangeWorld {
       this.explode(p.x, p.y, e.radius, e.damage, e.digs ? e.digDurability || EXPLOSION_DIG_DEFAULT : -1, p.critChance, e.color, p.spareShooter, p.visual?.explosion);
     }
     if (p.teleport) this.teleportPlayer(p);
+    if (p.sucker) this.spill(p);
     if (p.spawnOnHit && reason === 'hit') this.spawn(p.spawnOnHit, p.x, p.y, 0, 0);
     // execute_on_removed scripts (Larpa death, chain shot) run as it goes.
     for (const sc of p.scripts) if (sc.onRemoved) this.runScript(p, sc);
@@ -1399,6 +1428,175 @@ export class RangeWorld {
     }
   }
 
+  /**
+   * MaterialSuckerComponent: each frame it tries `perFrame` random cells within `reach` (a square, as in the
+   * component's randomized_position) and takes those of its kind (powder or liquid) into its barrel.
+   */
+  private suck(p: Proj) {
+    const s = p.sucker!;
+    for (let i = 0; i < s.perFrame; i++) {
+      const x = Math.floor(p.x + randInt(-s.reach, s.reach));
+      const y = Math.floor(p.y + randInt(-s.reach, s.reach));
+      const m = this.cells.at(x, y);
+      if (m <= 0 || this.cells.mats[m]!.kind !== s.kind) continue;
+      this.cells.set(x, y, AIR);
+      s.held.set(m, (s.held.get(m) ?? 0) + 1);
+      // A grain of it streaking into the field.
+      if (i % 4 === 0) {
+        const a = Math.atan2(p.y - y, p.x - x);
+        const d = Math.hypot(p.x - x, p.y - y);
+        const color = this.data.materialColor.get(this.cells.mats[m]!.id)?.slice(0, 7) ?? '#ffffff';
+        this.addParticle({ ...simpleParticle(x, y, color, false, 10, 0, 0), vx: Math.cos(a) * d * 6, vy: Math.sin(a) * d * 6 });
+      }
+    }
+  }
+
+  /** MaterialInventoryComponent on_death_spill: everything it held pours out where it is. */
+  spill(p: Proj) {
+    const held = p.sucker?.held;
+    if (!held?.size) return;
+    const cx = Math.round(p.x);
+    const cy = Math.round(p.y);
+    for (const [m, n] of held) {
+      let left = n;
+      for (let r = 0; left > 0 && r < 60; r++) {
+        for (let dy = -r; dy <= r && left > 0; dy++) {
+          for (let dx = -r; dx <= r && left > 0; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+            if (this.cells.place(cx + dx, cy + dy, m)) left--;
+          }
+        }
+      }
+    }
+    held.clear();
+  }
+
+  /**
+   * Earthquake (loose_chunks_projectile: LooseGroundComponent, max_distance 96, probability 0.2): chunks of the
+   * solid ground around the point break off and fall. The game drops them as physics chunks shaped by its
+   * collapse images; here each chunk becomes a falling copy of the rock it was made of.
+   */
+  crumble(x: number, y: number) {
+    for (let i = 0; i < 60; i++) {
+      if (Math.random() >= 0.2) continue;
+      const a = Math.random() * Math.PI * 2;
+      const d = Math.random() * 96;
+      const cx = Math.round(x + Math.cos(a) * d);
+      const cy = Math.round(y + Math.sin(a) * d);
+      const r = randInt(3, 7);
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (dx * dx + dy * dy > r * r) continue;
+          const m = this.cells.at(cx + dx, cy + dy);
+          if (m <= 0) continue;
+          const info = this.cells.mats[m]!;
+          if (info.kind !== K_STATIC || info.hard) continue;
+          this.cells.set(cx + dx, cy + dy, this.cells.loose(m));
+        }
+      }
+    }
+    this.shake = Math.min(6, this.shake + 3);
+  }
+
+  /** Chaotic Transmutation: the cells tagged [chaotic_transmutation] within `radius` become material `to`. */
+  transmute(x: number, y: number, radius: number, to: number) {
+    if (to <= 0) return;
+    const r2 = radius * radius;
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (dx * dx + dy * dy > r2) continue;
+        const m = this.cells.at(x + dx, y + dy);
+        if (m <= 0 || m === to || !this.cells.mats[m]!.tags.has('chaotic_transmutation')) continue;
+        this.cells.set(Math.floor(x + dx), Math.floor(y + dy), to);
+      }
+    }
+  }
+
+  materialIndex(id: string) {
+    return this.cells.index(id);
+  }
+
+  /** A projectile's top launch speed from its file. */
+  launchSpeed(file: string) {
+    return this.data.projectiles[file]?.speed[1] ?? 300;
+  }
+
+  /** The game's wand sprites (for haunted wands). */
+  get wandSprites() {
+    return this.data.kit?.wands ?? [];
+  }
+
+  /** The nearest actor to a point (worms hunt whatever is closest). */
+  nearestActor(x: number, y: number) {
+    let best = this.dummy;
+    let bd = Infinity;
+    for (const a of this.actors) {
+      if (a.id === 'player' && this.body.dead > 0) continue;
+      const c = this.center(a);
+      const d = Math.hypot(c.x - x, c.y - y);
+      if (d < bd) {
+        bd = d;
+        best = a;
+      }
+    }
+    return { actor: best, at: this.center(best), dist: bd };
+  }
+
+  /** A bite or a blow from a creature (worm, rock spirit): damage to an actor, honouring invincibility. */
+  strikeActor(a: Actor, amount: number) {
+    this.hurt(a, amount, 0);
+  }
+
+  /** Vacuum Field: hittable things and projectiles within `radius` are yanked to (x, y). */
+  pullTo(x: number, y: number, radius: number, except: Proj) {
+    for (const a of this.actors) {
+      const c = this.center(a);
+      if (Math.hypot(c.x - x, c.y - y) < radius) this.moveActor(a, x, y + a.h / 2);
+    }
+    for (const q of this.projectiles) {
+      if (q === except || q.dead || Math.hypot(q.x - x, q.y - y) >= radius) continue;
+      q.x = q.px = x;
+      q.y = q.py = y;
+    }
+  }
+
+  /** Destruction: the dummy is wiped out (no damage number, it just goes), the caster loses 7.5% (at least 12.5). */
+  destroy(x: number, y: number) {
+    const d = this.dummy;
+    if (Math.abs(d.x - x) + Math.abs(d.y - d.h / 2 - y) < 300) {
+      this.addEffect('data/entities/particles/destruction.xml', d.x, d.y - d.h / 2);
+      this.puff(d.x, d.y - d.h / 2, '#ffffff');
+      this.floaters.push({ x: d.x, y: d.y - d.h - 4, text: 'destroyed', age: 0, crit: true, self: false });
+      d.flash = 30;
+    }
+    const b = this.body;
+    if (b.dead === 0) {
+      const p = this.player;
+      this.addEffect('data/entities/particles/destruction.xml', p.x, p.y - p.h / 2);
+      const loss = Math.max(b.hp * 0.075, HP_UNIT * 0.5);
+      const hp = Math.max(HP_UNIT * 0.04, b.hp - loss);
+      this.selfDamage += b.hp - hp;
+      b.hp = hp;
+      p.flash = 6;
+    }
+    this.shake = 6;
+  }
+
+  /** Mass Polymorph: everything within reach (the caster too) is polymorphed. */
+  polymorphNear(x: number, y: number) {
+    for (const a of this.actors) {
+      const c = this.center(a);
+      if (Math.hypot(c.x - x, c.y - y) <= 200 && Math.abs(c.x - x) + Math.abs(c.y - y) < 300) this.applyEffects(a, ['data/entities/misc/effect_polymorph.xml']);
+    }
+    this.shake = 6;
+  }
+
+  /** A sheep can't use a wand: the caster is polymorphed (any polymorph effect). */
+  get polymorphed() {
+    for (const s of this.player.status.keys()) if (s.startsWith('POLYMORPH')) return true;
+    return false;
+  }
+
   /** For scripts: the projectile with this id, if it's still flying. */
   find(id: number | undefined) {
     return id === undefined ? undefined : this.projectiles.find((q) => q.id === id && !q.dead);
@@ -1505,6 +1703,7 @@ const SCRIPTS: Record<string, (p: Proj, w: RangeWorld, sc: Script) => void> = {
   },
   clipping_shot: (p) => {
     p.penetrateWorld = true;
+    p.penetrateCoeff = 0.1;
     p.airFriction = Math.max(0, p.airFriction);
   },
   explosion_remove: (p) => {
@@ -2010,7 +2209,325 @@ const SCRIPTS: Record<string, (p: Proj, w: RangeWorld, sc: Script) => void> = {
       w.kill(q);
     }
   },
+
+  // ----- Magic Guard / Big Magic Guard: shield parts circle the caster (magic_shield_start.lua, *_part.lua) -----
+  magic_shield_start: (p, w) => magicShield(w, p, 'magic_shield_part', 4, 16, 12, 5, 40),
+  big_magic_shield_start: (p, w) => magicShield(w, p, 'big_magic_shield_part', 8, 40, 10, 4, 20),
+  magic_shield_part: (p, w) => shieldPart(w, p, 16, 0.02),
+  big_magic_shield_part: (p, w) => shieldPart(w, p, 40, 0.015),
+
+  // ----- Barriers: builders fly out laying a line of wall pieces (wall_*.lua, wall_builder.lua) -----
+  wall_horizontal: (p, w) => buildWall(w, p, [[0, 0, 500, 0]]),
+  wall_vertical: (p, w) => buildWall(w, p, [[0, 0, 0, 500]]),
+  wall_square: (p, w) =>
+    buildWall(w, p, [
+      [0, -40, 250, 0],
+      [0, 40, 250, 0],
+      [-40, 0, 0, 250],
+      [40, 0, 0, 250],
+    ]),
+  wall_builder: (p, w) => {
+    w.spawn(WALL_PIECE, p.x, p.y, 0, 0, {});
+  },
+
+  // ----- Intense Concentrated Light: five beams wait at the wand, then launch together (megalaser_*.lua) -----
+  // The beams are found when they launch (megalaser_init only notes which ones are within 5 px).
+  megalaser_init: () => {},
+  megalaser_launch: (p, w) => {
+    const sp = speedOf(p);
+    if (sp === 0) return;
+    const vx = (p.vx / sp) * 20;
+    const vy = (p.vy / sp) * 20;
+    // Perpendicular to the flight, for the side-by-side spread.
+    const ox = -p.vy / sp;
+    const oy = p.vx / sp;
+    let offset = -2;
+    for (const b of w.projectiles.filter((q) => q.held && !q.dead && Math.hypot(q.x - p.x, q.y - p.y) <= 5).slice(0, 5)) {
+      b.held = false;
+      b.x = b.px = p.x + ox * offset;
+      b.y = b.py = p.y + oy * offset;
+      // The outer beams are slower, for an arrowhead.
+      const brake = 1 - Math.abs(offset) * 0.16;
+      b.vx = vx * brake;
+      b.vy = vy * brake;
+      b.rot = Math.atan2(vy, vx);
+      offset++;
+    }
+  },
+
+  // ----- Vacuum fields -----
+  // Powder / Liquid Vacuum Field: a MaterialSuckerComponent (100 powder or 200 liquid cells a frame from a
+  // 64 px square); the init script moves the spill to the last frame of its life.
+  vacuum_powder_init: (p) => {
+    const liquid = p.file.endsWith('vacuum_liquid.xml');
+    p.sucker = { kind: liquid ? K_LIQUID : K_POWDER, perFrame: liquid ? 200 : 100, reach: 64, held: new Map() };
+    const helper = p.scripts.find((s) => s.script === 'vacuum_powder');
+    if (helper && p.lifetime > 1) helper.every = p.lifetime - 1;
+  },
+  vacuum_powder: (p, w) => {
+    w.spill(p);
+    w.kill(p);
+  },
+  // Vacuum Field: everything hittable and every projectile within 64 px is pulled to its centre.
+  vacuum_entities: (p, w) => w.pullTo(p.x, p.y, 64, p),
+
+  // ----- Creatures and summons -----
+  // Worm Launcher: after 40 frames the worm's homing switches on, and it turns back for its caster.
+  worm_shot_homing: (p) => {
+    const h = p.visual?.homing;
+    if (!h) return;
+    p.homing = { ...h };
+    delete p.homing.enabled;
+  },
+  // Summon Friendly Fly: hangs around the caster; goes for an enemy within 64 px of them, gives up when
+  // the chase strays too far (friend_fly.lua; distances are the script's |dx| + |dy|).
+  friend_fly: (p, w) => {
+    if (!p.homing) return;
+    const o = w.playerCenter;
+    const t = w.dummyCenter;
+    const far = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    if (!p.homing.targetShooter) {
+      if (far(o, p) > 64 * 2.5 || far(t, p) > 64 * 2 || far(t, o) > 64 * 3) p.homing = { ...p.homing, targetShooter: true };
+    } else if (Math.hypot(t.x - o.x, t.y - o.y) <= 64) {
+      p.homing = { ...p.homing, targetShooter: false };
+    }
+  },
+  // Summon Rock Spirit: where the pebble lands, a rock spirit wakes; it seeks the nearest enemy and blows up
+  // on touching it (125 explosion damage, radius 14), or after 400 frames.
+  pebble_player_spawn: (p, w) => {
+    const r = w.spawn('data/entities/projectiles/deck/pebble_player_physics.xml', p.x, p.y - 2, 0, -30, {});
+    if (!r) return;
+    r.physicsBody = false;
+    r.gravity = 0;
+    r.airFriction = 1.5;
+    r.lifetime = 400;
+    r.bounces = 999;
+    r.bounceEnergy = 0.5;
+    r.dieOnCollision = true;
+    r.explosion = { damage: 125, radius: 14, onDeath: true, onTimeout: true, digs: true, digDurability: EXPLOSION_DIG_DEFAULT };
+    r.homing = { coeff: 9, velocityMultiplier: 0.95, detectDistance: 400, rotateOnly: false, maxTurnRate: 0.05, targetShooter: false };
+  },
+  // Summon Taikasauva: a haunted wand (the game hands the ghost a random level-3 wand) that hovers by its
+  // summoner and fires at enemies in range. Which spells that wand rolls is random in the game; here each
+  // ghost picks one of a few common level-3 projectiles.
+  wand_ghost: (p, w) => {
+    const wands = w.wandSprites;
+    if (wands.length) p.wand = wands[randInt(0, wands.length - 1)];
+    p.physicsBody = false;
+    p.gravity = 0;
+    p.airFriction = 0;
+    p.collideWorld = false;
+    p.dieOnCollision = false;
+    p.penetrateEntities = true;
+    p.hit = 0;
+    p.lifetime = 30 * 60;
+    p.vars.ghostShot = randInt(0, GHOST_SHOTS.length - 1);
+    p.vars.ghostSide = Math.random() < 0.5 ? -1 : 1;
+    p.scripts.push({ script: 'wand_ghost_fly', every: 1, times: 0, runs: 0, onAdded: false });
+  },
+  wand_ghost_fly: (p, w) => {
+    const o = w.playerCenter;
+    const hx = o.x + 20 * p.vars.ghostSide!;
+    const hy = o.y - 24 + Math.sin(p.age / 18) * 3;
+    p.vx = (hx - p.x) * 4;
+    p.vy = (hy - p.y) * 4;
+    const t = w.dummyCenter;
+    const aim = Math.atan2(t.y - p.y, t.x - p.x);
+    p.rot = aim;
+    if (p.age % 45 === 0 && Math.hypot(t.x - p.x, t.y - p.y) < 260) {
+      const file = GHOST_SHOTS[p.vars.ghostShot!]!;
+      const sp = w.launchSpeed(file);
+      w.spawn(file, p.x, p.y, Math.cos(aim) * sp, Math.sin(aim) * sp, {});
+    }
+  },
+  // Matosade: every 40 frames a giant worm drops in from above, 200 px either side (worm_rain.lua).
+  worm_rain: (p, w) => {
+    // The game world goes on past the range's walls; here they drop in within the range.
+    const x = Math.max(12, Math.min(W - 12, p.x + randInt(-200, 200)));
+    const y = p.y + randInt(-300, -160);
+    const worm = w.spawn('data/entities/misc/worm_big_worm_rain.xml', x, Math.max(-20, y), 0, 120, {});
+    if (!worm) return;
+    worm.physicsBody = false;
+    worm.gravity = 0;
+    worm.airFriction = 0;
+    worm.collideWorld = false;
+    worm.dieOnCollision = false;
+    worm.penetrateEntities = true;
+    worm.hit = 0;
+    worm.cellEater = 9;
+    worm.lifetime = 600;
+    worm.body = [];
+    worm.scripts.push({ script: 'worm_hunt', every: 1, times: 0, runs: 0, onAdded: false });
+    w.shake = Math.min(6, w.shake + 10 / 12);
+  },
+  // A giant worm (WormComponent / WormAIComponent): swims through the ground at about 4-5 px a frame,
+  // turning toward the nearest creature, falls in the open air, and bites what it reaches.
+  worm_hunt: (p, w) => {
+    const t = w.nearestActor(p.x, p.y);
+    const hunting = t.dist < 256;
+    const cur = Math.atan2(p.vy, p.vx);
+    let diff = Math.atan2(t.at.y - p.y, t.at.x - p.x) - cur;
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+    if (w.cell(p.x, p.y) !== AIR) {
+      // In the ground it swims at its own speed, turning toward its target.
+      const turn = hunting ? 0.04 : 0.01;
+      const a = cur + Math.max(-turn, Math.min(turn, diff));
+      const speed = (hunting ? 5 : 4) * 60;
+      p.vx = Math.cos(a) * speed;
+      p.vy = Math.sin(a) * speed;
+    } else {
+      // Out in the open it falls, and can only twist a little.
+      const sp = speedOf(p);
+      const a = cur + Math.max(-0.015, Math.min(0.015, diff));
+      p.vx = Math.cos(a) * sp;
+      p.vy = Math.sin(a) * sp + 600 * DT;
+    }
+    p.body!.unshift({ x: p.x, y: p.y });
+    if (p.body!.length > 160) p.body!.length = 160;
+    if (t.dist < 10 && (p.vars.nextBite ?? 0) <= p.age) {
+      w.strikeActor(t.actor, HP_UNIT);
+      p.vars.nextBite = p.age + 30;
+    }
+  },
+  // Bomb Cart: rolls away from its caster along the ground, then blows up (bomb_cart*.lua). The game drives
+  // two wheel motors at 15 on a physics body; here it rolls at the speed those wheels give.
+  bomb_cart_init: (p, w) => {
+    const dir = Math.sign(p.x - w.player.x) || w.facing;
+    p.vars.dir = dir;
+    p.vx = dir * 70;
+    p.vy = -40;
+    p.physicsBody = false;
+    p.collideWorld = false;
+    p.rotate = false;
+  },
+  bomb_cart: (p, w) => {
+    const dir = p.vars.dir ?? 1;
+    if (w.cell(p.x, p.y + 5) !== AIR) {
+      while (w.cell(p.x, p.y + 4) !== AIR && p.y > 0) p.y--;
+      p.vy = Math.min(0, p.vy);
+      p.vx = w.cell(p.x + dir * 8, p.y) !== AIR ? 0 : dir * 45;
+    }
+  },
+  // Earthquake: where the shot ends, the ground around it breaks loose.
+  crumbling_earth_projectile: (p, w) => w.crumble(p.x, p.y),
+
+  // ----- Spells that act on the world around them -----
+  destruction: (p, w) => {
+    w.destroy(p.x, p.y);
+    w.kill(p);
+  },
+  mass_polymorph: (p, w) => {
+    w.polymorphNear(p.x, p.y);
+    w.kill(p);
+  },
+  // Projectile Transmutation Field: projectiles within 48 px turn into small animals (duck, sheep...) without
+  // exploding. The range has no animals, so they just vanish in the transmutation sparkle.
+  projectile_transmutation: (p, w) => {
+    for (const q of [...w.projectiles]) {
+      if (q === p || q.dead || Math.abs(q.x - p.x) + Math.abs(q.y - p.y) >= 64 || Math.hypot(q.x - p.x, q.y - p.y) >= 48) continue;
+      q.explosion = null;
+      for (let i = 0; i < 10; i++) w.spark(q.x, q.y, i % 2 ? '#ff9cf4' : '#ffffff', true, randInt(10, 20), 30);
+      w.kill(q);
+    }
+  },
+  // Chaotic Transmutation: picks a material (1 in 50 a rare one) and turns what's around the shot into it.
+  transmutation: (p, w) => {
+    const pool = randInt(1, 100) > 98 ? TRANSMUTE_RARE : TRANSMUTE_COMMON;
+    p.vars.transmute = w.materialIndex(pool[randInt(0, pool.length - 1)]!);
+    p.scripts.push({ script: 'transmutation_convert', every: 1, times: 0, runs: 0, onAdded: false });
+  },
+  transmutation_convert: (p, w) => w.transmute(p.x, p.y, 32, p.vars.transmute ?? -1),
+  // Spells to Power: the caster's other projectiles within 160 px are used up; their damage adds to this
+  // one's, and its blast grows (spells_to_power.lua).
+  spells_to_power: (p, w) => {
+    let count = 0;
+    let expcount = 0;
+    for (const q of [...w.projectiles]) {
+      if (q === p || q.dead || q.parent || Math.hypot(q.x - p.x, q.y - p.y) > 160) continue;
+      count += q.hit;
+      expcount += q.explosion?.damage ?? 0;
+      q.explosion = null;
+      for (let i = 0; i < 4; i++) w.spark(q.x, q.y, '#ff5040', true, randInt(6, 12), 20);
+      w.kill(q);
+    }
+    p.hit += count;
+    if (p.explosion) {
+      p.explosion.damage += expcount;
+      // The script works in the game's units (25 HP each) times 10.
+      const total = ((count + expcount) / HP_UNIT) * 10;
+      if (total > 0) p.explosion.radius = Math.min(120, Math.floor(p.explosion.radius + Math.log(total * 10.5)));
+    }
+  },
+  // Essence to Power: every creature within 160 px (the dummy) adds max(0.5, max_hp / 4) of "essence";
+  // a quarter of that, up to 120, goes onto the damage and the blast. The dummy is taken at 100 HP.
+  essence_to_power: (p, w) => {
+    const t = w.dummyCenter;
+    const count = Math.hypot(t.x - p.x, t.y - p.y) <= 160 ? Math.max(0.5, (100 / HP_UNIT) * 0.25) : 0;
+    if (!count) return;
+    const add = Math.min(120, count * 0.25) * HP_UNIT;
+    p.hit += add;
+    if (p.explosion) {
+      p.explosion.damage += add;
+      p.explosion.radius = Math.max(p.explosion.radius, Math.min(120, Math.floor(p.explosion.radius + Math.log(count * 5.5))));
+    }
+    for (let i = 0; i < 6; i++) w.spark(p.x, p.y, '#5ab4ff', true, randInt(8, 16), 30);
+  },
 };
+
+const WALL_PIECE = 'data/entities/projectiles/deck/wall_piece.xml';
+const WALL_BUILDER = 'data/entities/projectiles/deck/wall_builder.xml';
+
+/** A wall piece where the barrier was cast, and a builder each way along it, per side. */
+function buildWall(w: RangeWorld, p: Proj, sides: [number, number, number, number][]) {
+  for (const [dx, dy, vx, vy] of sides) {
+    w.spawn(WALL_PIECE, p.x + dx, p.y + dy, 0, 0, {});
+    w.spawn(WALL_BUILDER, p.x + dx, p.y + dy, vx, vy, {});
+    w.spawn(WALL_BUILDER, p.x + dx, p.y + dy, -vx, -vy, {});
+  }
+}
+
+/** Shield parts spaced around the caster, all spinning the same random way (fast, 1 time in 20). */
+function magicShield(w: RangeWorld, p: Proj, part: string, n: number, length: number, maxSpin: number, minSpin: number, rareSpin: number) {
+  let theta = (6 * Math.PI) / 180 - w.frame / 10;
+  let spin = 0;
+  while (Math.abs(spin) < minSpin) spin = randInt(-maxSpin, maxSpin);
+  if (randInt(1, 20) === 5) spin = rareSpin;
+  for (let i = 0; i < n; i++) {
+    const c = w.spawn(`data/entities/projectiles/deck/${part}.xml`, p.x + Math.cos(theta) * length, p.y - Math.sin(theta) * length, 0, 0, {});
+    if (c) {
+      c.vars.angle = theta;
+      c.vars.spin = spin;
+      c.collideWorld = false;
+    }
+    theta += (2 * 3.14159) / n;
+  }
+  w.kill(p);
+}
+
+/** A shield part's place on its circle around the caster (y up, as in the game's script). */
+function shieldPart(w: RangeWorld, p: Proj, length: number, speed: number) {
+  const spin = p.vars.spin ?? 0;
+  p.vars.angle = (p.vars.angle ?? 0) + spin * speed;
+  const a = p.vars.angle + spin;
+  const o = w.playerCenter;
+  p.px = p.x;
+  p.py = p.y;
+  p.x = o.x + Math.cos(a) * length;
+  p.y = o.y - Math.sin(a) * length;
+}
+
+/** What a haunted wand might shoot (its random level-3 wand's projectiles). */
+const GHOST_SHOTS = [
+  'data/entities/projectiles/deck/light_bullet.xml',
+  'data/entities/projectiles/deck/bullet.xml',
+  'data/entities/projectiles/deck/bullet_slow.xml',
+  'data/entities/projectiles/deck/bubbleshot.xml',
+  'data/entities/projectiles/deck/bouncy_orb.xml',
+];
+
+/** Chaotic Transmutation's materials (transmutation.lua). */
+const TRANSMUTE_COMMON = ['water', 'oil', 'lava', 'acid', 'radioactive_liquid', 'slime', 'sand', 'alcohol', 'blood', 'snow', 'blood_worm', 'blood_fungi', 'burning_powder', 'honey', 'fungi', 'diamond', 'brass', 'silver'];
+const TRANSMUTE_RARE = ['acid', 'magic_liquid_teleportation', 'magic_liquid_polymorph', 'magic_liquid_random_polymorph', 'magic_liquid_berserk', 'magic_liquid_charm', 'magic_liquid_invisibility'];
 
 /** shoot_projectile_from_projectile in a random direction at a fixed speed. */
 function shootRandom(w: RangeWorld, p: Proj, file: string, speed: number) {

@@ -40,6 +40,8 @@ export type Projectile = {
   terminalVelocity?: number;
   knockback: number;
   penetrateWorld: boolean;
+  /** penetrate_world_velocity_coeff: speed multiplier while inside terrain (default 0.6). */
+  penetrateWorldCoeff?: number;
   penetrateEntities: boolean;
   dieOnCollision: boolean;
   /** die_on_liquid_collision */
@@ -192,6 +194,10 @@ export type ExplosionVisual = {
 export type EntityVisual = {
   /** Sprite layers, back to front. */
   sprites?: SpriteLayer[];
+  /** Made with its ProjectileComponent switched off: waits in place until a script launches it. */
+  held?: boolean;
+  /** No ProjectileComponent or VelocityComponent: it stays where it's made, for its LifetimeComponent. */
+  inert?: boolean;
   emitters?: Emitter[];
   explosion?: ExplosionVisual;
   /** Muzzle flash entity shown at the wand tip when cast, and the flash of light. */
@@ -203,7 +209,7 @@ export type EntityVisual = {
   lifetime?: number;
   trail?: { color: string; count: number };
   light?: { color: string; radius: number };
-  homing?: { coeff: number; velocityMultiplier: number; detectDistance: number; rotateOnly: boolean; maxTurnRate: number; targetShooter: boolean };
+  homing?: { coeff: number; velocityMultiplier: number; detectDistance: number; rotateOnly: boolean; maxTurnRate: number; targetShooter: boolean; enabled?: false };
   sine?: { freq: number; m: number };
   cellEater?: { radius: number; probability: number };
   /** LuaComponents: script basename + schedule. The range implements the common ones. */
