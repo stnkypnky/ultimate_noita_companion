@@ -200,6 +200,7 @@ function EnemyDetail({ enemy: e }: { enemy: Enemy }) {
         <Big label="Gold" value={e.gold !== undefined ? String(e.gold) : '—'} />
         <Big label="Moves" value={e.moves?.digs ? 'Digs' : e.moves?.flies ? 'Flies' : e.moves?.speed && e.moves.speed >= 5 ? `${e.moves.speed} px/s` : 'Walks'} />
       </div>
+      <p className="mt-1.5 text-xs text-faint">Base values: some areas (The Vault, Temple of the Art…) make creatures tougher and richer.</p>
 
       {history && (
         <p className="msg-box font-game mt-3 text-[16px]">
@@ -265,20 +266,30 @@ function EnemyDetail({ enemy: e }: { enemy: Enemy }) {
                 <Link key={h.material} to={`/materials/${h.material}`} className="slot slot-hover inline-flex items-center gap-2 py-1.5 pr-2.5 pl-1.5 text-sm">
                   {m && <MaterialSwatch material={m} size={20} hidden={!show} />}
                   {show ? capitalize(m?.name ?? h.material.replace(/_/g, ' ')) : '???'}
-                  <span className="text-xs text-blood">{h.damage}</span>
+                  <span className="text-xs text-blood">{h.ofMaxHp ? `${fmtRate(h.perSecond)}%/s` : `${fmtRate(h.perSecond)}/s`}</span>
                 </Link>
               );
             })}
           </div>
+          <p className="mt-1.5 text-xs text-faint">{e.hurtBy.some((h) => h.ofMaxHp) ? 'Share of its max health lost' : 'Health lost'} per second of contact.</p>
         </Section>
       )}
 
-      {e.blood && materialById.get(e.blood) && (
+      {e.bleeds && (
         <Section title="Bleeds">
-          <Link to={`/materials/${e.blood}`} className="slot slot-hover inline-flex items-center gap-2 py-1.5 pr-2.5 pl-1.5 text-sm">
-            <MaterialSwatch material={materialById.get(e.blood)!} size={20} hidden={!matVisible(e.blood)} />
-            {matVisible(e.blood) ? capitalize(materialById.get(e.blood)!.name) : '???'}
-          </Link>
+          <div className="flex flex-wrap gap-1.5">
+            {[...new Set([e.bleeds.spray, e.bleeds.hit].filter((x): x is string => !!x))].map((id, i) => {
+              const m = materialById.get(id);
+              if (!m) return null;
+              return (
+                <Link key={id} to={`/materials/${id}`} className="slot slot-hover inline-flex items-center gap-2 py-1.5 pr-2.5 pl-1.5 text-sm">
+                  <MaterialSwatch material={m} size={20} hidden={!matVisible(id)} />
+                  {matVisible(id) ? capitalize(m.name) : '???'}
+                  {i > 0 && <span className="text-xs text-faint">also</span>}
+                </Link>
+              );
+            })}
+          </div>
         </Section>
       )}
 
@@ -292,6 +303,8 @@ function EnemyDetail({ enemy: e }: { enemy: Enemy }) {
 }
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+/** 6, 1.5, 0.06, or "<0.01" for the trickles (poo gas). */
+const fmtRate = (n: number) => (n >= 10 ? String(Math.round(n)) : n >= 0.01 ? String(Number(n.toPrecision(2))) : '<0.01');
 
 function Big({ label, value }: { label: string; value: string }) {
   const icon = label === 'Health' ? 'hud_health' : label === 'Gold' ? 'hud_money' : 'speed_multiplier';

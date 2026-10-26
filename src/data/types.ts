@@ -121,13 +121,14 @@ export type Enemy = {
   boss?: boolean;
   /** Damage multipliers other than 1 (0.5 = takes half, 0 = immune, 2 = double). */
   resist?: Partial<Record<DamageType, number>>;
-  /** materials_that_damage, HP per contact check. */
-  hurtBy?: { material: string; damage: number }[];
+  /** materials_that_damage: HP lost per second of contact (or % of max HP a second when ofMaxHp). */
+  hurtBy?: { material: string; perSecond: number; ofMaxHp?: boolean }[];
   /** Status immunities and things that don't work on it. */
   immune?: string[];
   /** Plain-word traits: doesn't breathe, doesn't burn, resists critical hits… */
   traits?: string[];
-  blood?: string;
+  /** What it bleeds: the spray when hit (blood_spray_material) and blood_material's particles. */
+  bleeds?: { hit: string; spray?: string };
   /** Gold dropped when killed (before perks). */
   gold?: number;
   attacks?: { kind: 'melee' | 'dash' | 'ranged' | 'bite'; damage?: [number, number]; projectile?: string; count?: [number, number]; range?: number }[];

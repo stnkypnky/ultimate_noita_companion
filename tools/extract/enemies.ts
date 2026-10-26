@@ -88,7 +88,7 @@ export async function buildEnemies(
       id,
       name: tr(t, e?.attrs.name, humanize(id)),
       icon: icons.get(icon) ?? { x: 0, y: 0, w: 0, h: 0 },
-      ...(dm ? { hp: Math.round(hp * HP) } : {}),
+      ...(dm ? { hp: round(hp * HP) } : {}),
       ...(tags.length ? { tags } : {}),
       ...(tags.includes('boss') || tags.includes('miniboss') ? { boss: true } : {}),
     };
@@ -102,11 +102,19 @@ export async function buildEnemies(
         if (type && Number.isFinite(n) && n !== 1) resist[type] = n;
       }
       if (Object.keys(resist).length) enemy.resist = resist;
-      const mats = (dm.attrs.materials_that_damage ?? '').split(',').map((m) => m.trim());
-      const amounts = (dm.attrs.materials_how_much_damage ?? '').split(',');
-      const hurt = mats.map((m, i) => ({ material: m, damage: round(num(amounts[i], 0) * HP) })).filter((x) => x.material && x.damage > 0);
+      // materials_that_damage / materials_how_much_damage (defaults "acid" / "0.1"): damage per frame of contact,
+      // shown per second; with materials_damage_proportional_to_maxhp it's a share of max HP instead.
+      const mats = (dm.attrs.materials_that_damage ?? 'acid').split(',').map((m) => m.trim());
+      const amounts = (dm.attrs.materials_how_much_damage ?? '0.1').split(',');
+      const proportional = dm.attrs.materials_damage_proportional_to_maxhp === '1';
+      const hurt = mats
+        .map((m, i) => ({ material: m, perSecond: num(amounts[i], 0) * 60 * (proportional ? 100 : HP) }))
+        .filter((x) => x.material && x.perSecond > 0)
+        .map((x) => ({ material: x.material, perSecond: Math.round(x.perSecond * 100) / 100, ...(proportional ? { ofMaxHp: true } : {}) }));
       if (dm.attrs.materials_damage !== '0' && hurt.length) enemy.hurtBy = hurt;
-      if (dm.attrs.blood_material) enemy.blood = dm.attrs.blood_material;
+      // What it bleeds: the spray when hit (blood_spray_material, as the wiki lists it), and the particles
+      // blood_material throws (default blood_fading).
+      enemy.bleeds = { hit: dm.attrs.blood_material || 'blood_fading', ...(dm.attrs.blood_spray_material ? { spray: dm.attrs.blood_spray_material } : {}) };
       const traits: string[] = [];
       if (dm.attrs.air_needed === '0') traits.push("Doesn't breathe");
       if (dm.attrs.fire_probability_of_ignition === '0') traits.push("Doesn't burn");
@@ -143,7 +151,8 @@ export async function buildEnemies(
         const dmg = proj ? Object.values(proj.damage).reduce((s, v) => s + (v ?? 0), 0) + (proj.explosion?.damage ?? 0) : 0;
         attacks.push({
           kind: 'ranged',
-          projectile: spellNameByFile.get(pf) ?? humanize(basename(pf, '.xml')),
+          // Named after the spell that fires the same projectile (enemy copies live outside deck/ under the same name).
+          projectile: spellNameByFile.get(pf) ?? spellNameByFile.get(`data/entities/projectiles/deck/${basename(pf)}`) ?? humanize(basename(pf, '.xml')),
           ...(dmg ? { damage: [round(dmg), round(dmg)] as [number, number] } : {}),
           count: [num(a.attack_ranged_entity_count_min, 1), num(a.attack_ranged_entity_count_max, num(a.attack_ranged_entity_count_min, 1))],
           range: num(a.attack_ranged_max_distance, 160),
@@ -177,4 +186,5 @@ function mainSprite(e: El | null): El | undefined {
   return sprites.find((s) => !skip.test(s.attrs.image_file!) && !skip.test(s.attrs._tags ?? '')) ?? sprites[0];
 }
 
-const round = (n: number) => Math.round(n * 10) / 10;
+/** Two decimals: the wiki quotes 12.5 health and 6.25 damage. */
+const round = (n: number) => Math.round(n * 100) / 100;

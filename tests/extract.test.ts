@@ -88,7 +88,15 @@ describe('bestiary', () => {
     // drop_money.lua: 10 × max(1, floor(max_hp)).
     expect(acid.gold).toBe(10);
     expect(acid.resist?.radioactive).toBe(0);
-    expect(acid.attacks?.some((a) => a.kind === 'ranged' && a.projectile === 'Acidshot')).toBe(true);
+    // Checked against the wiki: Acid ball 6, melee 5-10, bleeds acid, hurt by lava/poison/freezing liquids.
+    expect(acid.attacks?.find((a) => a.kind === 'ranged')).toMatchObject({ projectile: 'Acid ball', damage: [6, 6] });
+    expect(acid.attacks?.find((a) => a.kind === 'melee')?.damage).toEqual([5, 10]);
+    expect(acid.bleeds).toEqual({ hit: 'slime_green', spray: 'acid' });
+    expect(acid.hurtBy?.map((h) => h.material)).toEqual(['lava', 'poison', 'blood_cold', 'blood_cold_vapour']);
+    // Hurtta: 12.5 health, a 6.25 leap.
+    const hurtta = byId.get('zombie')!;
+    expect(hurtta.hp).toBe(12.5);
+    expect(hurtta.attacks?.find((a) => a.kind === 'dash')?.damage).toEqual([6.25, 6.25]);
     expect(enemies.filter((e) => e.portrait).length).toBeGreaterThan(150);
   });
 });
