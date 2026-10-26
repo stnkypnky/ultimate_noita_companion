@@ -990,6 +990,7 @@ export class RangeWorld {
           p.vx = p.vy = 0;
           return;
         }
+        if (p.trigger) this.aimPayloadOffWall(p, nx, ny);
         return this.die(p, 'hit');
       }
       p.x = nx;
@@ -997,6 +998,28 @@ export class RangeWorld {
       if (!p.physicsBody && p.damageEveryFrames <= 0 && this.touchActors(p)) return;
     }
     if (p.x < -40 || p.x > W + 40 || p.y < -40 || p.y > H + 40) p.dead = true;
+  }
+
+  /**
+   * Where a payload goes when its carrier dies against terrain: trigger and timer payloads bounce off the
+   * surface (seen in-game); an expiration payload goes in a random direction, because the carrier counts as
+   * stopped (wiki: Expiration Trigger).
+   */
+  private aimPayloadOffWall(p: Proj, nx: number, ny: number) {
+    if (p.trigger?.kind === 'death') {
+      p.rot = Math.random() * Math.PI * 2;
+      p.vx = p.vy = 0;
+      return;
+    }
+    const n = this.normalAt(nx, ny);
+    const into = n ? p.vx * n.x + p.vy * n.y : 0;
+    if (n && into < 0) {
+      p.vx -= 2 * into * n.x;
+      p.vy -= 2 * into * n.y;
+    } else {
+      p.vx = -p.vx;
+      p.vy = -p.vy;
+    }
   }
 
   /** Outward surface normal at a point, from the solid cells around it. */

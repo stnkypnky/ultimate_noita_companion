@@ -109,6 +109,27 @@ describe('test range basics', () => {
     expect(world(['SLOW_BULLET_TIMER', 'LIGHT_BULLET'], 60, 380).spawned).toContain('light_bullet.xml');
   });
 
+  it("a trigger's payload bounces off the wall it hit", () => {
+    const w = new RangeWorld(data);
+    const payloads: { vy: number; p: ReturnType<RangeWorld['spawn']> }[] = [];
+    const spawn = w.spawn.bind(w);
+    w.spawn = (file, x, y, vx, vy, s, trigger, rot) => {
+      const p = spawn(file, x, y, vx, vy, s, trigger, rot);
+      if (!trigger && w.frame > 0) payloads.push({ vy, p });
+      return p;
+    };
+    equip(w, ['LIGHT_BULLET_TRIGGER', 'LIGHT_BULLET']);
+    // Shoot down into the floor just ahead.
+    w.auto = false;
+    w.aim = { x: w.player.x + 50, y: w.player.y + 20 };
+    w.setTrigger(true);
+    for (let i = 0; i < 12; i++) w.step();
+    expect(payloads.length).toBeGreaterThan(0);
+    // It leaves upwards, off the floor, and is still flying rather than popping in the ground.
+    expect(payloads[0]!.vy).toBeLessThan(0);
+    expect(payloads[0]!.p!.dead).toBe(false);
+  });
+
   it('homing bends shots into the dummy', () => {
     expect(world(['HOMING', 'BUBBLESHOT'], 300).w.damageEvents.length).toBeGreaterThan(0);
   });
