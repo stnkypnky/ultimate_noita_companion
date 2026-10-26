@@ -1,5 +1,5 @@
 // Falling sand with the game's materials and reactions.
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Cells, K_GAS } from '../src/features/range/cells.ts';
@@ -73,12 +73,24 @@ describe('cells', () => {
   });
 
   it('fire sets oil alight and it burns away', () => {
-    const c = box();
-    for (let y = 25; y < 29; y++) for (let x = 1; x < 39; x++) c.set(x, y, c.index('oil'));
-    const before = count(c, 'oil');
-    for (let x = 18; x < 23; x++) c.set(x, 24, c.index('fire'));
-    run(c, 900);
-    expect(count(c, 'oil')).toBeLessThan(before * 0.5);
+    // Catching fire is a dice roll each frame; a fixed seed keeps the test from depending on luck.
+    let seed = 12345;
+    const random = vi.spyOn(Math, 'random').mockImplementation(() => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    });
+    try {
+      const c = box();
+      for (let y = 25; y < 29; y++) for (let x = 1; x < 39; x++) c.set(x, y, c.index('oil'));
+      const before = count(c, 'oil');
+      for (let x = 18; x < 23; x++) c.set(x, 24, c.index('fire'));
+      run(c, 900);
+      expect(count(c, 'oil')).toBeLessThan(before * 0.5);
+    } finally {
+      random.mockRestore();
+    }
   });
 
   it('gases rise and fade after their lifetime', () => {
