@@ -7,7 +7,7 @@ import { Page } from '@/ui/Page';
 export function MorePage() {
   const items = NAV.filter((n) => !n.mobile);
   return (
-    <Page title="More">
+    <Page title="Menu">
       <ul className="mt-2 divide-y divide-line overflow-hidden panel">
         {items.map(({ to, label, icon: Icon }) => (
           <li key={to}>

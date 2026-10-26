@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import { idbStorage } from './db';
+import { idbStorage } from './kv';
 
 export type RunSummary = {
   runs: number;

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import { idbStorage } from '@/store/db';
+import { idbStorage } from '@/store/kv';
 import { DEFAULT_OPTIONS, DEFAULT_WAND, MAX_CAPACITY, resize, type SimOptions, type Wand } from './model';
 
 const HISTORY = 50;

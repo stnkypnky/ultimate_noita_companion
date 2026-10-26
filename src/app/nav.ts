@@ -29,4 +29,4 @@ export const NAV: NavItem[] = [
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
-export const MORE: NavItem = { to: '/more', label: 'More', icon: Menu };
+export const MORE: NavItem = { to: '/more', label: 'Menu', icon: Menu };

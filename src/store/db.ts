@@ -1,5 +1,4 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { StateStorage } from 'zustand/middleware';
 
 export type SavedBuild = {
   id: string;
@@ -25,15 +24,5 @@ class CompanionDB extends Dexie {
   }
 }
 
+/** Saved builds and save-folder handles (the settings stores read `kv` directly, see kv.ts). */
 export const db = new CompanionDB();
-
-/** zustand persist storage backed by IndexedDB (survives storage pressure better than localStorage). */
-export const idbStorage: StateStorage = {
-  getItem: async (key) => (await db.kv.get(key))?.value ?? null,
-  setItem: async (key, value) => {
-    await db.kv.put({ key, value });
-  },
-  removeItem: async (key) => {
-    await db.kv.delete(key);
-  },
-};
