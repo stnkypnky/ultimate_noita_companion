@@ -12,7 +12,7 @@ describe('parseSave', () => {
       file('Nolla_Games_Noita/save00/persistent/flags/steam_autocloud.vdf'),
       file('Nolla_Games_Noita/save00/persistent/orbs_new/7'),
       file('Nolla_Games_Noita/save00/persistent/orbs_new/0'),
-      file('Nolla_Games_Noita/save00/stats/stats_ant.xml'),
+      file('Nolla_Games_Noita/save00/stats/stats_ant.xml', '<Stats deaths="16" kills="2" player_kills="1" player_projectile_count="0" ><death_map></death_map></Stats>'),
       file('Nolla_Games_Noita/save00/stats/_stats.salakieli'),
       file(
         'Nolla_Games_Noita/save00/stats/sessions/20250330-175039_stats.xml',
@@ -25,6 +25,7 @@ describe('parseSave', () => {
     expect(p.flags.sort()).toEqual(['action_bomb', 'perk_picked_shield']);
     expect(p.orbs).toEqual([0, 7]);
     expect(p.enemies).toEqual(['ant']);
+    expect(p.enemyStats).toEqual({ ant: { died: 16, killedYou: 1 } });
     expect(p.runs).toMatchObject({ runs: 1, deaths: 1, kills: 33, bestGold: 505 });
     expect(p.runs!.recent[0]).toMatchObject({ seed: 1492787966, killedBy: 'Haulikkohiisi', date: '2025-03-30T17:50:39' });
   });
@@ -60,6 +61,15 @@ describe('sync codec', () => {
     expect(back.flags.sort()).toEqual([...progress.flags].sort());
     expect(back.enemies).toEqual(progress.enemies);
     expect(back.orbs).toEqual(progress.orbs);
+  });
+
+  it('carries creature history (deaths, times it killed you)', async () => {
+    const enemyStats = Object.fromEntries(Array.from({ length: 120 }, (_, i) => [`e${i}`, { died: 40 + i, killedYou: i % 3 }]));
+    const progress = { syncedAt: '', flags: [], enemies: Object.keys(enemyStats), enemyStats, orbs: [] };
+    const code = await encodeProgress(progress, lists, 'abcdef1234');
+    // Still fits a QR code comfortably.
+    expect(code.length).toBeLessThan(1500);
+    expect((await decodeProgress(code, lists, 'abcdef1234')).progress.enemyStats).toEqual(enemyStats);
   });
 
   it('flags codes from a different game build', async () => {

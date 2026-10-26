@@ -81,8 +81,12 @@ console.log(`perks: ${perks.length}`);
 // ---------- Enemies (progress-screen list) ----------
 const enemyIcons = enemyIconFiles(wak);
 const enemyAtlas = await buildAtlas(await Promise.all(enemyIcons.map(async (f) => ({ key: f, png: await firstFrame(wak.bytes(f)) }))), 24);
-const enemies = buildEnemies(enemyIcons, loader, t, enemyAtlas.rects);
-console.log(`enemies: ${enemies.length}`);
+const spellNameByFile = new Map<string, string>();
+for (const s of spells) for (const f of s.projectiles) if (!spellNameByFile.has(f)) spellNameByFile.set(f, s.name);
+const bestiary = await buildEnemies(enemyIcons, wak, loader, t, enemyAtlas.rects, spellNameByFile);
+const portraitAtlas = await buildPackedAtlas(bestiary.portraits, 1024);
+const enemies = bestiary.enemies.map((e) => ({ ...e, ...(portraitAtlas.rects.has(e.id) ? { portrait: portraitAtlas.rects.get(e.id)! } : {}) }));
+console.log(`enemies: ${enemies.length}, ${bestiary.portraits.length} portraits`);
 
 // ---------- Items (world pickups) ----------
 const itemData = await collectItems(wak, loader, t);
@@ -143,6 +147,8 @@ for (const f of ['9piece0.png', '9piece0_gray.png', '3piece_important_msg.png', 
 await mkdir(join(OUT, 'ui/icons'), { recursive: true });
 const statIcons = wak.list('data/ui_gfx/inventory/icon_').filter((f) => f.endsWith('.png'));
 for (const f of statIcons) await writeFile(join(OUT, 'ui/icons', f.split('/icon_').pop()!), wak.bytes(f));
+// The HUD's health and gold icons, for creature stats.
+for (const f of ['health', 'money']) await writeFile(join(OUT, `ui/icons/hud_${f}.png`), wak.bytes(`data/ui_gfx/hud/${f}.png`));
 // The game's bitmap fonts live next to data.wak, not inside it.
 await mkdir(join(OUT, 'fonts'), { recursive: true });
 const fontsDir = join(noita, 'data/fonts');
@@ -160,6 +166,7 @@ await mkdir(join(OUT, 'sprites'), { recursive: true });
 await writeFile(join(OUT, 'sprites/spells.png'), spellAtlas.png);
 await writeFile(join(OUT, 'sprites/perks.png'), perkAtlas.png);
 await writeFile(join(OUT, 'sprites/enemies.png'), enemyAtlas.png);
+await writeFile(join(OUT, 'sprites/bestiary.png'), portraitAtlas.png);
 await writeJson('data/enemies.json', enemies);
 await writeFile(join(OUT, 'sprites/items.png'), itemAtlas.png);
 await writeJson('data/items.json', items);
@@ -182,7 +189,7 @@ const version: GameVersion = {
   branch: existsSync(branchFile) ? readFileSync(branchFile, 'utf8').trim() : 'unknown',
   extractedAt: new Date().toISOString(),
   counts: { spells: spells.length, perks: perks.length, enemies: enemies.length, items: items.length, materials: materials.length, reactions: reactions.length, projectiles: Object.keys(projectiles).length },
-  atlases: { spells: spellAtlas.size, perks: perkAtlas.size, enemies: enemyAtlas.size, items: itemAtlas.size, projectiles: projAtlas.size },
+  atlases: { spells: spellAtlas.size, perks: perkAtlas.size, enemies: enemyAtlas.size, bestiary: portraitAtlas.size, items: itemAtlas.size, projectiles: projAtlas.size },
 };
 await writeJson('version.json', version);
 wak.close();

@@ -43,9 +43,20 @@ export async function parseSave(files: SaveFile[]): Promise<Progress> {
     .map((x) => Number(x.name))
     .filter((n) => Number.isInteger(n))
     .sort((a, b) => a - b);
-  const enemies = under('stats/')
-    .map((x) => x.name.match(/^stats_(.+)\.xml$/)?.[1])
-    .filter((x): x is string => !!x);
+  const statFiles = under('stats/')
+    .map((x) => ({ ...x, id: x.name.match(/^stats_(.+)\.xml$/)?.[1] }))
+    .filter((x): x is typeof x & { id: string } => !!x.id);
+  const enemies = statFiles.map((x) => x.id);
+  // <Stats deaths="…" kills="…" player_kills="…">: how many have died, and how many times one killed the player.
+  const enemyStats: NonNullable<Progress['enemyStats']> = {};
+  await Promise.all(
+    statFiles.map(async ({ file, id }) => {
+      const head = (await file.text()).match(/<Stats\s[^>]*>/)?.[0] ?? '';
+      const died = Number(attr(head, 'deaths') ?? 0);
+      const killedYou = Number(attr(head, 'player_kills') ?? 0);
+      if (died || killedYou) enemyStats[id] = { died, killedYou };
+    }),
+  );
 
   const sessions = under('stats/sessions/').filter((x) => x.name.endsWith('_stats.xml'));
   let runs: RunSummary | undefined;
@@ -77,7 +88,7 @@ export async function parseSave(files: SaveFile[]): Promise<Progress> {
     };
   }
 
-  return { syncedAt: new Date().toISOString(), flags, enemies, orbs, ...(runs ? { runs } : {}) };
+  return { syncedAt: new Date().toISOString(), flags, enemies, enemyStats, orbs, ...(runs ? { runs } : {}) };
 }
 
 // ---------- Sources ----------

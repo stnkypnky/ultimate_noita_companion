@@ -20,6 +20,7 @@ const steps: Step[] = [
   { name: 'onboarding', run: async (p) => { await p.getByText('How much do you want to know?').waitFor(); await p.waitForTimeout(500); } },
   { name: 'home', run: async (p) => { await p.getByText('Hide everything for now').click(); await p.waitForTimeout(600); } },
   { name: 'spells-hidden', run: async (p) => { await p.goto(`${base}/spells`); await p.waitForTimeout(1800); } },
+  { name: 'bestiary-hidden', run: async (p) => { await p.goto(`${base}/bestiary/boss_alchemist`); await p.waitForTimeout(1800); } },
   { name: 'spells-all', run: async (p) => {
       await p.evaluate(async () => {
         const db = await new Promise<IDBDatabase>((res) => { const r = indexedDB.open('noita-companion'); r.onsuccess = () => res(r.result); });
@@ -34,6 +35,8 @@ const steps: Step[] = [
     } },
   { name: 'spell-detail', run: async (p) => { await p.goto(`${base}/spells/LIGHT_BULLET_TRIGGER`); await p.waitForTimeout(1900); } },
   { name: 'perk-detail', run: async (p) => { await p.goto(`${base}/perks/EDIT_WANDS_EVERYWHERE`); await p.waitForTimeout(1900); } },
+  { name: 'bestiary', run: async (p) => { await p.goto(`${base}/bestiary/acidshooter`); await p.waitForTimeout(1900); } },
+  { name: 'bestiary-boss', run: async (p) => { await p.goto(`${base}/bestiary/boss_alchemist`); await p.waitForTimeout(1900); } },
   { name: 'wand', run: async (p) => {
       for (const id of ['BURST_2', 'LIGHT_BULLET_TRIGGER', 'BOMB', 'LIGHT_BULLET']) {
         await p.goto(`${base}/wand?add=${id}`);

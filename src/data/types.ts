@@ -108,9 +108,30 @@ export type Enemy = {
   /** Matches save00/stats/stats_<id>.xml. */
   id: string;
   name: string;
+  /** The Progress-screen icon (enemies atlas). */
   icon: Icon;
+  /** The creature's own sprite, first frame (bestiary atlas). */
+  portrait?: Icon;
+  /** Entity file it was read from. */
+  file?: string;
   hp?: number;
   tags?: string[];
+  boss?: boolean;
+  /** Damage multipliers other than 1 (0.5 = takes half, 0 = immune, 2 = double). */
+  resist?: Partial<Record<DamageType, number>>;
+  /** materials_that_damage, HP per contact check. */
+  hurtBy?: { material: string; damage: number }[];
+  /** Status immunities and things that don't work on it. */
+  immune?: string[];
+  /** Plain-word traits: doesn't breathe, doesn't burn, resists critical hits… */
+  traits?: string[];
+  blood?: string;
+  /** Gold dropped when killed (before perks). */
+  gold?: number;
+  attacks?: { kind: 'melee' | 'dash' | 'ranged' | 'bite'; damage?: [number, number]; projectile?: string; count?: [number, number]; range?: number }[];
+  moves?: { speed?: number; flies?: boolean; digs?: boolean };
+  /** GenomeDataComponent herd (who it fights alongside). */
+  herd?: string;
 };
 
 /** One SpriteComponent: its animation frames in the projectile atlas, played from the entity's birth. */

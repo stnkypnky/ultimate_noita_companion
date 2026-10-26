@@ -184,7 +184,7 @@ async function explosionVisual(wak: Wak, ex: El, look: (m: string) => MaterialLo
 }
 
 /** First frame of a SpriteComponent's image (.png or <Sprite> .xml), with its pivot. */
-async function spriteFrame(wak: Wak, sc: El): Promise<SpriteFrame | null> {
+export async function spriteFrame(wak: Wak, sc: El): Promise<SpriteFrame | null> {
   const file = String(sc.attrs.image_file ?? '');
   if (!file || !wak.has(file)) return null;
   let png: Buffer;

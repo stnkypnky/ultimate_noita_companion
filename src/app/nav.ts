@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Settings,
   Menu,
+  Skull,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -21,6 +22,7 @@ export const NAV: NavItem[] = [
   { to: '/spells', label: 'Spells', icon: Sparkles, mobile: true },
   { to: '/perks', label: 'Perks', icon: Gem },
   { to: '/items', label: 'Items', icon: Package },
+  { to: '/bestiary', label: 'Bestiary', icon: Skull },
   { to: '/materials', label: 'Materials', icon: FlaskConical, mobile: true },
   { to: '/alchemy', label: 'Alchemy', icon: Beaker },
   { to: '/progress', label: 'Progress Sync', icon: RefreshCw },

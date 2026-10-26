@@ -29,6 +29,8 @@ export type StatIconName =
   | 'gun_permanent_actions'
   | 'gun_reload_time'
   | 'gun_shuffle'
+  | 'hud_health'
+  | 'hud_money'
   | 'info'
   | 'knockback'
   | 'mana_charge_speed'

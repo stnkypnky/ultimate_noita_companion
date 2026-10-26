@@ -17,6 +17,8 @@ type Payload = {
   f: string[];
   o: number[];
   r?: RunSummary;
+  /** Creature history: [index in the enemies list, how many died, times it killed you]. */
+  k?: [number, number, number][];
 };
 
 // ---------- bitsets ----------
@@ -51,6 +53,11 @@ export async function encodeProgress(progress: Progress, lists: Lists, gameHash:
     o: progress.orbs,
     ...(progress.runs ? { r: progress.runs } : {}),
   };
+  const stats = progress.enemyStats;
+  if (stats) {
+    const k = lists.enemies.flatMap((e, i) => (stats[e.id] ? [[i, stats[e.id]!.died, stats[e.id]!.killedYou] as [number, number, number]] : []));
+    if (k.length) payload.k = k;
+  }
   return packJson(payload);
 }
 
@@ -74,6 +81,9 @@ export async function decodeProgress(code: string, lists: Lists, gameHash: strin
       syncedAt: payload.t,
       flags,
       enemies: readBits(payload.e, lists.enemies.length).map((i) => lists.enemies[i]!.id),
+      ...(payload.k
+        ? { enemyStats: Object.fromEntries(payload.k.filter(([i]) => lists.enemies[i]).map(([i, died, killedYou]) => [lists.enemies[i]!.id, { died, killedYou }])) }
+        : {}),
       orbs: payload.o,
       ...(payload.r ? { runs: payload.r } : {}),
     },

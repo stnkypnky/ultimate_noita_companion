@@ -13,7 +13,7 @@ export function MorePage() {
           <li key={to}>
             <Link to={to} className="flex items-center gap-4 px-4 py-4 active:bg-surface-2">
               <Icon size={20} className="text-ember" />
-              <span className="flex-1">{label}</span>
+              <span className="font-game flex-1 text-[16px]">{label}</span>
               <ChevronRight size={18} className="text-faint" />
             </Link>
           </li>

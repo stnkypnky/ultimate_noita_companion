@@ -71,3 +71,24 @@ describe('extracted game data', () => {
     expect(byId.get('LIGHT_BULLET_TIMER')!.trigger).toMatchObject({ kind: 'timer', draw: 1, delay: 10 });
   });
 });
+
+describe('bestiary', () => {
+  const enemies = gameJson<import('../src/data/types.ts').Enemy[]>('enemies.json');
+  const byId = new Map(enemies.map((e) => [e.id, e]));
+
+  it('finds bosses in their own folders and names them', () => {
+    const boss = byId.get('boss_alchemist')!;
+    expect(boss.name).toBe('Ylialkemisti');
+    expect(boss.boss).toBe(true);
+    expect(boss.hp).toBe(1000);
+  });
+
+  it("reads gold, resistances and attacks from the creature's file", () => {
+    const acid = byId.get('acidshooter')!;
+    // drop_money.lua: 10 × max(1, floor(max_hp)).
+    expect(acid.gold).toBe(10);
+    expect(acid.resist?.radioactive).toBe(0);
+    expect(acid.attacks?.some((a) => a.kind === 'ranged' && a.projectile === 'Acidshot')).toBe(true);
+    expect(enemies.filter((e) => e.portrait).length).toBeGreaterThan(150);
+  });
+});

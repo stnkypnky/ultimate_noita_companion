@@ -8,6 +8,7 @@ export type Indexed = GameData & {
   spellById: Map<string, Spell>;
   perkById: Map<string, Perk>;
   materialById: Map<string, Material>;
+  enemyById: Map<string, Enemy>;
   /** Reactions each material (or tag) takes part in, as input or output. */
   reactionsByMaterial: Map<string, Reaction[]>;
 };
@@ -44,6 +45,7 @@ function index(version: GameVersion, d: GameData): Indexed {
     spellById: new Map(d.spells.map((s) => [s.id, s])),
     perkById: new Map(d.perks.map((p) => [p.id, p])),
     materialById: new Map(d.materials.map((m) => [m.id, m])),
+    enemyById: new Map(d.enemies.map((e) => [e.id, e])),
     reactionsByMaterial,
   };
 }

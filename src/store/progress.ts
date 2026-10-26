@@ -19,6 +19,8 @@ export type Progress = {
   flags: string[];
   /** Enemy ids seen, from save00/stats/stats_<enemy>.xml. */
   enemies: string[];
+  /** From the same files: how many of each have died, and how many times one killed you. */
+  enemyStats?: Record<string, { died: number; killedYou: number }>;
   orbs: number[];
   runs?: RunSummary;
 };
