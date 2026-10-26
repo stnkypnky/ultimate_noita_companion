@@ -40,11 +40,20 @@ const loadImage = (src: string) =>
     i.src = src;
   });
 
+/**
+ * Every canvas of the scene draws on the CPU (willReadFrequently). The frame is small, and on a slow tablet GPU
+ * the per-frame pixel uploads and layer composites cost far more than drawing it all in memory: on a Fire HD 10
+ * a busy wand ran at 22 fps on the GPU and 57 on the CPU. Same pictures, no slower on a laptop.
+ */
+export function context2d(c: HTMLCanvasElement, opaque = false) {
+  return c.getContext('2d', { alpha: !opaque, willReadFrequently: true })!;
+}
+
 function pixels(img: HTMLImageElement): ImageData {
   const c = document.createElement('canvas');
   c.width = img.width;
   c.height = img.height;
-  const ctx = c.getContext('2d')!;
+  const ctx = c.getContext('2d', { willReadFrequently: true })!;
   ctx.drawImage(img, 0, 0);
   return ctx.getImageData(0, 0, img.width, img.height);
 }
@@ -64,7 +73,7 @@ class PixelLayer {
   constructor() {
     this.canvas.width = W;
     this.canvas.height = H;
-    this.ctx = this.canvas.getContext('2d')!;
+    this.ctx = context2d(this.canvas);
   }
 
   clear() {
@@ -120,6 +129,8 @@ export function loadRangeImages(props: Record<string, RangeProp>): Promise<Range
 export class RangeRenderer {
   private terrain = document.createElement('canvas');
   private terrainGlow = document.createElement('canvas');
+  private terrainCtx: CanvasRenderingContext2D;
+  private terrainGlowCtx: CanvasRenderingContext2D;
   private terrainImg = new ImageData(W, H);
   private terrainGlowImg = new ImageData(W, H);
   private textures = new Map<string, ImageData | 'loading'>();
@@ -145,17 +156,19 @@ export class RangeRenderer {
     this.terrain.height = this.terrainGlow.height = H;
     this.glow.width = W;
     this.glow.height = H;
-    this.glowCtx = this.glow.getContext('2d')!;
+    this.glowCtx = context2d(this.glow);
     this.glowCtx.imageSmoothingEnabled = false;
     this.bloomSmall.width = Math.ceil(W / BLOOM_SHRINK);
     this.bloomSmall.height = Math.ceil(H / BLOOM_SHRINK);
-    this.bloomCtx = this.bloomSmall.getContext('2d')!;
+    this.bloomCtx = context2d(this.bloomSmall);
     this.bloomCtx.imageSmoothingEnabled = true;
+    this.terrainCtx = context2d(this.terrain);
+    this.terrainGlowCtx = context2d(this.terrainGlow);
     ctx.imageSmoothingEnabled = false;
     const bg = document.createElement('canvas');
     bg.width = img.rock.width;
     bg.height = img.rock.height;
-    bg.getContext('2d')!.putImageData(img.rock, 0, 0);
+    context2d(bg).putImageData(img.rock, 0, 0);
     this.backdrop = ctx.createPattern(bg, 'repeat');
   }
 
@@ -170,8 +183,8 @@ export class RangeRenderer {
     for (const m of mats) if (m.texture && !this.textures.has(m.texture)) this.loadTexture(m.texture, c);
     const img = this.terrainImg;
     const glow = this.terrainGlowImg;
-    const tctx = this.terrain.getContext('2d')!;
-    const gctx = this.terrainGlow.getContext('2d')!;
+    const tctx = this.terrainCtx;
+    const gctx = this.terrainGlowCtx;
     for (let cy = 0; cy < c.cy; cy++) {
       for (let cx = 0; cx < c.cx; cx++) {
         const k = cy * c.cx + cx;
@@ -672,7 +685,7 @@ function glowSprite(color: string) {
   if (!c) {
     c = document.createElement('canvas');
     c.width = c.height = 64;
-    const g = c.getContext('2d')!;
+    const g = context2d(c);
     const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
     grad.addColorStop(0, color);
     grad.addColorStop(1, 'transparent');

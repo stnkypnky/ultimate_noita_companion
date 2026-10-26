@@ -8,7 +8,7 @@ import type { LiveCast } from '@/sim/types';
 import { SpellIcon } from '@/ui/GameIcon';
 import { toSimRequest, type SimOptions, type Wand } from '@/features/wand/model';
 import { H, RangeWorld, W, type RangeData } from './world';
-import { RangeRenderer, SCALE, loadRangeImages, type RangeImages } from './render';
+import { RangeRenderer, SCALE, context2d, loadRangeImages, type RangeImages } from './render';
 import { pickWandSprite, type Controls } from './player';
 import { WandRuntime } from './wand';
 import { rangeSettings } from './settings';
@@ -157,7 +157,7 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
     const world = worldRef.current;
     if (!ready || !canvas || !world) return;
     // Opaque (every frame paints the whole scene), so the browser needn't blend it with the page behind.
-    const renderer = new RangeRenderer(canvas.getContext('2d', { alpha: false })!, ready.images);
+    const renderer = new RangeRenderer(context2d(canvas, true), ready.images);
     // Performance mode: no glow, a quarter of the particles, and the picture redrawn about 30 times a second.
     renderer.lite = settings.performance;
     world.particleBudget = settings.performance ? 1500 : 6000;
