@@ -29,7 +29,8 @@
   --border-strong: #5f302c;
   --text: #f3ede6;
   --text-muted: #b9aa9c;
-  --text-faint: #807062;
+  /* At least 4.5:1 on the darkest surfaces (WCAG AA for small text). */
+  --text-faint: #8a7a6b;
   --ember: #f89000;
   --ember-soft: #f8900026;
   --gold: #eda949;
