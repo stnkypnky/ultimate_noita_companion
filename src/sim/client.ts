@@ -4,6 +4,8 @@ import type { WorkerIn, WorkerOut } from './worker';
 /** A simulation that takes longer than this is assumed stuck (e.g. a pathological recursion) and the worker is restarted. */
 const TIMEOUT_MS = 4000;
 
+const pageHidden = () => typeof document !== 'undefined' && document.hidden;
+
 type Message = WorkerIn extends infer M ? (M extends WorkerIn ? Omit<M, 'id'> : never) : never;
 
 export class SimTimeout extends Error {
@@ -52,12 +54,23 @@ class SimWorker {
   private post(msg: Message, timeout = 30000): Promise<WorkerOut & { ok: true }> {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      const t = setTimeout(() => {
+      // Only time spent with the page in view counts: browsers freeze background workers (a tablet's screen
+      // going off, switching apps), and a reply that's merely frozen mustn't be taken for a stuck simulation.
+      let waited = 0;
+      let last = performance.now();
+      const t = setInterval(() => {
+        const now = performance.now();
+        const step = now - last;
+        last = now;
+        // A long gap between ticks means the page itself was frozen; don't count it.
+        if (!pageHidden() && step < 1000) waited += step;
+        if (waited < timeout) return;
+        clearInterval(t);
         this.pending.delete(id);
         reject(new SimTimeout());
-      }, timeout);
+      }, 250);
       this.pending.set(id, (r) => {
-        clearTimeout(t);
+        clearInterval(t);
         if (r.ok) resolve(r);
         else reject(new Error(r.error));
       });

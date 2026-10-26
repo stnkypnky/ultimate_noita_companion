@@ -30,6 +30,8 @@ export class WandRuntime {
   private ready = false;
   private busy = false;
   private gen = 0;
+  /** Recoveries tried since the last good cast (see fail). */
+  private retries = 0;
 
   constructor(
     private caster: Caster,
@@ -107,6 +109,7 @@ export class WandRuntime {
     const apply = (r: LiveCast) => {
       if (g !== this.gen) return;
       this.busy = false;
+      this.retries = 0;
       const c = r.cast;
       // Mana kept recharging while the cast was in flight; charge only what the spells cost.
       this.mana = Math.max(0, this.mana - (before - c.mana_after));
@@ -137,6 +140,15 @@ export class WandRuntime {
     this.busy = false;
     this.ready = false;
     this.error = String((e as Error)?.message ?? e);
+    // Pick the wand back up (the engine restarts after a timeout) rather than leave it dead until the build
+    // changes; a few tries, so a wand that always fails doesn't loop forever.
+    if (this.retries < 3 && this.req) {
+      this.retries++;
+      const req = this.req;
+      setTimeout(() => {
+        if (g === this.gen) this.load({ ...req, options: { ...req.options, mana: this.mana } });
+      }, 1000);
+    }
   }
 }
 

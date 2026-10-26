@@ -1,5 +1,5 @@
 // The live wand (what the test range fires): real gun.lua for each trigger pull, our port of the engine's timing and mana.
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createLuaHost, loadGun, type LuaHost } from '../tools/extract/lua.ts';
@@ -107,5 +107,42 @@ describe('live wand', () => {
     const live = hold(request(['LIGHT_BULLET'], { castDelay: -20, rechargeTime: -20 }));
     live.run(10);
     expect(live.casts).toHaveLength(10);
+  });
+});
+
+describe('recovering from a failed cast', () => {
+  it('picks the wand back up after a misfire (e.g. a timeout while the app was in the background)', async () => {
+    vi.useFakeTimers();
+    try {
+      const casts: SimCast[] = [];
+      let n = 0;
+      let failNext = true;
+      const wand = new WandRuntime(
+        {
+          reset: (r) => resetWand(call, r),
+          cast: (f, m) => {
+            if (failNext) {
+              failNext = false;
+              return Promise.reject(new Error('The simulation took too long and was stopped.'));
+            }
+            return castWand(call, f, m, ++n);
+          },
+        },
+        (c) => casts.push(c),
+      );
+      let frame = 0;
+      wand.equip(request(['LIGHT_BULLET']), frame);
+      wand.tick(++frame, true);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(wand.error).toMatch(/too long/);
+      // A second later it reloads itself and fires again.
+      await vi.advanceTimersByTimeAsync(1100);
+      for (let i = 0; i < 5; i++) wand.tick(++frame, true);
+      expect(wand.error).toBeNull();
+      expect(casts.length).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
