@@ -185,7 +185,9 @@ function MaterialLookup() {
   }, [m, reactions, isVisible, name]);
 
   return (
-    <div className="panel p-4">
+    // .panel isolates its own stacking context, so the picker's dropdown can only rise above what
+    // follows (Reveal all recipes) if the whole panel sits above it.
+    <div className="panel relative z-10 p-4">
       <div className="flex items-center gap-2">
         <MaterialPicker value={m} onChange={setM} options={options} label="Type a material, e.g. Pheromone" />
         {m && (
@@ -394,7 +396,7 @@ function MaterialPicker({ value, onChange, options, label }: { value: Material |
         )}
       </div>
       {open && (
-        <ul className="scrollbar-thin absolute inset-x-0 top-12 z-20 max-h-64 overflow-y-auto panel p-1 shadow-[var(--shadow)]">
+        <ul className="scrollbar-thin absolute inset-x-0 top-12 z-20 max-h-64 overflow-y-auto panel bg-bg p-1 shadow-[var(--shadow)]">
           {list.map((m) => (
             <li key={m.id}>
               <button
