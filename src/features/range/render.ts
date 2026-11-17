@@ -386,6 +386,31 @@ export class RangeRenderer {
       both((c) => line(c, s.x0, s.y0, s.x1, s.y1, s.color, s.width + 1.5, 0.35 * a));
       line(ctx, s.x0, s.y0, s.x1, s.y1, s.color, s.width, a);
     }
+    // Electrified pools and metal shimmer: a flickering scatter of electric-blue pixels through the body.
+    for (const s of w.shocks) {
+      const n = s.cells.length;
+      if (!n) continue;
+      const cw = w.cells.w;
+      const k = Math.min(n, 900);
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.55 * (1 - s.age / 60);
+      ctx.fillStyle = LIGHTNING.glow;
+      const path = new Path2D();
+      for (let i = 0; i < k; i++) {
+        const c = s.cells[(Math.random() * n) | 0]!;
+        path.rect(c % cw, (c / cw) | 0, 1, 1);
+      }
+      ctx.fill(path);
+      if (bloom) {
+        g.globalCompositeOperation = 'lighter';
+        g.globalAlpha = 0.35;
+        g.fillStyle = LIGHTNING.glow;
+        g.fill(path);
+        g.globalAlpha = 1;
+      }
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
     // lightning: hard pixels like lightning_ray.png, a white core in a deep blue fringe, plus a blue bloom
     for (const b of w.bolts) {
       // Full strength, then gone over its last few frames (the game's ray doesn't fade slowly).

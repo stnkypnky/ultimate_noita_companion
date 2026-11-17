@@ -70,6 +70,10 @@ export function buildMaterials(xml: string, t: Translations): { materials: Mater
     if (tex) textures.set(id, tex);
     if (a.wang_color && !wang.has(a.wang_color.slice(-6).toLowerCase())) wang.set(a.wang_color.slice(-6).toLowerCase(), id);
     const effects = comp(el, 'StatusEffects');
+    // Liquids conduct electricity unless the game says otherwise (oil and glue set 0); solids only when set (metals).
+    // Wiki, Water: "Like most liquids, water ... conducts electricity."
+    const conductive =
+      a.electrical_conductivity !== undefined ? a.electrical_conductivity === '1' : id !== 'air' && cellType === 'liquid' && !liquidSand && !liquidStatic;
     materials.push({
       id,
       name: tr(t, a.ui_name, humanize(id)),
@@ -87,8 +91,8 @@ export function buildMaterials(xml: string, t: Translations): { materials: Mater
       liquidGravity: num(a.liquid_gravity, 0.5),
       hp: num(a.hp, 100),
       durability: num(a.durability, 0),
-      conductive: a.electrical_conductivity === '1',
-      electricalConductivity: a.electrical_conductivity === '1',
+      conductive,
+      electricalConductivity: conductive,
       onFire: a.on_fire === '1',
       temperatureOfFire: num(a.temperature_of_fire, 0),
       autoignitionTemperature: num(a.autoignition_temperature, 0),

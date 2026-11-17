@@ -181,6 +181,7 @@ async function explosionVisual(wak: Wak, ex: El, look: (m: string) => MaterialLo
     rayEnergy: num(a.ray_energy, 0),
     maxDurability: num(a.max_durability_to_destroy, 0),
     hole: a.hole_enabled !== '0',
+    ...(a.hole_destroy_liquid === '0' ? { keepLiquid: true } : {}),
   };
 }
 

@@ -44,6 +44,8 @@ export type CellMat = {
   stains: string[];
   /** Sets things on fire (fire, lava). */
   hot: boolean;
+  /** Carries electricity (most liquids, metals). */
+  conductive?: boolean;
   /** Path under game/materials/ of its texture. */
   texture?: string;
 };
@@ -116,6 +118,7 @@ export class Cells {
         tags,
         stains: m.stains,
         hot: m.state === 'fire' || tags.has('fire_lava') || tags.has('lava'),
+        conductive: m.conductive,
         ...(textures(m) ? { texture: textures(m) } : {}),
       });
     }
@@ -199,14 +202,15 @@ export class Cells {
    * Remove cells in a circle that are no tougher than `maxDurability` (explosions, digging). Liquids and
    * gases have no durability and always go; the border never does. Returns how many cells were removed.
    */
-  carve(cx: number, cy: number, r: number, probability = 100, maxDurability = Infinity) {
+  /** keepLiquid: hole_destroy_liquid=0 blasts (Lightning Bolt) leave liquids where they are. */
+  carve(cx: number, cy: number, r: number, probability = 100, maxDurability = Infinity, keepLiquid = false) {
     let n = 0;
     for (let y = Math.max(0, Math.floor(cy - r)); y <= Math.min(this.h - 1, Math.ceil(cy + r)); y++) {
       for (let x = Math.max(0, Math.floor(cx - r)); x <= Math.min(this.w - 1, Math.ceil(cx + r)); x++) {
         if ((x - cx) ** 2 + (y - cy) ** 2 > r * r) continue;
         const i = y * this.w + x;
         const m = this.mats[this.mat[i]!]!;
-        if (!this.mat[i] || m.hard || m.durability > maxDurability) continue;
+        if (!this.mat[i] || m.hard || m.durability > maxDurability || (keepLiquid && m.kind === K_LIQUID)) continue;
         if (probability < 100 && Math.random() * 100 >= probability) continue;
         this.put(i, 0);
         n++;

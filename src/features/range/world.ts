@@ -191,6 +191,20 @@ export type Effect = {
   gy?: number;
 };
 type SpriteEmitState = { e: SpriteEmitter; next: number };
+
+/**
+ * A body of conductive material (a pool, a steel wall) that electricity reached. The wiki: "Most Electricity damage
+ * sources are capable of conducting electric current through any liquids and metals, potentially causing additional
+ * damage to anything in contact with them." Exact engine numbers aren't published, so it pulses the hit's electric
+ * damage a few times (ElectricitySourceComponent's default 15-frame interval) and stuns like effect_electricity.
+ */
+type Shock = { cells: Int32Array; mask: Uint8Array; age: number; damage: number };
+/** Pulses at 0, 15 and 30 frames. */
+const SHOCK_LIFE = 45;
+const SHOCK_EVERY = 15;
+/** Biggest body a shock floods, and how many can be live (each keeps a cell mask). */
+const SHOCK_MAX_CELLS = 12000;
+const MAX_SHOCKS = 6;
 export type Floater = { x: number; y: number; text: string; age: number; crit: boolean; self: boolean };
 /** A fading line (luminous drill beams, chain-bolt hops). */
 export type Segment = { x0: number; y0: number; x1: number; y1: number; age: number; life: number; color: string; width: number };
@@ -251,6 +265,8 @@ export class RangeWorld {
   floaters: Floater[] = [];
   segments: Segment[] = [];
   bolts: Bolt[] = [];
+  /** Electrified pools and metal (lightning that reached conductive material). */
+  shocks: Shock[] = [];
   beams: Beam[] = [];
   /** Camera shake strength (explosions, heavy casts); decays every frame. */
   shake = 0;
@@ -417,9 +433,9 @@ export class RangeWorld {
   }
 
   /** Remove terrain in a circle, up to a material durability (digging spells, explosions, beams). */
-  carve(cx: number, cy: number, r: number, probability = 100, maxDurability = Infinity) {
+  carve(cx: number, cy: number, r: number, probability = 100, maxDurability = Infinity, keepLiquid = false) {
     if (r <= 0) return;
-    const removed = this.cells.carve(cx, cy, r, probability, maxDurability);
+    const removed = this.cells.carve(cx, cy, r, probability, maxDurability, keepLiquid);
     for (let i = 0; i < removed * 0.08; i++) this.spark(cx + rand(-r, r), cy + rand(-r, r), '#6b5d52', false, 30);
     if (removed) this.terrainVersion++;
   }
@@ -870,6 +886,7 @@ export class RangeWorld {
       if (b.age < b.life) b.shape = crackle(b.x0, b.y0, b.x1, b.y1, b);
     }
     this.bolts = this.bolts.filter((b) => b.age < b.life);
+    this.updateShocks();
     for (const f of this.floaters) {
       f.age++;
       f.y -= 0.35;
@@ -1306,8 +1323,9 @@ export class RangeWorld {
       this.flashes.push({ x, y, r: Math.max(3, r), age: 0, life: 14, color: c });
       for (let i = 0; i < Math.min(60, 4 + r * 1.5); i++) this.spark(x, y, i % 3 ? c : '#fff1c2', true, randInt(8, 28), 60 + r * 4);
     }
-    // max_durability_to_destroy against each cell's material; liquids are blown away regardless.
-    if (digDurability >= 0) this.carve(x, y, r, 100, digDurability);
+    // max_durability_to_destroy against each cell's material; liquids are blown away unless the blast says
+    // hole_destroy_liquid="0" (Lightning Bolt: the water stays, and carries the current).
+    if (digDurability >= 0) this.carve(x, y, r, 100, digDurability, !!vis?.keepLiquid);
     // create_cell_material: the blast leaves fire, smoke, slime... in the hole.
     if (vis?.cell) {
       const m = this.cells.index(vis.cell.material);
@@ -1456,9 +1474,12 @@ export class RangeWorld {
     let ex = p.x + Math.cos(a) * range;
     let ey = p.y + Math.sin(a) * range;
     let struck: Actor | null = null;
+    // The first conductive cell it passes through (a pool's surface): that body gets electrified.
+    let wet: { x: number; y: number } | null = null;
     for (let d = 2; d <= range; d += 2) {
       const x = p.x + Math.cos(a) * d;
       const y = p.y + Math.sin(a) * d;
+      if (!wet && this.conductiveAt(x, y)) wet = { x, y };
       const hitActor = this.actors.find((act) => act.id === 'dummy' && this.inActor(act, x, y));
       if (this.cell(x, y) !== AIR || hitActor) {
         ex = x;
@@ -1478,7 +1499,120 @@ export class RangeWorld {
     if (struck) this.hurt(struck, p.hit, p.critChance);
     // The blast with the shot's modifiers applied (damage_explosion_add, explosion_radius), from the projectile stats.
     const radius = p.explosion?.radius ?? l.radius;
-    this.explode(ex, ey, radius, p.explosion?.damage ?? l.damage, radius > 0 ? (p.visual?.explosion?.maxDurability ?? 12) : -1, p.critChance, l.color, true, p.visual?.explosion);
+    // explosion_dont_damage_shooter is 0 for Lightning Bolt: fired at your feet, its blast hurts you too (wiki).
+    this.explode(ex, ey, radius, p.explosion?.damage ?? l.damage, radius > 0 ? (p.visual?.explosion?.maxDurability ?? 12) : -1, p.critChance, l.color, p.spareShooter, p.visual?.explosion);
+    // Water, blood, steel... carry it on to anything touching them. Conductive material within the blast catches
+    // it too: the strike arcs over to the nearest of it.
+    const at = wet ?? this.nearConductive(ex, ey, Math.max(3, radius));
+    if (at) {
+      if (!wet && Math.hypot(at.x - ex, at.y - ey) > 3) this.bolt(ex, ey, at.x, at.y, { amp: 4, forks: 0, heavy: false, life: 6 });
+      this.electrify(at.x, at.y, p.hit);
+    }
+  }
+
+  /** Does this cell carry electricity (most liquids, metals)? */
+  conductiveAt(x: number, y: number) {
+    const m = this.cells.at(x, y);
+    return m > 0 && !!this.cells.mats[m]!.conductive;
+  }
+
+  /** The nearest conductive cell within r of a point, if any. */
+  private nearConductive(x: number, y: number, r: number) {
+    let best: { x: number; y: number } | null = null;
+    let bestD = r * r + 1;
+    const R = Math.ceil(r);
+    for (let dy = -R; dy <= R; dy++) {
+      for (let dx = -R; dx <= R; dx++) {
+        const d = dx * dx + dy * dy;
+        if (d < bestD && this.conductiveAt(x + dx, y + dy)) {
+          bestD = d;
+          best = { x: x + dx, y: y + dy };
+        }
+      }
+    }
+    return best;
+  }
+
+  /** Electrify the connected body of conductive cells at (x, y): it pulses `damage` into everything touching it. */
+  electrify(x: number, y: number, damage: number) {
+    if (damage <= 0) return;
+    const { w, h } = this.cells;
+    const sx = Math.floor(x);
+    const sy = Math.floor(y);
+    if (!this.conductiveAt(sx, sy)) return;
+    // A body already crackling just gets topped up.
+    const start = sy * w + sx;
+    const live = this.shocks.find((s) => s.mask[start]);
+    if (live) {
+      live.age = 0;
+      live.damage = Math.max(live.damage, damage);
+      return;
+    }
+    const mask = new Uint8Array(w * h);
+    const cells: number[] = [start];
+    mask[start] = 1;
+    for (let k = 0; k < cells.length && cells.length < SHOCK_MAX_CELLS; k++) {
+      const i = cells[k]!;
+      const cx = i % w;
+      const cy = (i - cx) / w;
+      for (const [nx, ny] of [
+        [cx + 1, cy],
+        [cx - 1, cy],
+        [cx, cy + 1],
+        [cx, cy - 1],
+      ] as const) {
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const j = ny * w + nx;
+        if (mask[j] || !this.conductiveAt(nx, ny)) continue;
+        mask[j] = 1;
+        cells.push(j);
+      }
+    }
+    if (this.shocks.length >= MAX_SHOCKS) this.shocks.shift();
+    this.shocks.push({ cells: Int32Array.from(cells), mask, age: 0, damage });
+  }
+
+  /** Electrified bodies: pulse damage and the electrocution stun into whatever touches them, and crackle. */
+  private updateShocks() {
+    if (!this.shocks.length) return;
+    const w = this.cells.w;
+    const stun = Object.values(this.data.kit?.effects ?? {}).find((f) => f.effect === 'ELECTROCUTION')?.frames ?? 40;
+    for (const s of this.shocks) {
+      if (s.age % SHOCK_EVERY === 0) {
+        for (const a of this.actors) {
+          const b = this.actorBox(a, 1);
+          let touching = false;
+          for (let y = Math.max(0, Math.floor(b.t)); y <= Math.floor(b.b) && !touching; y++) {
+            for (let x = Math.max(0, Math.floor(b.l)); x <= Math.floor(b.r); x++) {
+              if (x < w && s.mask[y * w + x]) {
+                touching = true;
+                break;
+              }
+            }
+          }
+          if (!touching) continue;
+          this.tick(a, s.damage);
+          a.status.set('ELECTROCUTION', Math.max(a.status.get('ELECTROCUTION') ?? 0, stun));
+        }
+      }
+      // Crackles over the body: sparks, and short arcs between nearby cells.
+      const n = s.cells.length;
+      for (let i = 0; i < Math.min(30, 4 + n / 40); i++) {
+        const c = s.cells[randInt(0, n - 1)]!;
+        this.spark(c % w, Math.floor(c / w), LIGHTNING.sparks[i % 3]!, true, randInt(4, 10), 25);
+      }
+      if (s.age % 2 === 0) {
+        const c0 = s.cells[randInt(0, n - 1)]!;
+        const x0 = c0 % w;
+        const y0 = Math.floor(c0 / w);
+        const c1 = s.cells[randInt(0, n - 1)]!;
+        const x1 = c1 % w;
+        const y1 = Math.floor(c1 / w);
+        if (Math.hypot(x1 - x0, y1 - y0) < 40) this.bolt(x0, y0, x1, y1, { amp: 3, forks: 0, heavy: false, life: 2 });
+      }
+      s.age++;
+    }
+    this.shocks = this.shocks.filter((s) => s.age < SHOCK_LIFE);
   }
 
   private bolt(x0: number, y0: number, x1: number, y1: number, o: { amp: number; forks: number; heavy: boolean; life: number }) {

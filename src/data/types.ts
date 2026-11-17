@@ -233,6 +233,8 @@ export type ExplosionVisual = {
   rayEnergy: number;
   maxDurability: number;
   hole: boolean;
+  /** hole_destroy_liquid="0": the blast leaves liquids alone (Lightning Bolt, physics bombs). */
+  keepLiquid?: boolean;
 };
 
 /** How the test range draws and moves an entity (spell projectile or modifier effect), keyed by entity file. */

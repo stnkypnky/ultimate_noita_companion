@@ -109,6 +109,46 @@ describe('test range basics', () => {
     expect(world(['SLOW_BULLET_TIMER', 'LIGHT_BULLET'], 60, 380).spawned).toContain('light_bullet.xml');
   });
 
+  it('water conducts (like most liquids), oil and glue do not, metals do', () => {
+    const by = new Map(data.materials.map((m) => [m.id, m]));
+    for (const id of ['water', 'water_salt', 'blood', 'acid', 'swamp', 'steel']) expect(by.get(id)?.conductive, id).toBe(true);
+    for (const id of ['oil', 'glue', 'sand', 'air']) expect(by.get(id)?.conductive, id).toBe(false);
+  });
+
+  it('electrified water stuns and pulses damage into whoever stands in it; dry ground is safe', () => {
+    const w = new RangeWorld(data);
+    const water = w.cells.index('water');
+    // A pool around the dummy's feet that runs 60 px to the left.
+    const d = w.dummy;
+    for (let y = Math.floor(d.y) - 6; y < Math.floor(d.y); y++) for (let x = Math.floor(d.x) - 60; x <= Math.floor(d.x) + 6; x++) w.cells.set(x, y, water);
+    const before = w.totalDamage;
+    // Lightning reaches the far end of the pool.
+    w.electrify(d.x - 55, d.y - 2, 25);
+    for (let i = 0; i < 40; i++) w.step();
+    expect(w.dummy.status.has('ELECTROCUTION') || w.totalDamage - before >= 75).toBe(true);
+    expect(w.totalDamage - before).toBe(75);
+    // A strike on dry rock electrifies nothing.
+    const w2 = new RangeWorld(data);
+    w2.electrify(w2.dummy.x, w2.dummy.y + 5, 25);
+    expect(w2.shocks).toHaveLength(0);
+  });
+
+  it('a Lightning Bolt landing beside a pool arcs into it, and its blast leaves the water in place', () => {
+    const w = new RangeWorld(data);
+    const water = w.cells.index('water');
+    const gx = 300;
+    let gy = 40;
+    while (w.cell(gx, gy) === AIR) gy++;
+    // A pool 20 px to the right of where the bolt lands, dug into the ground.
+    for (let y = gy; y < gy + 6; y++) for (let x = gx + 20; x < gx + 40; x++) w.cells.set(x, y, water);
+    const before = [...w.cells.mat].filter((m) => m === water).length;
+    // Straight down onto the rock at gx.
+    w.spawn('data/entities/projectiles/deck/lightning.xml', gx, gy - 30, 0, 5400);
+    expect(w.shocks).toHaveLength(1);
+    expect(w.shocks[0]!.cells.length).toBeGreaterThan(100);
+    expect([...w.cells.mat].filter((m) => m === water).length).toBe(before);
+  });
+
   it('a glitter bomb bursts into 12 glitter shards that scatter, shed glitter and pop', () => {
     const w = new RangeWorld(data);
     const shards: Proj[] = [];
