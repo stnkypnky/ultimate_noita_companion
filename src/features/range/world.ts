@@ -5,7 +5,7 @@
 // lifetime, homing, sine waves, lasers, area damage, lightning) and ports the game's Lua for path modifiers,
 // bounce effects, orbits, the giga disc, chain bolt and teleports. Approximated: the engine's C++ internals
 // (exact homing maths, friction integration, Box2D physics for thrown bombs, arc damage) and falling-sand materials.
-import type { EntityVisual, ExplosionVisual, Material, Projectile, RangeKit, Reaction, WandSprite } from '@/data/types';
+import type { EntityVisual, ExplosionVisual, Material, Projectile, RangeKit, Reaction, SpriteEmitter, WandSprite } from '@/data/types';
 import { Cells, K_LIQUID, K_POWDER, K_STATIC } from './cells';
 import { emitterStates, layerFrames, runEmitters, simpleParticle, stepParticles, type EmitterState, type Particle } from './particles';
 import { CRIT_MULT, projectileDamage } from '@/sim/analyze';
@@ -37,6 +37,8 @@ const DT = 1 / 60;
 const MAX_PROJECTILES = 700;
 const MAX_PARTICLES = 6000;
 const MAX_EFFECTS = 200;
+/** Animated sprite particles (glitter clouds, sparkles) have their own budget, so they never crowd out blasts. */
+const MAX_SPRITE_PARTICLES = 320;
 const GRAVITY = 400;
 
 export const AIR = 0;
@@ -146,6 +148,8 @@ export type Proj = {
   trail?: { material: string; amount: number };
   /** The projectile's own particle emitters and those of its modifiers. */
   emit: EmitterState[];
+  /** Animated sprite particles it sheds (SpriteParticleEmitterComponent). */
+  spriteEmit: SpriteEmitState[];
   light?: { color: string; radius: number };
   scripts: Script[];
   vars: Record<string, number>;
@@ -171,7 +175,22 @@ export type { Particle };
 /** A burst of light (explosions, muzzle flashes) that fades over `life` frames. */
 export type Flash = { x: number; y: number; r: number; age: number; life: number; color: string };
 /** A short-lived entity with no physics: muzzle flashes, explosion sprites, blast leftovers. */
-export type Effect = { x: number; y: number; rot: number; vis: EntityVisual; age: number; life: number; emit: EmitterState[]; flip: number };
+/** Moving effects (sprite particles) drift with their own velocity and gravity. */
+export type Effect = {
+  x: number;
+  y: number;
+  rot: number;
+  vis: EntityVisual;
+  age: number;
+  life: number;
+  emit: EmitterState[];
+  flip: number;
+  vx?: number;
+  vy?: number;
+  gx?: number;
+  gy?: number;
+};
+type SpriteEmitState = { e: SpriteEmitter; next: number };
 export type Floater = { x: number; y: number; text: string; age: number; crit: boolean; self: boolean };
 /** A fading line (luminous drill beams, chain-bolt hops). */
 export type Segment = { x0: number; y0: number; x1: number; y1: number; age: number; life: number; color: string; width: number };
@@ -227,6 +246,8 @@ export class RangeWorld {
   particles: Particle[] = [];
   flashes: Flash[] = [];
   effects: Effect[] = [];
+  /** Sprite particles: drawn like effects, but drift and have their own budget. */
+  spriteParticles: Effect[] = [];
   floaters: Floater[] = [];
   segments: Segment[] = [];
   bolts: Bolt[] = [];
@@ -774,6 +795,7 @@ export class RangeWorld {
       trails: trailMat ? [trailMat] : [],
       ...(trailId ? { trail: { material: trailId, amount: num(s, 'trail_material_amount') } } : {}),
       emit: all.flatMap((v) => emitterStates(v)),
+      spriteEmit: all.flatMap((v) => (v.spriteEmitters ?? []).map((e) => ({ e, next: 0 }))),
       light: all.find((v) => v.light && v.light.radius > 0)?.light,
       scripts: all.flatMap((v) => (v.scripts ?? []).map((sc) => ({ ...sc, runs: 0, from: v }))),
       vars: {},
@@ -783,6 +805,21 @@ export class RangeWorld {
       dead: false,
     };
     if (p.arc) this.lastArc = p;
+    // SetStartVelocityComponent: its own velocity plus a random direction and speed (Glitter bomb shards scatter).
+    if (vis?.startVelocity) {
+      const sv = vis.startVelocity;
+      const a = rand(sv.angle[0], sv.angle[1]);
+      const sp = rand(sv.speed[0], sv.speed[1]);
+      p.vx = sv.velocity[0] + Math.cos(a) * sp;
+      p.vy = sv.velocity[1] + Math.sin(a) * sp;
+      p.rot = Math.atan2(p.vy, p.vx);
+    }
+    // LoadEntitiesComponent: what it makes as it appears (Glitter bomb's blast makes its 12 shards).
+    if (vis?.loads) {
+      this.loadEntities(vis, x, y);
+      // A bare spawner (nothing to draw, move or run) has done its job.
+      if (vis.inert && !vis.sprites && !vis.emitters && !vis.spriteEmitters && !vis.scripts) return null;
+    }
     // Entities with no projectile or velocity (Matosade's spawner) sit where they're made for their lifetime.
     if (vis?.inert) {
       p.vx = p.vy = 0;
@@ -916,6 +953,7 @@ export class RangeWorld {
 
     // Particle emitters of the projectile and its modifiers, and material trails from trail modifiers.
     runEmitters(p.emit, p.age, p.x, p.y, p.px, p.py, p.rot, this.addParticle);
+    this.runSpriteEmitters(p.spriteEmit, p.age, p.x, p.y);
     // Trail modifiers lay real material along the path (trail_material_amount, taken as cells per 10 frames).
     if (p.trail) {
       const m = this.cells.index(p.trail.material);
@@ -930,13 +968,64 @@ export class RangeWorld {
     }
   }
 
-  /** Effects: play their sprite, run their emitters, then go. */
+  /** Effects: play their sprite, run their emitters, drift if they move (sprite particles), then go. */
   private updateEffects() {
-    for (const fx of this.effects) {
+    for (const fx of [...this.effects, ...this.spriteParticles]) {
       fx.age++;
+      if (fx.vx !== undefined) {
+        fx.vx += (fx.gx ?? 0) * DT;
+        fx.vy = (fx.vy ?? 0) + (fx.gy ?? 0) * DT;
+        fx.x += fx.vx * DT;
+        fx.y += fx.vy * DT;
+      }
       runEmitters(fx.emit, fx.age, fx.x, fx.y, fx.x, fx.y, fx.rot, this.addParticle);
     }
     this.effects = this.effects.filter((fx) => fx.age < fx.life);
+    this.spriteParticles = this.spriteParticles.filter((fx) => fx.age < fx.life);
+  }
+
+  /**
+   * SpriteParticleEmitterComponent: every few frames, 0–1 (count_min..count_max) animated sprites at a random
+   * offset with a random velocity. They live for lifetime + randomize_lifetime, or play their animation once.
+   */
+  private runSpriteEmitters(states: SpriteEmitState[], age: number, x: number, y: number) {
+    for (const st of states) {
+      if (age < st.next) continue;
+      const e = st.e;
+      st.next = age + Math.max(1, randInt(e.intervalMin, e.intervalMax));
+      const n = randInt(e.countMin, e.countMax);
+      for (let i = 0; i < n && this.spriteParticles.length < MAX_SPRITE_PARTICLES; i++) {
+        const secs = rand(e.lifetime[0], e.lifetime[1]);
+        const life = secs > 0 ? Math.round(secs * 60) : e.sprite.loop ? 30 : layerFrames(e.sprite);
+        this.spriteParticles.push({
+          x: x + rand(e.posMin[0], e.posMax[0]),
+          y: y + rand(e.posMin[1], e.posMax[1]),
+          rot: e.randomRotation ? randInt(0, 3) * (Math.PI / 2) : 0,
+          vis: { sprites: [e.sprite] },
+          age: 0,
+          life: Math.max(1, life),
+          emit: [],
+          flip: 1,
+          vx: e.velocity[0] + rand(e.velMin[0], e.velMax[0]),
+          vy: e.velocity[1] + rand(e.velMin[1], e.velMax[1]),
+          gx: e.gravity[0],
+          gy: e.gravity[1],
+        });
+      }
+    }
+  }
+
+  /**
+   * LoadEntitiesComponent: real projectiles (with a ProjectileComponent, like Glitter bomb's shards) are spawned
+   * and scatter by their own start velocity. Cosmetic blast debris (smoke and spark trails) is left out: it would
+   * pour real fire and smoke into every explosion, which the range doesn't model yet.
+   */
+  private loadEntities(vis: EntityVisual, x: number, y: number) {
+    for (const l of vis.loads ?? []) {
+      if (!this.data.visuals[l.file]?.physics) continue;
+      const n = randInt(l.min, l.max);
+      for (let i = 0; i < n; i++) this.spawn(l.file, x, y, 0, 0);
+    }
   }
 
   /**
@@ -1208,7 +1297,9 @@ export class RangeWorld {
       if (vis.light) this.flashes.push({ x, y, r: Math.max(6, r * 1.6), age: 0, life: Math.max(8, Math.round(vis.light.fadeTime * 60)), color: vis.light.color });
       this.shake = Math.min(6, this.shake + vis.cameraShake / 12);
       for (const f of vis.entities) {
-        if (this.data.projectiles[f]) this.spawn(f, x, y, 0, 0);
+        // A spawner entity (Glitter bomb's blast) just makes what it loads.
+        if (this.data.visuals[f]?.loads) this.spawn(f, x, y, 0, 0);
+        else if (this.data.projectiles[f]) this.spawn(f, x, y, 0, 0);
         else this.addEffect(f, x, y);
       }
     } else {

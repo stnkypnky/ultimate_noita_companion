@@ -199,6 +199,26 @@ export type Emitter = {
   friction: number;
 };
 
+/** SpriteParticleEmitterComponent: animated sprite particles an entity sheds (glitter clouds, sparkles). */
+export type SpriteEmitter = {
+  sprite: SpriteLayer;
+  /** Frames between emissions, and how many each time (count_min defaults to 0 in the engine). */
+  intervalMin: number;
+  intervalMax: number;
+  countMin: number;
+  countMax: number;
+  /** Seconds: lifetime + randomize_lifetime. 0 means the sprite's own play-through. */
+  lifetime: [number, number];
+  velocity: [number, number];
+  velMin: [number, number];
+  velMax: [number, number];
+  posMin: [number, number];
+  posMax: [number, number];
+  gravity: [number, number];
+  /** sprite_random_rotation: turned a random multiple of 90°. */
+  randomRotation: boolean;
+};
+
 /** config_explosion: how a projectile's explosion looks and what it leaves. */
 export type ExplosionVisual = {
   sprite?: SpriteLayer;
@@ -224,6 +244,11 @@ export type EntityVisual = {
   /** No ProjectileComponent or VelocityComponent: it stays where it's made, for its LifetimeComponent. */
   inert?: boolean;
   emitters?: Emitter[];
+  spriteEmitters?: SpriteEmitter[];
+  /** LoadEntitiesComponent: entities made when this one appears (Glitter bomb's blast makes 12 shards). */
+  loads?: { file: string; min: number; max: number }[];
+  /** SetStartVelocityComponent: velocity + a random direction and speed, set when it appears. */
+  startVelocity?: { velocity: [number, number]; speed: [number, number]; angle: [number, number] };
   explosion?: ExplosionVisual;
   /** Muzzle flash entity shown at the wand tip when cast, and the flash of light. */
   muzzle?: string;

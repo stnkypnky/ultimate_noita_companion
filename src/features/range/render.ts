@@ -454,6 +454,9 @@ export class RangeRenderer {
 
     // effects: muzzle flashes, explosion sprites, blast leftovers
     for (const fx of w.effects) for (const l of fx.vis.sprites ?? []) this.layer(l, fx.age, fx.x, fx.y, fx.rot, fx.flip, 1);
+    // Sprite particles (glitter clouds, sparkles) on whole game pixels. Only emissive ones glow: the glitter
+    // cloud is additive but not emissive, so it tints the scene without blooming.
+    for (const fx of w.spriteParticles) for (const l of fx.vis.sprites ?? []) this.layer(l, fx.age, Math.round(fx.x), Math.round(fx.y), fx.rot, 1, 1, l.emissive);
 
     // light from explosions and casts
     for (const f of w.flashes) {
@@ -530,7 +533,8 @@ export class RangeRenderer {
    * One sprite layer of an entity `age` frames old: rotated, mirrored vertically when `flip` < 0 (aimed left),
    * stretched along x for streaks. Additive layers add light; additive and emissive ones also bloom.
    */
-  private layer(l: SpriteLayer, age: number, x: number, y: number, rot: number, flip: number, stretch: number) {
+  /** `bloom` overrides whether it feeds the glow layer (by default: additive or emissive sprites do). */
+  private layer(l: SpriteLayer, age: number, x: number, y: number, rot: number, flip: number, stretch: number, bloom?: boolean) {
     const f = layerFrame(l, age);
     if (!f?.w) return;
     const draw = (c: CanvasRenderingContext2D) => {
@@ -544,7 +548,7 @@ export class RangeRenderer {
       c.restore();
     };
     draw(this.ctx);
-    if (!this.lite && (l.additive || l.emissive)) draw(this.glowCtx);
+    if (!this.lite && (bloom ?? (l.additive || l.emissive))) draw(this.glowCtx);
   }
 
   /** Mina: the animation frame for what she's doing, mirrored to face the aim, with arm and wand rotated to it. */

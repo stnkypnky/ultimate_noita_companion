@@ -109,6 +109,37 @@ describe('test range basics', () => {
     expect(world(['SLOW_BULLET_TIMER', 'LIGHT_BULLET'], 60, 380).spawned).toContain('light_bullet.xml');
   });
 
+  it('a glitter bomb bursts into 12 glitter shards that scatter, shed glitter and pop', () => {
+    const w = new RangeWorld(data);
+    const shards: Proj[] = [];
+    const spawn = w.spawn.bind(w);
+    w.spawn = (...args) => {
+      const p = spawn(...args);
+      if (p && args[0].endsWith('glitter_bomb_shrapnel.xml')) shards.push(p);
+      return p;
+    };
+    w.spawn('data/entities/projectiles/deck/glitter_bomb.xml', 200, 60, 0, 0);
+    // Its 50-frame fuse runs out in mid-air.
+    for (let i = 0; i < 52 && !shards.length; i++) w.step();
+    expect(shards).toHaveLength(12);
+    // SetStartVelocityComponent: 80–120 in any direction (they've moved one frame since).
+    const speeds = shards.map((s) => Math.hypot(s.vx, s.vy));
+    expect(Math.min(...speeds)).toBeGreaterThan(50);
+    expect(Math.max(...speeds)).toBeLessThan(125);
+    const angles = new Set(shards.map((s) => Math.round(((Math.atan2(s.vy, s.vx) + Math.PI) / (2 * Math.PI)) * 4) % 4));
+    expect(angles.size).toBeGreaterThan(1);
+    // They shed glitter clouds and sparkles as they fly…
+    let most = 0;
+    for (let i = 0; i < 60; i++) {
+      w.step();
+      most = Math.max(most, w.spriteParticles.length);
+    }
+    expect(most).toBeGreaterThan(10);
+    // …and each pops within its 200-frame life.
+    for (let i = 0; i < 160; i++) w.step();
+    expect(shards.every((s) => s.dead)).toBe(true);
+  });
+
   it("a trigger's payload bounces off the wall it hit", () => {
     const w = new RangeWorld(data);
     const payloads: { vy: number; p: ReturnType<RangeWorld['spawn']> }[] = [];

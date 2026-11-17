@@ -19,7 +19,7 @@ function effectTypes(el: El | undefined): string[] {
   return (el?.children ?? []).filter((c) => c.tag === 'StatusEffect').map((c) => c.attrs.type ?? '').filter(Boolean);
 }
 
-export function buildMaterials(xml: string, t: Translations): { materials: Material[]; reactions: Reaction[]; textures: Map<string, string> } {
+export function buildMaterials(xml: string, t: Translations): { materials: Material[]; reactions: Reaction[]; textures: Map<string, string>; wang: Map<string, string> } {
   const root = parseXml(xml).find((e) => e.tag === 'Materials');
   if (!root) throw new Error('materials.xml: no <Materials>');
 
@@ -35,7 +35,11 @@ export function buildMaterials(xml: string, t: Translations): { materials: Mater
       if (parent) {
         const pg = comp(parent, 'Graphics');
         const g = comp(el, 'Graphics');
-        const graphics = pg || g ? { tag: 'Graphics', attrs: { ...pg?.attrs, ...g?.attrs }, children: g?.children ?? pg?.children ?? [] } : undefined;
+        // A child that gives its own colour but no texture is that colour: gold_box2d and the coloured gems are
+        // children of gem_box2d (blue crystal.png) yet gold/pink/red in-game; sodium is not white like its parent salt.
+        const pAttrs = g?.attrs.color && !g.attrs.texture_file ? { ...pg?.attrs, texture_file: undefined } : pg?.attrs;
+        const attrs = Object.fromEntries(Object.entries({ ...pAttrs, ...g?.attrs }).filter(([, v]) => v !== undefined)) as Record<string, string>;
+        const graphics = pg || g ? { tag: 'Graphics', attrs, children: g?.children ?? pg?.children ?? [] } : undefined;
         resolved = {
           tag: 'CellData',
           attrs: { ...parent.attrs, ...el.attrs },
@@ -51,6 +55,8 @@ export function buildMaterials(xml: string, t: Translations): { materials: Mater
   }
 
   const textures = new Map<string, string>();
+  /** wang_color (rrggbb) -> material: physics images use these key colours to say which material each pixel is. */
+  const wang = new Map<string, string>();
   const materials: Material[] = [];
   for (const [id, el] of raw) {
     const a = el.attrs;
@@ -62,6 +68,7 @@ export function buildMaterials(xml: string, t: Translations): { materials: Mater
       cellType === 'gas' ? 'gas' : cellType === 'fire' ? 'fire' : cellType === 'solid' || liquidStatic ? 'solid' : liquidSand ? 'powder' : 'liquid';
     const tex = g?.attrs.texture_file;
     if (tex) textures.set(id, tex);
+    if (a.wang_color && !wang.has(a.wang_color.slice(-6).toLowerCase())) wang.set(a.wang_color.slice(-6).toLowerCase(), id);
     const effects = comp(el, 'StatusEffects');
     materials.push({
       id,
@@ -112,5 +119,5 @@ export function buildMaterials(xml: string, t: Translations): { materials: Mater
     });
   }
 
-  return { materials, reactions, textures };
+  return { materials, reactions, textures, wang };
 }

@@ -95,7 +95,7 @@ const items: Item[] = itemData.items.map(({ iconKey, ...it }) => ({ ...it, icon:
 console.log(`items: ${items.length}`);
 
 // ---------- Materials ----------
-const { materials, reactions, textures } = buildMaterials(wak.text('data/materials.xml'), t);
+const { materials, reactions, textures, wang } = buildMaterials(wak.text('data/materials.xml'), t);
 await mkdir(join(OUT, 'materials'), { recursive: true });
 for (const [id, tex] of textures) {
   if (wak.has(tex)) await writeFile(join(OUT, 'materials', `${id}.png`), wak.bytes(tex));
@@ -105,7 +105,9 @@ console.log(`materials: ${materials.length}, reactions: ${reactions.length}, tex
 // ---------- Test range: projectile/effect visuals, dummy & player sprites ----------
 const materialLook = new Map(materials.map((m) => [m.id, { color: m.color, glow: m.cellType === 'fire', texture: textures.get(m.id) }]));
 const visualFiles = [...new Set([...spells.flatMap((s) => s.projectiles), ...spells.flatMap((s) => [...s.extraEntities, ...String(s.stats.extra_entities ?? '').split(',')])].filter(Boolean))];
-const vis = await collectVisuals(visualFiles, wak, loader, materialLook);
+// Physics images mark each pixel's material with its wang_color.
+const wangLook = new Map([...wang].flatMap(([rgb, id]) => (materialLook.has(id) ? [[rgb, materialLook.get(id)!] as const] : [])));
+const vis = await collectVisuals(visualFiles, wak, loader, materialLook, wangLook);
 // Entities spells spawn indirectly (bounce effects, orbiting projectiles, chain-bolt hops) need projectile data too.
 for (const f of vis.entities) {
   if (projectiles[f]) continue;
@@ -116,10 +118,11 @@ const projAtlas = await buildPackedAtlas(vis.images, 1024);
 const layer = (l: LayerOut): SpriteLayer => ({ ...l, frames: l.frames.map((k) => projAtlas.rects.get(k)!) });
 const visuals: Record<string, EntityVisual> = {};
 for (const [file, v] of Object.entries(vis.visuals)) {
-  const { sprites, explosion, ...rest } = v;
+  const { sprites, explosion, spriteEmitters, ...rest } = v;
   visuals[file] = {
     ...rest,
     ...(sprites ? { sprites: sprites.map(layer) } : {}),
+    ...(spriteEmitters ? { spriteEmitters: spriteEmitters.map((s) => ({ ...s, sprite: layer(s.sprite) })) } : {}),
     ...(explosion ? { explosion: { ...explosion, sprite: explosion.sprite && layer(explosion.sprite) } } : {}),
   };
 }

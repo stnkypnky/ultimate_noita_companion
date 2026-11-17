@@ -22,9 +22,14 @@ function toEl(raw: Raw): El | null {
   return { tag, attrs: { ...(raw[':@'] ?? {}) }, children: kids.map(toEl).filter((e): e is El => e !== null) };
 }
 
-/** Parses an XML document and returns its root elements. Noita XML is loose, so wrap it. */
+/**
+ * Parses an XML document and returns its root elements. Noita XML is loose, so wrap it. Comments go first:
+ * the game allows them even inside a tag's attributes (glitter_bomb.xml's config_explosion has one), where
+ * the parser would otherwise drop every attribute after it.
+ */
 export function parseXml(text: string): El[] {
-  const raw = parser.parse(`<__root>${text.replace(/<\?xml[^>]*\?>/, '')}</__root>`) as Raw[];
+  const clean = text.replace(/<\?xml[^>]*\?>/, '').replace(/<!--[\s\S]*?-->/g, '');
+  const raw = parser.parse(`<__root>${clean}</__root>`) as Raw[];
   const root = raw.map(toEl).find((e) => e?.tag === '__root');
   return root?.children ?? [];
 }

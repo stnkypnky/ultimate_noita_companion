@@ -1,7 +1,7 @@
 // What the test range needs to draw and move projectiles and modifier effects, read from their entity XML.
 import { basename } from 'node:path';
 import sharp from 'sharp';
-import type { Emitter, EntityVisual, ExplosionVisual, SpriteLayer } from '../../src/data/types.ts';
+import type { Emitter, EntityVisual, ExplosionVisual, SpriteEmitter, SpriteLayer } from '../../src/data/types.ts';
 import { comp, comps, num, parseXml, type El, type EntityLoader } from './entity.ts';
 import type { Wak } from './wak.ts';
 import { EXPLOSION_DAMAGE_DEFAULT } from './spells.ts';
@@ -19,6 +19,7 @@ export type MaterialLook = { color: string; glow?: boolean; texture?: string };
 /** A sprite layer whose frames are keys into the atlas images collected alongside. */
 export type LayerOut = Omit<SpriteLayer, 'frames'> & { frames: string[] };
 export type ExplosionOut = Omit<ExplosionVisual, 'sprite'> & { sprite?: LayerOut };
+export type SpriteEmitterOut = Omit<SpriteEmitter, 'sprite'> & { sprite: LayerOut };
 
 /** Files named like `muzzle_0$[1-5].png` are picked at random by the game; use the first. */
 const variant = (f: string) => f.replace(/\$\[(\d+)-\d+\]/g, '$1');
@@ -226,29 +227,40 @@ export async function spriteFrame(wak: Wak, sc: El): Promise<SpriteFrame | null>
 }
 
 /**
- * Physics bodies (bombs) are drawn by the game as their material poured into a shape mask.
- * The mask image's colours are just a shape key, so paint the material's texture (or colour) into it.
+ * Physics bodies (bombs, dynamite) are made of material in the image's shape. The image is one of two kinds:
+ * - a UV map (every pixel's blue is 0; red/green are texture coordinates), like items_gfx/bomb.png or the gold
+ *   nuggets: the body shows its material, a texture when it has one (gold) or its colour (the Bomb's fuse, #586679);
+ * - drawn art, like tnt.png (red, though fuse_tnt is #304055) or glitter_bomb.png (the pink flask): its own colours,
+ *   except pixels in a material's wang_color (key colour), which are that material.
  */
-async function materialShape(wak: Wak, maskFile: string, look: MaterialLook | undefined): Promise<SpriteFrame | null> {
+async function materialShape(wak: Wak, maskFile: string, look: MaterialLook | undefined, wangLook: Map<string, MaterialLook>): Promise<SpriteFrame | null> {
   if (!wak.has(maskFile)) return null;
   const { data, info } = await sharp(wak.bytes(maskFile)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  let tex: { data: Buffer; w: number; h: number } | null = null;
-  const texFile = look?.texture;
-  if (texFile && wak.has(texFile)) {
-    const t = await sharp(wak.bytes(texFile)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-    tex = { data: t.data, w: t.info.width, h: t.info.height };
-  }
-  const hex = (look?.color ?? '#606060ff').slice(1);
-  const base = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const textures = new Map<string, { data: Buffer; w: number; h: number } | null>();
+  const texture = async (file: string | undefined) => {
+    if (!file || !wak.has(file)) return null;
+    if (!textures.has(file)) {
+      const t = await sharp(wak.bytes(file)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      textures.set(file, { data: t.data, w: t.info.width, h: t.info.height });
+    }
+    return textures.get(file)!;
+  };
+  const hex = (n: number) => n.toString(16).padStart(2, '0');
+  let uvMap = true;
+  for (let i = 0; i < data.length; i += 4) if (data[i + 3] && data[i + 2]) uvMap = false;
   for (let y = 0; y < info.height; y++) {
     for (let x = 0; x < info.width; x++) {
       const i = (y * info.width + x) * 4;
       if (!data[i + 3]) continue;
-      // edge pixels slightly lighter, like the game's lit rims
-      const edge = y === 0 || !data[((y - 1) * info.width + x) * 4 + 3] ? 1.25 : 1;
-      for (let c = 0; c < 3; c++) {
-        const v = tex ? tex.data[((y % tex.h) * tex.w + (x % tex.w)) * 4 + c]! : base[c]!;
-        data[i + c] = Math.min(255, v * edge);
+      const key = uvMap ? undefined : wangLook.get(hex(data[i]!) + hex(data[i + 1]!) + hex(data[i + 2]!));
+      // Art pixels that aren't a key colour are drawn as the artist painted them.
+      const m = uvMap ? look : key;
+      if (m) {
+        const tex = await texture(m.texture);
+        // Material pixels get a lit top rim, like the game's lighting on physics bodies.
+        const edge = y === 0 || !data[((y - 1) * info.width + x) * 4 + 3] ? 1.25 : 1;
+        const rgb = [1, 3, 5].map((k) => parseInt((m.color ?? '#606060').slice(k, k + 2), 16));
+        for (let c = 0; c < 3; c++) data[i + c] = Math.min(255, (tex ? tex.data[((y % tex.h) * tex.w + (x % tex.w)) * 4 + c]! : rgb[c]!) * edge);
       }
       data[i + 3] = 255;
     }
@@ -269,8 +281,11 @@ function luaFiles(e: El): string[] {
  * Visual/behaviour data for the given entities, plus every projectile/effect entity they spawn
  * (found in their Lua scripts and orbit-type variables), so the range can spawn those too.
  */
-export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLoader, materials: Map<string, MaterialLook>) {
-  const visuals: Record<string, Omit<EntityVisual, 'sprites' | 'explosion'> & { sprites?: LayerOut[]; explosion?: ExplosionOut }> = {};
+export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLoader, materials: Map<string, MaterialLook>, wangLook = new Map<string, MaterialLook>()) {
+  const visuals: Record<
+    string,
+    Omit<EntityVisual, 'sprites' | 'explosion' | 'spriteEmitters'> & { sprites?: LayerOut[]; explosion?: ExplosionOut; spriteEmitters?: SpriteEmitterOut[] }
+  > = {};
   const images = new Map<string, Buffer>();
   const queue = [...roots];
   const seen = new Set<string>();
@@ -332,7 +347,7 @@ export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLo
     }
     const shape = comp(e, 'PhysicsImageShapeComponent');
     if (!layers.length && shape?.attrs.image_file) {
-      const f = await materialShape(wak, shape.attrs.image_file, materials.get(shape.attrs.material ?? ''));
+      const f = await materialShape(wak, shape.attrs.image_file, materials.get(shape.attrs.material ?? ''), wangLook);
       if (f) {
         images.set(`${file}|shape`, f.png);
         layers.push({ z: 0, layer: { frames: [`${file}|shape`], wait: 1, loop: true, ox: f.ox, oy: f.oy, additive: false, emissive: false, alpha: 1, scale: 1 } });
@@ -345,6 +360,51 @@ export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLo
       .map((p) => emitter(p, look))
       .filter((p): p is Emitter => !!p);
     if (emitters.length) v.emitters = emitters;
+
+    // Animated sprite particles (Glitter bomb shards shed glitter clouds and sparkles). Defaults per the engine docs.
+    const spriteEmitters: SpriteEmitterOut[] = [];
+    for (const sp of comps(e, 'SpriteParticleEmitterComponent')) {
+      const a = sp.attrs;
+      if (a._enabled === '0' || a.is_emitting === '0' || !a.sprite_file) continue;
+      const sprite = await spriteLayer(wak, a.sprite_file, { additive: a.additive === '1', emissive: a.emissive === '1' }, images);
+      if (!sprite) continue;
+      const life = num(a.lifetime, 0);
+      spriteEmitters.push({
+        sprite,
+        intervalMin: num(a.emission_interval_min_frames, 5),
+        intervalMax: num(a.emission_interval_max_frames, 10),
+        countMin: num(a.count_min, 0),
+        countMax: num(a.count_max, 1),
+        lifetime: [life + num(a['randomize_lifetime.min'], 0), life + num(a['randomize_lifetime.max'], 0)],
+        velocity: [num(a['velocity.x'], 0), num(a['velocity.y'], 0)],
+        velMin: [num(a['randomize_velocity.min_x'], 0), num(a['randomize_velocity.min_y'], 0)],
+        velMax: [num(a['randomize_velocity.max_x'], 0), num(a['randomize_velocity.max_y'], 0)],
+        posMin: [num(a['randomize_position.min_x'], 0), num(a['randomize_position.min_y'], 0)],
+        posMax: [num(a['randomize_position.max_x'], 0), num(a['randomize_position.max_y'], 0)],
+        gravity: [num(a['gravity.x'], 0), num(a['gravity.y'], 0)],
+        randomRotation: a.sprite_random_rotation === '1',
+      });
+    }
+    if (spriteEmitters.length) v.spriteEmitters = spriteEmitters;
+
+    // Entities it makes when it appears (Glitter bomb's blast entity makes the 12 shards).
+    const loads = comps(e, 'LoadEntitiesComponent')
+      .filter((l) => l.attrs._enabled !== '0' && l.attrs.entity_file)
+      .map((l) => ({ file: variant(String(l.attrs.entity_file)), min: num(l.attrs['count.min'], 1), max: num(l.attrs['count.max'], num(l.attrs['count.min'], 1)) }));
+    if (loads.length) {
+      v.loads = loads;
+      loads.forEach((l) => follow(l.file));
+    }
+
+    const ssv = comp(e, 'SetStartVelocityComponent');
+    if (ssv) {
+      const a = ssv.attrs;
+      v.startVelocity = {
+        velocity: [num(a['velocity.x'], 0), num(a['velocity.y'], 0)],
+        speed: [num(a['randomize_speed.min'], 0), num(a['randomize_speed.max'], 0)],
+        angle: [num(a['randomize_angle.min'], 0), num(a['randomize_angle.max'], 0)],
+      };
+    }
     // The main trail colour, for effects that only need one (beams, chain-bolt hops).
     const trail = emitters.find((p) => p.trail) ?? emitters[0];
     if (trail) v.trail = { color: trail.color, count: Math.max(1, trail.countMax) };
