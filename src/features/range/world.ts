@@ -6,7 +6,8 @@
 // bounce effects, orbits, the giga disc, chain bolt and teleports. Approximated: the engine's C++ internals
 // (exact homing maths, friction integration, Box2D physics for thrown bombs, arc damage) and falling-sand materials.
 import type { EntityVisual, ExplosionVisual, Material, Projectile, RangeKit, Reaction, SpriteEmitter, WandSprite } from '@/data/types';
-import { Cells, K_LIQUID, K_POWDER, K_STATIC } from './cells';
+import { Cells, K_GAS, K_LIQUID, K_POWDER, K_STATIC } from './cells';
+import { BIOMES, biomeById, biomeNoise, biomePolka, noiseValue, type Biome } from './biomes';
 import { emitterStates, layerFrames, runEmitters, simpleParticle, stepParticles, type EmitterState, type Particle } from './particles';
 import { CRIT_MULT, projectileDamage } from '@/sim/analyze';
 import { HP_UNIT } from '@/data/format';
@@ -41,6 +42,21 @@ const MAX_EFFECTS = 200;
 /** Animated sprite particles (glitter clouds, sparkles) have their own budget, so they never crowd out blasts. */
 const MAX_SPRITE_PARTICLES = 320;
 const GRAVITY = 400;
+
+/**
+ * What stands at the far end. The Holy Mountain statues (temple_statue_01/02.xml) and the training dummy
+ * all take hits the same way: they can't die, and effects that scale with health treat them as 100 HP. 'wall'
+ * puts a block of a material there instead, for digging practice.
+ */
+export type RangeTarget = 'statue' | 'statue_staff' | 'dummy' | 'wall';
+/** Hit boxes: the dummy as before; the statues' figures on their pedestals (19×31 images). */
+export const TARGET_SIZE: Record<Exclude<RangeTarget, 'wall'>, { w: number; h: number }> = {
+  statue: { w: 13, h: 30 },
+  statue_staff: { w: 13, h: 30 },
+  dummy: { w: 14, h: 24 },
+};
+/** The practice wall's thickness. */
+const WALL_WIDTH = 32;
 
 export const AIR = 0;
 export const ROCK = 1;
@@ -346,7 +362,15 @@ export class RangeWorld {
   readonly player: Actor;
   /** Movement, levitation and health of the player. */
   readonly body: PlayerState;
-  readonly dummy: Actor = { id: 'dummy', x: 262, y: H - 34, w: 14, h: 24, homeX: 262, vy: 0, flash: 0, pending: 0, pendingCrit: false, status: new Map() };
+  readonly dummy: Actor = { id: 'dummy', x: 262, y: H - 34, w: TARGET_SIZE.statue.w, h: TARGET_SIZE.statue.h, homeX: 262, vy: 0, flash: 0, pending: 0, pendingCrit: false, status: new Map() };
+  /** What stands at the far end. Statues and the dummy all act as the range's target (see RangeTarget). */
+  target: RangeTarget = 'statue';
+  /** The wall's material (target 'wall'). */
+  wallMaterial = 'rock_static';
+  /** Cells the wall was built with. */
+  private wallCells = 0;
+  /** The biome the cave is built to look like. */
+  biome: Biome = BIOMES[0]!;
   /** Walk / levitate keys. */
   controls: Controls = { left: false, right: false, up: false };
   /** Which of the game's wand sprites is in hand (its tip is where spells leave). */
@@ -399,7 +423,7 @@ export class RangeWorld {
   }
 
   get actors(): Actor[] {
-    return [this.player, this.dummy];
+    return this.hasTarget ? [this.player, this.dummy] : [this.player];
   }
 
   get maxHp() {
@@ -420,7 +444,15 @@ export class RangeWorld {
 
   /** Where the player aims: the cursor, or (auto) the dummy's upper chest so gravity-affected shots arc into it. */
   private get aimPoint() {
-    return this.manual ? this.aim! : { x: this.dummy.x, y: this.dummy.y - this.dummy.h * 0.8 };
+    if (this.manual) return this.aim!;
+    // At a wall: its face, as high up as a statue's chest would be (so lobbed shots arc into it, as at a target).
+    if (!this.hasTarget) return { x: this.wallRect.x0, y: this.floorY - TARGET_SIZE.statue.h * 0.8 };
+    return { x: this.dummy.x, y: this.dummy.y - this.dummy.h * 0.8 };
+  }
+
+  /** Where the wand points (the cursor, the target, or straight at the wall). */
+  get aimTarget() {
+    return this.aimPoint;
   }
 
   get facing() {
@@ -450,8 +482,12 @@ export class RangeWorld {
 
   /** Move the dummy's spot (range adjuster). */
   setDummyDistance(d: number) {
-    this.dummy.homeX = Math.round(Math.max(30, Math.min(W - 40 - this.player.homeX, d)) + this.player.homeX);
-    this.placeHome(this.dummy);
+    const x = Math.round(Math.max(30, Math.min(W - 40 - this.player.homeX, d)) + this.player.homeX);
+    if (x === this.dummy.homeX) return;
+    this.dummy.homeX = x;
+    // A wall is part of the cave: moving it builds the cave again.
+    if (this.target === 'wall') this.resetTerrain();
+    else this.placeHome(this.dummy);
   }
 
   // ---------- terrain ----------
@@ -463,8 +499,35 @@ export class RangeWorld {
   resetTerrain() {
     const c = this.cells;
     c.clear();
-    const rock = c.index('rock_static');
+    const biome = this.biome;
+    const base = c.index(biome.base) > 0 ? c.index(biome.base) : c.index('rock_static');
+    // Each material_index reads its own noise (see biomes.ts).
+    const seed = Math.floor(Math.random() * 1e9);
+    const fields = new Map<number, (x: number, y: number) => number>();
+    const layers = biome.layers.flatMap((l, k) => {
+      const m = c.index(l.material);
+      if (m <= 0 || c.mats[m]!.kind === K_LIQUID || c.mats[m]!.kind === K_GAS) return [];
+      if (!fields.has(l.index)) fields.set(l.index, biomeNoise(seed + l.index * 7919));
+      return [{ ...l, m, powder: c.mats[m]!.kind === K_POWDER, noise: fields.get(l.index)!, spot: l.rare ? biomePolka(seed + 104729 * (k + 1)) : null }];
+    });
+    const solidAt = (x: number, y: number) =>
+      y >= this.floorY || y < 16 || x >= W - 26 || ((x - 150) / 22) ** 2 + ((y - this.floorY) / 9) ** 2 < 1 || ((x - 200) / 34) ** 2 + ((y - 64) / 8) ** 2 < 1;
+    const rockAt = (x: number, y: number) => {
+      for (const l of layers) {
+        if (l.spot) {
+          if (!l.spot(x, y)) continue;
+        } else {
+          const v = noiseValue(l.noise(x, y));
+          if (v < l.min || v > l.max) continue;
+        }
+        // Powders only where rock holds them up, so the cave doesn't start by raining sand from its ceiling.
+        if (l.powder && !(solidAt(x, y + 1) && solidAt(x - 1, y + 1) && solidAt(x + 1, y + 1))) continue;
+        return l.m;
+      }
+      return base;
+    };
     const pool = (x0: number, x1: number, depth: number, m: number) => {
+      if (m <= 0) return;
       for (let x = x0; x <= x1; x++) {
         // a rounded basin, filled to the floor
         const d = Math.round(depth * Math.sqrt(Math.max(0, 1 - ((2 * (x - x0)) / (x1 - x0) - 1) ** 2)));
@@ -473,21 +536,86 @@ export class RangeWorld {
     };
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
-        let solid = y >= this.floorY || y < 16 || x >= W - 26;
-        if (((x - 150) / 22) ** 2 + ((y - this.floorY) / 9) ** 2 < 1) solid = true;
-        if (((x - 200) / 34) ** 2 + ((y - 64) / 8) ** 2 < 1) solid = true;
         if (x < 3 || y < 3 || x >= W - 3 || y >= H - 3) c.set(x, y, this.bedrock);
-        else if (solid) c.set(x, y, rock);
+        else if (solidAt(x, y)) c.set(x, y, layers.length ? rockAt(x, y) : base);
       }
     }
-    pool(92, 126, 10, c.index('water'));
-    pool(178, 198, 6, c.index('oil'));
-    const sand = c.index('sand');
-    for (let x = 186; x <= 214; x++) for (let y = 56 - Math.round(4 * (1 - Math.abs(x - 200) / 14)); y < 57; y++) c.place(x, y, sand);
-    const wood = c.index('wood_static');
-    for (let x = 300; x <= 346; x++) for (let y = 150; y < 153; y++) c.set(x, y, wood);
+    const [left, right] = biome.pools;
+    if (left) pool(92, 126, 10, c.index(left));
+    if (right) pool(178, 198, 6, c.index(right));
+    const heap = biome.island ? c.index(biome.island) : -1;
+    if (heap > 0) for (let x = 186; x <= 214; x++) for (let y = 56 - Math.round(4 * (1 - Math.abs(x - 200) / 14)); y < 57; y++) c.place(x, y, heap);
+    const ledge = c.index(biome.ledge) > 0 ? c.index(biome.ledge) : c.index('wood_static');
+    for (let x = 300; x <= 346; x++) for (let y = 150; y < 153; y++) c.set(x, y, ledge);
+    if (this.target === 'wall') this.buildWall();
     this.terrainVersion++;
-    for (const a of this.actors) this.placeHome(a);
+    this.placeDummy();
+    this.placeHome(this.player);
+  }
+
+  /**
+   * The practice wall: the chosen material from the cave's ceiling to its floor, where the target would
+   * stand. Powders slump into a heap, as they would in the game.
+   */
+  private buildWall() {
+    const c = this.cells;
+    const m = c.index(this.wallMaterial);
+    if (m <= 0) return;
+    const r = this.wallRect;
+    for (let y = r.y0; y < r.y1; y++) for (let x = r.x0; x < r.x1; x++) c.set(x, y, m);
+    this.wallCells = (r.x1 - r.x0) * (r.y1 - r.y0);
+  }
+
+  /** Where the wall stands: centred on the target's mark, ceiling to floor. */
+  get wallRect() {
+    const x0 = Math.round(this.dummy.homeX - WALL_WIDTH / 2);
+    return { x0, x1: x0 + WALL_WIDTH, y0: 16, y1: this.floorY };
+  }
+
+  /** How much of the wall is still standing (0–1), or null when there is no wall. */
+  get wallLeft(): number | null {
+    if (this.target !== 'wall' || !this.wallCells) return null;
+    const c = this.cells;
+    const m = c.index(this.wallMaterial);
+    const r = this.wallRect;
+    let n = 0;
+    for (let y = r.y0; y < r.y1; y++) for (let x = r.x0; x < r.x1; x++) if (c.mat[y * W + x] === m) n++;
+    return n / this.wallCells;
+  }
+
+  /** A target stands on its mark; a wall replaces it (the dummy is put out of reach, so nothing finds it). */
+  private placeDummy() {
+    const d = this.dummy;
+    const size = TARGET_SIZE[this.target === 'wall' ? 'dummy' : this.target];
+    d.w = size.w;
+    d.h = size.h;
+    if (this.target === 'wall') {
+      d.x = -100000;
+      d.y = H;
+      d.vy = 0;
+      d.status.clear();
+    } else this.placeHome(d);
+  }
+
+  /** A target stands there (statue or dummy), rather than a wall. */
+  get hasTarget() {
+    return this.target !== 'wall';
+  }
+
+  /** Change what stands at the far end: a statue, the training dummy, or a wall of a material (rebuilds the cave). */
+  setTarget(target: RangeTarget, wallMaterial = this.wallMaterial) {
+    const changed = target !== this.target || (target === 'wall' && wallMaterial !== this.wallMaterial);
+    this.target = target;
+    this.wallMaterial = wallMaterial;
+    if (changed) this.resetTerrain();
+  }
+
+  /** Make the cave look like one of the game's biomes (rebuilds it). */
+  setBiome(id: string) {
+    const b = biomeById.get(id) ?? BIOMES[0]!;
+    if (b === this.biome) return;
+    this.biome = b;
+    this.resetTerrain();
   }
 
   /** What a cell is to things moving through it: AIR (empty, liquid, gas, fire), ROCK (solid, powder) or BEDROCK. */
@@ -748,7 +876,9 @@ export class RangeWorld {
     if (this.body.dead > 0) return;
     if (this.auto && this.homeAfterReload && this.displaced()) {
       // Teleports and swaps are undone, but a player who walked somewhere stays there.
-      if (this.steered) this.moveActor(this.dummy, this.dummy.homeX, this.groundBelow(this.dummy.homeX));
+      if (this.steered) {
+        if (this.hasTarget) this.moveActor(this.dummy, this.dummy.homeX, this.groundBelow(this.dummy.homeX));
+      }
       else this.resetActors();
     }
     this.homeAfterReload = cast.reload !== undefined;
@@ -957,7 +1087,7 @@ export class RangeWorld {
     this.projectiles = this.projectiles.filter((p) => !p.dead);
     if (this.targets.length) this.targets = this.targets.filter((p) => !p.dead);
     this.updatePlayer();
-    this.updateActor(this.dummy);
+    if (this.hasTarget) this.updateActor(this.dummy);
 
     this.updateEffects();
     this.particles = stepParticles(this.particles, (x, y) => this.cell(x, y) !== AIR || this.isLiquid(x, y), (x, y, m) => this.cells.place(x, y, this.cells.index(m)));
@@ -1167,14 +1297,14 @@ export class RangeWorld {
     return p.friendlyFire && p.shooterGrace >= 0 && p.age > p.shooterGrace;
   }
 
-  private target(p: Proj) {
+  private homingTarget(p: Proj) {
     return p.homing?.targetShooter ? this.center(this.player) : this.center(this.dummy);
   }
 
   private applyHoming(p: Proj) {
     const h = p.homing;
     if (!h) return;
-    const t = this.target(p);
+    const t = this.homingTarget(p);
     const dx = t.x - p.x;
     const dy = t.y - p.y;
     const dist = Math.hypot(dx, dy);
@@ -2181,7 +2311,7 @@ const SCRIPTS: Record<string, (p: Proj, w: RangeWorld, sc: Script) => void> = {
   },
   // Aiming arc / auto-aim steer toward the mouse or the nearest enemy; on the range that's the dummy.
   homing_cursor: (p, w) => {
-    const t = w.dummyCenter;
+    const t = w.hasTarget ? w.dummyCenter : w.aimTarget;
     const cur = Math.atan2(p.vy, p.vx);
     let diff = Math.atan2(t.y - p.y, t.x - p.x) - cur;
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
@@ -2191,6 +2321,8 @@ const SCRIPTS: Record<string, (p: Proj, w: RangeWorld, sc: Script) => void> = {
     p.vy = Math.sin(a) * sp;
   },
   autoaim: (p, w) => {
+    // No enemy at a wall: the shot flies where it was cast.
+    if (!w.hasTarget) return;
     const sp = speedOf(p);
     const t = w.dummyCenter;
     const a = Math.atan2(t.y - p.y, t.x - p.x);

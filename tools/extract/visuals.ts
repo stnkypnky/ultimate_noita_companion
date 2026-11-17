@@ -560,5 +560,16 @@ export async function rangeProps(wak: Wak) {
     const f = await spriteFrame(wak, { tag: 'SpriteComponent', attrs: { image_file: wak.has(file) ? file : file.replace('.xml', '.png') }, children: [] });
     if (f) out[key] = f;
   }
+  // The Holy Mountain statues (temple_statue_01/02.xml): physics images with no sprite offset, stood on
+  // their pedestal's centre.
+  for (const [key, file] of [
+    ['statue', 'data/props_gfx/temple_statue_02.png'],
+    ['statue_staff', 'data/props_gfx/temple_statue_01.png'],
+  ] as const) {
+    if (!wak.has(file)) continue;
+    const png = wak.bytes(file);
+    const meta = await sharp(png).metadata();
+    out[key] = { png, ox: (meta.width ?? 0) / 2, oy: meta.height ?? 0 };
+  }
   return out;
 }

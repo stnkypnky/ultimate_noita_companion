@@ -3,7 +3,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createLuaHost, loadGun, type LuaHost } from '../tools/extract/lua.ts';
-import { AIR, H, RangeWorld, W, hitAndHeal, patternOffset, targetDamage, type Proj, type RangeData } from '../src/features/range/world.ts';
+import { AIR, H, RangeWorld, TARGET_SIZE, W, hitAndHeal, patternOffset, targetDamage, type Proj, type RangeData } from '../src/features/range/world.ts';
+import { BIOMES } from '../src/features/range/biomes.ts';
 import { Musician, SongState, noteOf } from '../src/features/range/melody.ts';
 import { WandRuntime } from '../src/features/range/wand.ts';
 import { castWand, resetWand } from '../src/sim/protocol.ts';
@@ -762,5 +763,95 @@ describe('frozen + melee (wiki: Status Effects)', () => {
     w.body.hp = w.maxHp * 0.25;
     hit(w.player);
     expect(w.body.hp).toBe(0);
+  });
+});
+
+describe('targets and maps', () => {
+  const count = (w: RangeWorld, id: string) => {
+    const m = w.cells.index(id);
+    let n = 0;
+    for (let i = 0; i < w.cells.mat.length; i++) if (w.cells.mat[i] === m) n++;
+    return n;
+  };
+
+  it('the Holy Mountain statue is the default target and takes hits like the dummy did', () => {
+    const w = new RangeWorld(data);
+    expect(w.target).toBe('statue');
+    expect(w.actors.map((a) => a.id)).toEqual(['player', 'dummy']);
+    expect([w.dummy.w, w.dummy.h]).toEqual([TARGET_SIZE.statue.w, TARGET_SIZE.statue.h]);
+    w.setTarget('dummy');
+    expect([w.dummy.w, w.dummy.h]).toEqual([TARGET_SIZE.dummy.w, TARGET_SIZE.dummy.h]);
+    expect(w.cell(w.dummy.x, w.dummy.y)).not.toBe(AIR);
+    expect(w.cell(w.dummy.x, w.dummy.y - 1)).toBe(AIR);
+  });
+
+  it('a wall of the chosen material replaces the target; digging it shows as dug', () => {
+    const w = new RangeWorld(data);
+    w.setTarget('wall', 'brick');
+    expect(w.hasTarget).toBe(false);
+    expect(w.actors.map((a) => a.id)).toEqual(['player']);
+    const r = w.wallRect;
+    expect(r.x1 - r.x0).toBe(32);
+    expect(w.cells.mats[w.cells.at((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2)]!.id).toBe('brick');
+    expect(w.wallLeft).toBe(1);
+    // Auto aims straight at the wall's face.
+    expect(w.aimTarget.x).toBe(r.x0);
+    w.carve((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2, 10);
+    expect(w.wallLeft!).toBeLessThan(1);
+    // Moving it builds it again, whole, at the new spot.
+    w.setDummyDistance(120);
+    expect(w.wallRect.x0).not.toBe(r.x0);
+    expect(w.wallLeft).toBe(1);
+    // Back to a statue: the wall goes and the statue stands on its mark.
+    w.setTarget('statue');
+    expect(count(w, 'brick')).toBe(0);
+    expect(w.actors).toHaveLength(2);
+    expect(w.dummy.x).toBe(w.dummy.homeX);
+  });
+
+  it('a powder wall slumps, as sand does', () => {
+    const w = new RangeWorld(data);
+    w.setTarget('wall', 'sand');
+    for (let i = 0; i < 300; i++) w.step();
+    expect(w.wallLeft!).toBeLessThan(0.95);
+  });
+
+  it('every biome is built from materials the game has, with its rock, pools and backdrop', () => {
+    const ids = new Set(data.materials.map((m) => m.id));
+    for (const b of BIOMES) {
+      for (const id of [b.base, b.ledge, b.island, ...b.pools, ...b.layers.map((l) => l.material)]) if (id) expect(ids, `${b.id}: ${id}`).toContain(id);
+      if (b.background) expect(existsSync(join(GAME, 'backgrounds', `${b.background}.png`)), b.background).toBe(true);
+      const w = new RangeWorld(data);
+      w.setBiome(b.id);
+      // The cave is made of the biome's own rock and layers.
+      const own = new Set([b.base, ...b.layers.map((l) => l.material)]);
+      expect([...own].reduce((n, id) => n + count(w, id), 0), b.id).toBeGreaterThan(20000);
+      if (b.pools[0]) expect(count(w, b.pools[0]), b.id).toBeGreaterThan(50);
+      // The statue still stands on the floor.
+      expect(w.cell(w.dummy.x, w.dummy.y)).not.toBe(AIR);
+    }
+  });
+
+  it('a biome mixes its layers into the rock (Mines: damp rock, ground seams, rare coal / copper / gold spots)', () => {
+    const w = new RangeWorld(data);
+    w.setBiome('coalmine');
+    expect(count(w, 'rock_static_wet')).toBeGreaterThan(10000);
+    expect(count(w, 'sand_static')).toBeGreaterThan(50);
+    // Ores are the rare polka dots: there, but a small share.
+    const ores = count(w, 'coal') + count(w, 'copper') + count(w, 'gold');
+    expect(ores).toBeGreaterThan(50);
+    expect(ores).toBeLessThan(4000);
+    // Powders only sit on rock: the ceiling doesn't rain coal when the cave is built (a grain by a pool may sink in).
+    const loose = () => {
+      let n = 0;
+      for (const id of ['soil', 'coal', 'gold']) {
+        const m = w.cells.index(id);
+        for (let i = 0; i < w.cells.mat.length; i++) if (w.cells.mat[i] === m && i / W < w.floorY - 2) n++;
+      }
+      return n;
+    };
+    const before = loose();
+    for (let i = 0; i < 30; i++) w.step();
+    expect(Math.abs(loose() - before)).toBeLessThanOrEqual(2);
   });
 });

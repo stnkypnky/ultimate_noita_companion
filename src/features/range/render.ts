@@ -21,6 +21,9 @@ type HudIcon = (typeof HUD_ICONS)[number];
 export type RangeImages = {
   projectiles: HTMLImageElement;
   dummy: HTMLImageElement;
+  /** The Holy Mountain statues (temple_statue_02 / 01). */
+  statue: HTMLImageElement | null;
+  statueStaff: HTMLImageElement | null;
   player: HTMLImageElement;
   playerSheet: HTMLImageElement;
   arm: HTMLImageElement;
@@ -110,9 +113,13 @@ export function loadRangeImages(props: Record<string, RangeProp>): Promise<Range
     Promise.all(HUD_ICONS.map((n) => loadImage(gameUrl(`sprites/hud_${n}.png`)))),
     loadImage(gameUrl('materials/rock_static.png')),
     loadImage(gameUrl('materials/rock_hard_border.png')),
-  ]).then(([[projectiles, dummy, player, playerSheet, arm, wands, cursor, status], hud, rock, bedrock]) => ({
+    // The statues are newer than the rest: a data build without them falls back to the dummy.
+    Promise.all(['statue', 'statue_staff'].map((n) => (props[n] ? loadImage(gameUrl(`sprites/range_${n}.png`)).catch(() => null) : Promise.resolve(null)))),
+  ]).then(([[projectiles, dummy, player, playerSheet, arm, wands, cursor, status], hud, rock, bedrock, [statue, statueStaff]]) => ({
     projectiles: projectiles!,
     dummy: dummy!,
+    statue: statue ?? null,
+    statueStaff: statueStaff ?? null,
     player: player!,
     playerSheet: playerSheet!,
     arm: arm!,
@@ -136,6 +143,7 @@ export class RangeRenderer {
   private terrainGlowImg = new ImageData(W, H);
   private textures = new Map<string, ImageData | 'loading'>();
   private backdrop: CanvasPattern | null = null;
+  private backdrops = new Map<string, CanvasPattern | 'loading'>();
   /** Bloom layer: glowing particles, emissive sprites and lights, blurred over the scene. */
   private glow = document.createElement('canvas');
   private glowCtx: CanvasRenderingContext2D;
@@ -308,6 +316,18 @@ export class RangeRenderer {
     add.flush();
   }
 
+  /** A biome's background, tiled from the world's top left as in the game; null until it has loaded. */
+  private biomeBackdrop(name: string | null): CanvasPattern | null {
+    if (!name) return null;
+    const have = this.backdrops.get(name);
+    if (have !== undefined) return have === 'loading' ? null : have;
+    this.backdrops.set(name, 'loading');
+    loadImage(gameUrl(`backgrounds/${name}.png`))
+      .then((i) => this.backdrops.set(name, this.ctx.createPattern(i, 'repeat') ?? 'loading'))
+      .catch(() => this.backdrops.delete(name));
+    return null;
+  }
+
   /** Material textures load on first sight; until then the material's colour stands in. */
   private loadTexture(path: string, cells: RangeWorld['cells']) {
     this.textures.set(path, 'loading');
@@ -328,22 +348,33 @@ export class RangeRenderer {
     // camera shake from explosions (none with reduced motion)
     if (w.shake > 0 && !this.stillCamera) ctx.translate(Math.round((Math.random() * 2 - 1) * w.shake), Math.round((Math.random() * 2 - 1) * w.shake));
 
-    // cave backdrop
+    // cave backdrop: the biome's background image, or (the plain test cave) dimmed rock
     ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = '#0b0910';
     ctx.fillRect(0, 0, W, H);
-    if (this.backdrop) {
-      ctx.globalAlpha = 0.2;
-      ctx.fillStyle = this.backdrop;
+    const biomeBg = this.biomeBackdrop(w.biome.background);
+    const backdrop = biomeBg ?? this.backdrop;
+    if (backdrop) {
+      ctx.globalAlpha = biomeBg ? 0.85 : 0.2;
+      ctx.fillStyle = backdrop;
       ctx.fillRect(0, 0, W, H);
       ctx.globalAlpha = 1;
     }
     ctx.drawImage(this.terrain, 0, 0);
 
-    // dummy, then the player with arm and wand
+    // the target (a statue or the dummy; nothing when a wall stands there), then the player with arm and wand
     const { props } = this.img;
-    const dm = props.dummy;
-    if (dm) this.actorSprite(this.img.dummy, dm, w.dummy.x, w.dummy.y, 1, w.dummy.flash);
+    if (w.hasTarget) {
+      const look =
+        w.target === 'statue' && this.img.statue && props.statue
+          ? ([this.img.statue, props.statue] as const)
+          : w.target === 'statue_staff' && this.img.statueStaff && props.statue_staff
+            ? ([this.img.statueStaff, props.statue_staff] as const)
+            : props.dummy
+              ? ([this.img.dummy, props.dummy] as const)
+              : null;
+      if (look) this.actorSprite(look[0], look[1], w.dummy.x, w.dummy.y, 1, w.dummy.flash);
+    }
     this.drawPlayer(w);
 
     // Glowing things are drawn twice: into the scene and into a bloom layer that's blurred on top (not in lite mode).

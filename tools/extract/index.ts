@@ -7,6 +7,7 @@ import type { EntityVisual, GameVersion, Item, Projectile, RangeProp, SpriteLaye
 import { collectItems } from './items.ts';
 import { collectVisuals, rangeProps, type LayerOut } from './visuals.ts';
 import { rangeKit } from './kit.ts';
+import { BIOMES } from '../../src/features/range/biomes.ts';
 import { Wak } from './wak.ts';
 import { findNoita } from './paths.ts';
 import { createLuaHost, loadGun } from './lua.ts';
@@ -134,6 +135,13 @@ for (const [key, f] of Object.entries(await rangeProps(wak))) {
   await writeFile(join(OUT, `sprites/range_${key}.png`), f.png);
 }
 console.log(`visuals: ${Object.keys(visuals).length} entities, ${vis.images.length} sprites; range props: ${Object.keys(props).join(', ')}`);
+// The cave backgrounds behind each biome the range can look like (Topology background_image).
+await mkdir(join(OUT, 'backgrounds'), { recursive: true });
+for (const bg of new Set(BIOMES.flatMap((b) => (b.background ? [b.background] : [])))) {
+  const file = `data/weather_gfx/${bg}.png`;
+  if (wak.has(file)) await writeFile(join(OUT, 'backgrounds', `${bg}.png`), wak.bytes(file));
+  else console.warn(`range background missing: ${file}`);
+}
 const kit = await rangeKit(wak);
 for (const [rel, png] of Object.entries(kit.files)) await writeFile(join(OUT, rel), png);
 console.log(`range kit: ${Object.keys(kit.kit.player.anims).length} player animations, ${kit.kit.wands.length} wand sprites`);

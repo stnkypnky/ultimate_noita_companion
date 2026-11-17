@@ -65,7 +65,7 @@ const steps: Step[] = [
       await p.goto(`${base}/wand?add=LIGHTNING`);
       await p.getByText(/^Added /).waitFor({ timeout: 15000 });
       await p.getByRole('tab', { name: 'Preview' }).click();
-      await p.getByTitle('Auto-fire at the dummy (F)').click();
+      await p.getByTitle('Auto-fire at the target (F)').click();
       await p.getByLabel(/^Test range:/).scrollIntoViewIfNeeded();
       await p.waitForTimeout(1500);
     } },

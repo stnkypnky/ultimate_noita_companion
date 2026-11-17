@@ -7,7 +7,8 @@ import { LiveSession } from '@/sim/client';
 import type { LiveCast } from '@/sim/types';
 import { SpellIcon } from '@/ui/GameIcon';
 import { toSimRequest, type SimOptions, type Wand } from '@/features/wand/model';
-import { H, RangeWorld, W, type RangeData } from './world';
+import { H, RangeWorld, W, type RangeData, type RangeTarget } from './world';
+import { BIOMES, biomeById } from './biomes';
 import { RangeRenderer, SCALE, context2d, loadRangeImages, type RangeImages } from './render';
 import { pickWandSprite, type Controls } from './player';
 import { WandRuntime } from './wand';
@@ -28,6 +29,15 @@ const loadExtra = () =>
   ]).then(([visuals, props, kit]) => ({ visuals, props, kit })));
 
 const humanize = (s: string) => s.replace(/_/g, ' ');
+
+const SELECT = 'min-w-0 truncate rounded-md border border-line bg-surface-2 px-1.5 py-1 text-xs text-ink';
+
+const TARGETS: [RangeTarget, string][] = [
+  ['statue', 'Statue'],
+  ['statue_staff', 'Statue with staff'],
+  ['dummy', 'Training dummy'],
+  ['wall', 'Wall (digging practice)'],
+];
 
 const remembered = (key: string, fallback: string) => {
   try {
@@ -61,6 +71,8 @@ type Hud = {
   deck: LiveCast['deck'] | null;
   /** Deck cards (1-based) the last cast played. */
   played: number[];
+  /** Share of the practice wall still standing, when there is one. */
+  wallLeft: number | null;
 };
 
 /** Live pixel test range: hold the wand and cast it at a target dummy, with the wand's real mana and recharge. */
@@ -99,7 +111,7 @@ export function RangePreview({
   const [look, setLook] = useState(0);
   // Performance mode and the frame-rate readout come from the Settings page.
   const [settings] = useState(rangeSettings);
-  const [hud, setHud] = useState<Hud>({ dps: 0, total: 0, self: 0, healed: 0, song: null, casts: 0, live: 0, unsupported: [], wandError: null, deck: null, played: [] });
+  const [hud, setHud] = useState<Hud>({ dps: 0, total: 0, self: 0, healed: 0, song: null, casts: 0, live: 0, unsupported: [], wandError: null, deck: null, played: [], wallLeft: null });
   const [fps, setFps] = useState<{ fps: number; step: number; draw: number } | null>(null);
   const req = useMemo(() => toSimRequest(wand, options, spellById, otherWands).req, [wand, options, spellById, otherWands]);
   // The wand without its charges: only a change to this is a new wand in hand. Charges alone (spent here, edited
@@ -123,6 +135,33 @@ export function RangePreview({
     worldRef.current?.setDummyDistance(distance);
     remember('range-distance', String(distance));
   }, [distance, ready]);
+  const [target, setTarget] = useState<RangeTarget>(() => {
+    const t = remembered('range-target', 'statue');
+    return (TARGETS.some(([id]) => id === t) ? t : 'statue') as RangeTarget;
+  });
+  const [wallMaterial, setWallMaterial] = useState(() => remembered('range-wall', 'rock_static'));
+  const [biome, setBiome] = useState(() => (biomeById.has(remembered('range-biome', 'range')) ? remembered('range-biome', 'range') : 'range'));
+  useEffect(() => {
+    worldRef.current?.setBiome(biome);
+    remember('range-biome', biome);
+  }, [biome, ready]);
+  useEffect(() => {
+    worldRef.current?.setTarget(target, wallMaterial);
+    remember('range-target', target);
+    remember('range-wall', wallMaterial);
+  }, [target, wallMaterial, ready]);
+  // What a wall can be built of: the game's static solids and powders (not physics-body materials).
+  const wallMaterials = useMemo(() => {
+    const list = materials.filter((m) => (m.state === 'powder' || (m.state === 'solid' && m.cellType !== 'solid')) && !/box2d|_robot/.test(m.id));
+    const names = new Map<string, number>();
+    for (const m of list) names.set(m.name.toLowerCase(), (names.get(m.name.toLowerCase()) ?? 0) + 1);
+    const label = (m: (typeof list)[number]) => `${m.name.charAt(0).toUpperCase()}${m.name.slice(1)}${(names.get(m.name.toLowerCase()) ?? 0) > 1 ? ` (${m.id})` : ''} · durability ${m.durability}`;
+    const byName = (a: (typeof list)[number], b: (typeof list)[number]) => label(a).localeCompare(label(b));
+    return {
+      solids: list.filter((m) => m.state === 'solid').sort(byName).map((m) => ({ id: m.id, label: label(m) })),
+      powders: list.filter((m) => m.state === 'powder').sort(byName).map((m) => ({ id: m.id, label: label(m) })),
+    };
+  }, [materials]);
   useEffect(() => {
     if (worldRef.current) worldRef.current.wandSprite = wandSprite;
   }, [wandSprite, ready]);
@@ -159,7 +198,11 @@ export function RangePreview({
     let w = worldRef.current;
     if (!w) {
       w = worldRef.current = new RangeWorld(ready.data);
+      w.biome = biomeById.get(biome) ?? w.biome;
+      w.target = target;
+      w.wallMaterial = wallMaterial;
       w.setDummyDistance(distance);
+      w.resetTerrain();
       w.auto = auto;
       w.wandSprite = wandSprite;
       const world = w;
@@ -268,6 +311,7 @@ export function RangePreview({
             wandError: rt?.error ?? null,
             deck: rt?.deck ?? null,
             played: rt?.lastCast?.slots.filter((s) => s > 0) ?? [],
+            wallLeft: world.wallLeft,
           });
         }
       }
@@ -415,8 +459,16 @@ export function RangePreview({
         )}
         {hud.wandError && <div className="pointer-events-none absolute inset-x-0 bottom-3 text-center text-xs text-blood">The wand misfired: {hud.wandError}</div>}
         <div className="pointer-events-none absolute top-2 left-2 flex gap-1.5 text-[11px] tabular-nums">
-          <span className="rounded bg-black/60 px-1.5 py-0.5 text-ember">{fmtNum(hud.dps, 0)} DPS</span>
-          <span className="rounded bg-black/60 px-1.5 py-0.5 text-muted">{fmtNum(hud.total, 0)} total</span>
+          {hud.wallLeft === null ? (
+            <>
+              <span className="rounded bg-black/60 px-1.5 py-0.5 text-ember">{fmtNum(hud.dps, 0)} DPS</span>
+              <span className="rounded bg-black/60 px-1.5 py-0.5 text-muted">{fmtNum(hud.total, 0)} total</span>
+            </>
+          ) : (
+            <span className="rounded bg-black/60 px-1.5 py-0.5 text-ember" title="Share of the wall's cells cleared out of where it was built">
+              Wall {fmtNum((1 - hud.wallLeft) * 100, 0)}% dug
+            </span>
+          )}
           {fps && (
             <span className="rounded bg-black/60 px-1.5 py-0.5 text-gold" title="Pictures drawn per second · time per game step · time per picture">
               {fmtNum(fps.fps, 0)} fps · {fmtNum(fps.step, 1)} / {fmtNum(fps.draw, 1)} ms
@@ -479,7 +531,7 @@ export function RangePreview({
         <button
           onClick={() => setAuto(!auto)}
           aria-pressed={auto}
-          title="Auto-fire at the dummy (F)"
+          title="Auto-fire at the target (F)"
           className={`slot slot-hover font-game ml-1 inline-flex items-center gap-1 px-2 py-0.5 text-[16px] ${auto ? 'text-ember' : 'text-muted hover:text-ink'}`}
         >
           <Bot size={14} /> Auto
@@ -508,8 +560,51 @@ export function RangePreview({
           {big ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
         </Btn>
       </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-line px-3 py-2 text-xs text-muted">
+        <label className="flex min-w-0 items-center gap-1.5">
+          <span className="shrink-0">Map</span>
+          <select value={biome} onChange={(e) => setBiome(e.target.value)} className={SELECT} aria-label="Map: which biome the cave looks like">
+            {BIOMES.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex min-w-0 items-center gap-1.5">
+          <span className="shrink-0">Target</span>
+          <select value={target} onChange={(e) => setTarget(e.target.value as RangeTarget)} className={SELECT} aria-label="Target">
+            {TARGETS.map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {target === 'wall' && (
+          <label className="flex min-w-0 items-center gap-1.5">
+            <span className="shrink-0">Made of</span>
+            <select value={wallMaterial} onChange={(e) => setWallMaterial(e.target.value)} className={`${SELECT} max-w-[14rem]`} aria-label="Wall material">
+              <optgroup label="Solids">
+                {wallMaterials.solids.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Powders">
+                {wallMaterials.powders.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          </label>
+        )}
+      </div>
       <label className="flex items-center gap-3 border-t border-line px-3 py-2 text-xs text-muted">
-        <span className="shrink-0">Dummy distance</span>
+        <span className="shrink-0">{target === 'wall' ? 'Wall distance' : 'Target distance'}</span>
         <input
           type="range"
           min={MIN_DISTANCE}
@@ -518,7 +613,7 @@ export function RangePreview({
           value={distance}
           onChange={(e) => setDistance(Number(e.target.value))}
           className="h-1.5 min-w-0 flex-1 accent-[var(--ember)]"
-          aria-label="Dummy distance in pixels"
+          aria-label="Target distance in pixels"
         />
         <span className="w-12 shrink-0 text-right tabular-nums">{distance} px</span>
       </label>
