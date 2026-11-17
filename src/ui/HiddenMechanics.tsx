@@ -1,11 +1,45 @@
-import { ExternalLink } from 'lucide-react';
+import { useCallback, useSyncExternalStore } from 'react';
+import { ExternalLink, Eye, EyeOff } from 'lucide-react';
 import { fmtNum, seconds } from '@/data/format';
 import { mechanicsFor, type MechanicKind, type MechanicNote } from '@/data/mechanics';
 import type { Item, Projectile } from '@/data/types';
 import { Section } from '@/ui/controls';
 import { InlineSpoiler } from '@/ui/Spoiler';
 
-const DOCS = 'https://noita.wiki.gg/wiki/Modding:_Component_documentation';
+// Collapsed by default; once opened it stays open on every page (per device) until hidden again.
+const SHOW_KEY = 'show-hidden-mechanics';
+const listeners = new Set<() => void>();
+let memo = false; // fallback when storage is blocked
+const readShown = () => {
+  try {
+    const v = localStorage.getItem(SHOW_KEY);
+    return v === null ? memo : v === '1';
+  } catch {
+    return memo;
+  }
+};
+function useShowMechanics(): [boolean, (v: boolean) => void] {
+  const shown = useSyncExternalStore(
+    (cb) => {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
+    readShown,
+    () => false,
+  );
+  const set = useCallback((v: boolean) => {
+    memo = v;
+    try {
+      localStorage.setItem(SHOW_KEY, v ? '1' : '0');
+    } catch {
+      /* private mode: just this render */
+    }
+    listeners.forEach((l) => l());
+  }, []);
+  return [shown, set];
+}
+
+const DOCS ='https://noita.wiki.gg/wiki/Modding:_Component_documentation';
 
 /** Notes read straight from the game files: things the in-game tooltip never shows. */
 export function projectileNotes(projs: Projectile[]): MechanicNote[] {
@@ -43,12 +77,20 @@ export function itemNotes(item: Item): MechanicNote[] {
 
 /** The "Hidden mechanics" section of a detail page: game-file facts plus curated wiki notes. Renders nothing when empty. */
 export function HiddenMechanics({ kind, id, auto = [] }: { kind: MechanicKind; id: string; auto?: MechanicNote[] }) {
+  const [shown, setShown] = useShowMechanics();
   const notes = [...auto, ...mechanicsFor(kind, id)];
   if (!notes.length) return null;
   const open = notes.filter((n) => !n.secret);
   const secret = notes.filter((n) => n.secret);
+  const toggle = (
+    <button onClick={() => setShown(!shown)} aria-expanded={shown} className="btn-game quiet font-game inline-flex items-center gap-1.5 px-2.5 py-1 text-[16px]">
+      {shown ? <EyeOff size={14} /> : <Eye size={14} />}
+      {shown ? 'Hide' : `Show hidden mechanics (${notes.length})`}
+    </button>
+  );
+  if (!shown) return <div className="mt-5">{toggle}</div>;
   return (
-    <Section title="Hidden mechanics">
+    <Section title="Hidden mechanics" aside={toggle}>
       <ul className="panel space-y-2.5 px-4 py-3">
         {open.map((n) => (
           <Note key={n.text} note={n} />
