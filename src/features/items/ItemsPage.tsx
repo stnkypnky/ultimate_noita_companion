@@ -11,6 +11,7 @@ import { SearchInput, useSearchFocus } from '@/ui/controls';
 import { AtlasIcon } from '@/ui/GameIcon';
 import { MasterDetail } from '@/ui/MasterDetail';
 import { HiddenNotice } from '@/ui/Spoiler';
+import { HiddenMechanics, itemNotes } from '@/ui/HiddenMechanics';
 import { useDebounced } from '@/ui/hooks';
 
 function ItemIcon({ item, scale, hidden }: { item: Item; scale: number; hidden?: boolean }) {
@@ -64,6 +65,7 @@ export function ItemsPage() {
                   </div>
                 </header>
                 <p className="mt-4 text-[15px] leading-relaxed whitespace-pre-line text-muted">{selected.description || 'No in-game description.'}</p>
+                <HiddenMechanics kind="item" id={selected.id} auto={itemNotes(selected)} />
               </article>
             ) : (
               <HiddenNotice what="item" onReveal={() => reveal(itemKey(selected.id))} />

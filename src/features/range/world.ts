@@ -110,6 +110,13 @@ export type Proj = {
   dieOnCollision: boolean;
   dieOnLiquid: boolean;
   dieOnLowVelocity: boolean;
+  /** die_on_low_velocity_limit, px/s (Bouncing Burst: 5). */
+  lowVelocityLimit: number;
+  /**
+   * damage_scaled_by_speed: the Projectile part of a hit × speed / initial (taken at the end of frame 1),
+   * or / maxSpeed. `other` is the rest (slice…), which the wiki says doesn't scale.
+   */
+  speedDamage?: { maxSpeed: number; initial: number; other: number };
   rotate: boolean;
   streak: boolean;
   /** No sprite and only a few frames long: drawn as a short beam from where it started. */
@@ -238,6 +245,25 @@ const BOUNCE_FX: Record<string, string> = {
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 const randInt = (a: number, b: number) => Math.floor(rand(a, b + 1));
 const speedOf = (p: { vx: number; vy: number }) => Math.hypot(p.vx, p.vy);
+
+/**
+ * Launch speed of a thrown physics body (bombs). Box2D isn't modelled, so this scales the files' own
+ * numbers, projectile speed × throw_force_coeff: Dynamite (800 × 2.5) out-throws Glitter bomb
+ * (800 × 2.0), and Bomb (60 × 0.75) is a short lob.
+ */
+export const throwSpeed = (speed: number, coeff: number) => Math.max(110, Math.min(480, speed * coeff * 0.2));
+
+/** A hit's damage with damage_scaled_by_speed: its Projectile part × current / initial speed (or / damage_scale_max_speed). */
+function hitDamage(p: Proj) {
+  const sd = p.speedDamage;
+  if (!sd) return p.hit;
+  const ref = sd.maxSpeed > 0 ? sd.maxSpeed : sd.initial;
+  if (ref <= 0) return p.hit;
+  // Damage added after spawn (Spells to Power) is projectile damage, and the wiki says it gets the bonus
+  // too, so only the other types fixed at spawn (slice…) stay unscaled.
+  const fixed = Math.max(0, Math.min(p.hit, sd.other));
+  return fixed + (p.hit - fixed) * (speedOf(p) / ref);
+}
 const num = (s: ShotState, k: string) => (typeof s[k] === 'number' ? (s[k] as number) : 0);
 
 function segmentHitsBox(x0: number, y0: number, x1: number, y1: number, l: number, t: number, r: number, b: number) {
@@ -717,9 +743,7 @@ export class RangeWorld {
       if (pattern > 0 && n > 1) a += ((-pattern + (2 * pattern * i) / (n - 1)) * Math.PI) / 180;
       const speedMul = (typeof s.speed_multiplier === 'number' ? s.speed_multiplier : 1) * speedScale;
       let speed = rand(base?.speed[0] ?? 60, base?.speed[1] ?? 60) * speedMul;
-      // Thrown physics bodies (bombs) go by their throw force, not their projectile speed. Box2D isn't
-      // available here, so this keeps them in the lob range they have in-game.
-      if (vis?.physicsBody) speed = Math.max(110, Math.min(220, 100 + speed * vis.physicsBody.throwCoeff * 0.08));
+      if (vis?.physicsBody) speed = throwSpeed(speed, vis.physicsBody.throwCoeff);
       this.spawn(sp.file, x, y, Math.cos(a) * speed, Math.sin(a) * speed, s, sp.trigger);
     });
   }
@@ -768,6 +792,8 @@ export class RangeWorld {
       dieOnCollision: base?.dieOnCollision ?? true,
       dieOnLiquid: base?.dieOnLiquid ?? false,
       dieOnLowVelocity: vis?.physics?.dieOnLowVelocity ?? false,
+      lowVelocityLimit: base?.lowVelocityLimit ?? 50,
+      ...(base?.speedDamage ? { speedDamage: { maxSpeed: base.speedDamage.maxSpeed ?? 0, initial: 0, other: dmg.hit - Math.max(0, dmg.damage.projectile ?? 0) } } : {}),
       rotate: vis?.physics?.rotate ?? true,
       streak: vis?.physics?.streak ?? false,
       beamLike: !vis?.sprites?.length && life > 0 && life <= 4 && speedOf({ vx, vy }) > 300,
@@ -965,7 +991,10 @@ export class RangeWorld {
       delete p.trigger;
       this.payload(p, t.shot);
     }
-    if (p.dieOnLowVelocity && p.age > 5 && speedOf(p) < 40 && !p.parent) return this.die(p, 'timeout');
+    // Both the starting speed for speed-scaled damage and the low-velocity check begin at the end of
+    // the first frame (wiki, Bouncing Burst), so modifiers that change speed count.
+    if (p.speedDamage && p.age === 1) p.speedDamage.initial = speedOf(p);
+    if (p.dieOnLowVelocity && p.age > 5 && speedOf(p) < p.lowVelocityLimit && !p.parent) return this.die(p, 'timeout');
     if (p.lifetime > 0 && p.age >= p.lifetime) return this.die(p, 'timeout');
 
     // Particle emitters of the projectile and its modifiers, and material trails from trail modifiers.
@@ -1229,7 +1258,7 @@ export class RangeWorld {
       }
       if (p.hitActors.has(a.id)) continue;
       p.hitActors.add(a.id);
-      this.hurt(a, p.hit, p.critChance, p);
+      this.hurt(a, hitDamage(p), p.critChance, p);
       this.applyEffects(a, p.effects);
       // ProjectileComponent: final_knockback = knockback_force × velocity × mass / who_we_hit.mass.
       if (a.id === 'player' && p.knockback > 0) {

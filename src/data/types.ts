@@ -50,6 +50,14 @@ export type Projectile = {
   /** die_on_liquid_collision */
   dieOnLiquid?: boolean;
   friendlyFire: boolean;
+  /** damage_scaled_by_speed: hit damage × speed / initial speed (or / maxSpeed when set). */
+  speedDamage?: { maxSpeed?: number };
+  /** die_on_low_velocity: it fizzles below this speed, px/s. */
+  lowVelocityLimit?: number;
+  /** Its blast can hurt the caster (explosion_dont_damage_shooter is off). */
+  hurtsCaster?: boolean;
+  /** Thrown physics body (bombs): PhysicsThrowableComponent throw_force_coeff. */
+  throwCoeff?: number;
   /** Seconds a damage field ticks for, when damage_every_x_frames is set. */
   damageEveryFrames: number;
   /** Status effects applied on hit (entity basenames). */
@@ -388,6 +396,8 @@ export type Item = {
   description: string;
   icon: Icon;
   tags?: string[];
+  /** Thrown, it hurts what it hits: melee damage (HP) at maxSpeed px/s, scaled by speed. */
+  thrown?: { damage: number; maxSpeed: number; hitsPlayer: boolean };
 };
 
 export type CellType = 'liquid' | 'gas' | 'solid' | 'fire' | 'powder' | 'sand' | string;

@@ -63,12 +63,20 @@ export async function collectItems(wak: Wak, loader: EntityLoader, t: Translatio
       '';
     const img = await spriteImage(wak, spriteFile);
     if (img) images.push({ key: id, png: await fitIcon(img) });
+    // base_item_projectile.xml: a thrown stone or egg hurts what it hits, damage × speed / max speed.
+    const pc = comp(e, 'ProjectileComponent');
+    const melee = num(comp(pc, 'damage_by_type')?.attrs.melee, 0);
+    const thrown =
+      pc?.attrs.damage_scaled_by_speed === '1' && melee > 0
+        ? { damage: Math.round(melee * 25 * 100) / 100, maxSpeed: num(pc.attrs.damage_scale_max_speed, 0), hitsPlayer: pc.attrs.never_hit_player !== '1' }
+        : undefined;
     items.push({
       id,
       name,
       description: tr(t, ic?.attrs.ui_description),
       iconKey: id,
       ...(tags.length ? { tags } : {}),
+      ...(thrown ? { thrown } : {}),
     });
   }
   return { items, images };

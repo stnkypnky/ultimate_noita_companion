@@ -242,6 +242,55 @@ describe('spell fixes', () => {
     expect(rocks(w)).toBeLessThan(before);
   });
 
+  it('Dynamite is thrown hardest, Glitter bomb a little softer, Bomb is a slow lob (speed × throw_force_coeff)', () => {
+    const P = 'data/entities/projectiles/';
+    const fuse = (f: string) => data.projectiles[P + f]!.lifetime;
+    expect([fuse('bomb.xml'), fuse('deck/glitter_bomb.xml'), fuse('deck/tnt.xml')]).toEqual([180, 50, 50]);
+    const thrown = (spell: string, file: string) => {
+      const w = fly([spell], 2);
+      return Math.hypot(live(w, file)[0]!.vx, live(w, file)[0]!.vy);
+    };
+    const tnt = thrown('DYNAMITE', 'tnt');
+    const glitter = thrown('GLITTER_BOMB', 'glitter_bomb');
+    const bomb = thrown('BOMB', 'bomb');
+    expect(tnt).toBeGreaterThan(glitter + 40);
+    expect(glitter).toBeGreaterThan(bomb * 2);
+    expect(tnt).toBeGreaterThan(300); // the old cap was 220
+    expect(bomb).toBeLessThan(130);
+  });
+
+  it("Bouncing Burst's damage scales with its speed against its speed at the end of frame 1", () => {
+    const hitAt = (scale: number, file = 'rubber_ball') => {
+      const w = new RangeWorld(data);
+      const c = w.dummyCenter;
+      const p = w.spawn(`data/entities/projectiles/deck/${file}.xml`, c.x - 80, c.y, 450, 0)!;
+      p.gravity = 0;
+      p.airFriction = 0;
+      w.step();
+      p.vx *= scale;
+      for (let i = 0; i < 60 && !w.damageEvents.length; i++) w.step();
+      return w.damageEvents[0]?.amount ?? 0;
+    };
+    const full = hitAt(1);
+    expect(full).toBeGreaterThan(0);
+    expect(hitAt(0.5)).toBeCloseTo(full / 2, 1);
+    expect(hitAt(1.4)).toBeCloseTo(full * 1.4, 1);
+    // Energy Sphere: only its 5 Projectile damage scales; its 5 Slice doesn't (wiki).
+    const orb = data.projectiles['data/entities/projectiles/deck/bouncy_orb.xml']!.damage;
+    expect(hitAt(1, 'bouncy_orb')).toBeCloseTo((orb.projectile ?? 0) + (orb.slice ?? 0), 1);
+    expect(hitAt(0.5, 'bouncy_orb')).toBeCloseTo((orb.projectile ?? 0) / 2 + (orb.slice ?? 0), 1);
+  });
+
+  it('Bouncing Burst keeps going down to 5 px/s (die_on_low_velocity_limit), not the old 40', () => {
+    expect(data.projectiles['data/entities/projectiles/deck/rubber_ball.xml']!.lowVelocityLimit).toBe(5);
+    const w = new RangeWorld(data);
+    const p = w.spawn('data/entities/projectiles/deck/rubber_ball.xml', 100, 60, 25, 0)!;
+    p.gravity = 0;
+    p.airFriction = 0;
+    for (let i = 0; i < 20; i++) w.step();
+    expect(p.dead).toBeFalsy();
+  });
+
   it('luminous drill is drawn as a short beam and bores into rock', () => {
     const { w, maxSegments } = world(['LUMINOUS_DRILL'], 30, 300);
     expect(maxSegments).toBeGreaterThan(0);

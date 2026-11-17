@@ -145,6 +145,11 @@ export function buildProjectile(file: string, loader: EntityLoader): Projectile 
     friendlyFire: pc?.attrs.friendly_fire === '1',
     damageEveryFrames: num(pc?.attrs.damage_every_x_frames, -1),
     effects,
+    // Hidden mechanics the game never shows: damage × speed / initial speed (Bouncing Burst, arrows, discs).
+    ...(pc?.attrs.damage_scaled_by_speed === '1' ? { speedDamage: num(pc.attrs.damage_scale_max_speed, 0) > 0 ? { maxSpeed: num(pc.attrs.damage_scale_max_speed, 0) } : {} } : {}),
+    ...(pc?.attrs.die_on_low_velocity === '1' ? { lowVelocityLimit: num(pc.attrs.die_on_low_velocity_limit, 50) } : {}),
+    ...(explosion && explosion.radius > 0 && pc?.attrs.explosion_dont_damage_shooter !== '1' ? { hurtsCaster: true } : {}),
+    ...(comp(e, 'PhysicsThrowableComponent') && comp(e, 'PhysicsBodyComponent') ? { throwCoeff: num(comp(e, 'PhysicsThrowableComponent')!.attrs.throw_force_coeff, 1) } : {}),
     ...(emitter ? { material: emitter.attrs.emitted_material_name } : {}),
   };
 }

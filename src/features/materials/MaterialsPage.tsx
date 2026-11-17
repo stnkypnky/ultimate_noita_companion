@@ -11,6 +11,7 @@ import { Page } from '@/ui/Page';
 import { Chip, ChipRow, SearchInput, Section, StatTable, useSearchFocus } from '@/ui/controls';
 import { MasterDetail } from '@/ui/MasterDetail';
 import { HiddenNotice } from '@/ui/Spoiler';
+import { HiddenMechanics } from '@/ui/HiddenMechanics';
 import { useDebounced } from '@/ui/hooks';
 import { MaterialSwatch } from './MaterialSwatch';
 import { nameHints } from '@/features/alchemy/lookup';
@@ -161,6 +162,8 @@ function MaterialDetail({ material: m }: { material: Material }) {
       <Section title="Properties">
         <StatTable rows={rows} />
       </Section>
+
+      <HiddenMechanics kind="material" id={m.id} />
 
       {m.tags.length > 0 && (
         <Section title="Tags">

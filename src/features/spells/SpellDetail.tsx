@@ -7,6 +7,7 @@ import { useSpoilers } from '@/store/progress';
 import { Section, StatTable } from '@/ui/controls';
 import { SpellIcon, TYPE_COLOR, TYPE_LABEL } from '@/ui/GameIcon';
 import { HiddenNotice, InlineSpoiler } from '@/ui/Spoiler';
+import { HiddenMechanics, projectileNotes } from '@/ui/HiddenMechanics';
 import { StatIcon, type StatIconName } from '@/ui/game';
 
 const DAMAGE_LABEL: Record<DamageType, string> = {
@@ -74,6 +75,8 @@ export function SpellDetail({ spell }: { spell: Spell }) {
           <Wand2 size={16} /> Add to wand
         </Link>
       </div>
+
+      <HiddenMechanics kind="spell" id={spell.id} auto={projectileNotes(projs)} />
 
       {effects.filter((e) => !['Cast delay', 'Recharge time'].includes(e.label)).length > 0 && (
         <Section title="Shot modifiers">

@@ -10,6 +10,7 @@ import { Chip, ChipRow, SearchInput, Section, StatTable, useSearchFocus } from '
 import { AtlasIcon } from '@/ui/GameIcon';
 import { MasterDetail } from '@/ui/MasterDetail';
 import { HiddenNotice } from '@/ui/Spoiler';
+import { HiddenMechanics } from '@/ui/HiddenMechanics';
 import { useDebounced } from '@/ui/hooks';
 
 type Filter = 'stackable' | 'once' | 'enemies';
@@ -129,6 +130,7 @@ function PerkDetail({ perk }: { perk: Perk }) {
       <Section title="Details">
         <StatTable rows={rows} />
       </Section>
+      <HiddenMechanics kind="perk" id={perk.id} />
     </article>
   );
 }
