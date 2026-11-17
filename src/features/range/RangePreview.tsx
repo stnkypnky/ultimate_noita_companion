@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowBigUp, ArrowLeftRight, Bot, ChevronLeft, ChevronRight, Dices, Gauge, Maximize2, Minimize2, Mountain, Pause, Play } from 'lucide-react';
+import { ArrowBigUp, ArrowLeftRight, BatteryCharging, Bot, ChevronLeft, ChevronRight, Dices, Gauge, Maximize2, Minimize2, Mountain, Pause, Play } from 'lucide-react';
 import { fetchJson, useData } from '@/data/store';
 import type { EntityVisual, RangeKit, RangeProp } from '@/data/types';
 import { fmtNum } from '@/data/format';
@@ -64,7 +64,26 @@ type Hud = {
 };
 
 /** Live pixel test range: hold the wand and cast it at a target dummy, with the wand's real mana and recharge. */
-export function RangePreview({ wand, options, otherWands, active }: { wand: Wand; options: SimOptions; otherWands?: string[][]; active: boolean }) {
+export function RangePreview({
+  wand,
+  options,
+  otherWands,
+  active,
+  refills = 0,
+  onChargesSpent,
+  onRefill,
+}: {
+  wand: Wand;
+  options: SimOptions;
+  otherWands?: string[][];
+  active: boolean;
+  /** Bumped when every spell is refilled: the live deck gets its charges back. */
+  refills?: number;
+  /** Charges left per deck card after casting (1-based inventory number), to keep spent charges on the wand. */
+  onChargesSpent?: (uses: { inv: number; uses: number }[]) => void;
+  /** Refill every spell's charges. */
+  onRefill?: () => void;
+}) {
   const { projectiles, materials, materialById, reactions, spellById } = useData();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -83,6 +102,13 @@ export function RangePreview({ wand, options, otherWands, active }: { wand: Wand
   const [hud, setHud] = useState<Hud>({ dps: 0, total: 0, self: 0, healed: 0, song: null, casts: 0, live: 0, unsupported: [], wandError: null, deck: null, played: [] });
   const [fps, setFps] = useState<{ fps: number; step: number; draw: number } | null>(null);
   const req = useMemo(() => toSimRequest(wand, options, spellById, otherWands).req, [wand, options, spellById, otherWands]);
+  // The wand without its charges: only a change to this is a new wand in hand. Charges alone (spent here, edited
+  // or refilled) update the live deck instead, so casting doesn't keep restarting it.
+  const shape = useMemo(() => JSON.stringify({ ...req, deck: req.deck.map((c) => c.id) }), [req]);
+  const reqRef = useRef(req);
+  reqRef.current = req;
+  const spentRef = useRef(onChargesSpent);
+  spentRef.current = onChargesSpent;
   const empty = req.deck.length === 0 && req.alwaysCasts.length === 0;
   const wandSprite = useMemo(() => (ready?.data.kit ? pickWandSprite(ready.data.kit.wands, wand, look) : undefined), [ready, wand, look]);
   const touch = useMemo(() => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches, []);
@@ -140,8 +166,20 @@ export function RangePreview({ wand, options, otherWands, active }: { wand: Wand
       w.wand = new WandRuntime(session, (c) => world.fire(c));
     }
     w.clearShots();
-    w.wand!.equip(req, w.frame);
-  }, [ready, req, session]); // distance, auto and the sprite have their own effects; a new world just starts at the current settings
+    w.wand!.equip(reqRef.current, w.frame);
+  }, [ready, shape, session]); // distance, auto and the sprite have their own effects; a new world just starts at the current settings
+
+  // Charges changed from outside (edited, or refilled): the wand in hand gets them. Charges this range spent
+  // and wrote back already match the live deck, so they change nothing.
+  const lastRefills = useRef(refills);
+  useEffect(() => {
+    const rt = worldRef.current?.wand;
+    if (!ready || !rt?.equipped) return;
+    const live = rt.liveUses();
+    const refilled = lastRefills.current !== refills;
+    lastRefills.current = refills;
+    if (refilled || req.deck.some((c, i) => c.uses !== live[i])) rt.recharge(req);
+  }, [ready, req, refills]);
 
   // Pause when scrolled away or the tab is hidden.
   useEffect(() => {
@@ -217,6 +255,7 @@ export function RangePreview({ wand, options, otherWands, active }: { wand: Wand
           stepMs = drawMs = 0;
           hudTimer = 0;
           const rt = world.wand;
+          if (rt?.deck && spentRef.current) spentRef.current(rt.deck.uses);
           setHud({
             dps: world.dps,
             total: world.totalDamage,
@@ -448,6 +487,11 @@ export function RangePreview({ wand, options, otherWands, active }: { wand: Wand
         <Btn label="Swap wand (1): restarts the deck, like switching items in-game" onClick={() => worldRef.current?.wand?.swap()}>
           <ArrowLeftRight size={15} />
         </Btn>
+        {onRefill && (
+          <Btn label="Refill charges: every spell back to full, like a Holy Mountain" onClick={onRefill}>
+            <BatteryCharging size={15} />
+          </Btn>
+        )}
         <Btn label="Another wand sprite for these stats" onClick={() => setLook(look + 1)}>
           <Dices size={15} />
         </Btn>

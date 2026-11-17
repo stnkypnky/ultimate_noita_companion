@@ -7,6 +7,8 @@ export type Wand = SimWand & {
   /** One entry per slot; null = empty. Length always equals capacity. */
   spells: (string | null)[];
   alwaysCasts: string[];
+  /** Charges left per slot, for spells with limited uses; null or missing = full. */
+  charges?: (number | null)[];
 };
 
 export type SimOptions = {
@@ -20,6 +22,8 @@ export type SimOptions = {
   hp: number;
   maxHp: number;
   money: number;
+  /** Casting in the test range spends the wand's charges, which stay spent until refilled (as in the game). */
+  useCharges?: boolean;
 };
 
 export const MAX_CAPACITY = 26;
@@ -41,11 +45,47 @@ export const DEFAULT_WAND: Wand = {
 
 export const DEFAULT_OPTIONS: SimOptions = { unlimitedSpells: true, mode: 'cycle', casts: 10, frame: 0, hp: 100, maxHp: 100, money: 0 };
 
-export function resize(spells: (string | null)[], capacity: number): (string | null)[] {
-  const out = spells.slice(0, capacity);
+export function resize<T>(slots: (T | null)[], capacity: number): (T | null)[] {
+  const out = slots.slice(0, capacity);
   while (out.length < capacity) out.push(null);
   return out;
 }
+
+/** Does this spell run out of charges with these options? (The Unlimited Spells perk spares all but a few.) */
+export const isLimited = (spell: Spell, opts: Pick<SimOptions, 'unlimitedSpells'>) => spell.maxUses !== null && (!opts.unlimitedSpells || spell.neverUnlimited);
+
+/** Charges left for the spell in a slot, or null when it has unlimited uses. */
+export function chargesLeft(wand: Wand, slot: number, spell: Spell, opts: Pick<SimOptions, 'unlimitedSpells'>): number | null {
+  if (!isLimited(spell, opts)) return null;
+  const c = wand.charges?.[slot];
+  return c === null || c === undefined ? spell.maxUses! : Math.max(0, Math.min(spell.maxUses!, Math.round(c)));
+}
+
+/**
+ * The wand's charges after the live deck spent some: `uses` is gun.lua's remaining uses per deck card (1-based
+ * inventory number), `slotOfCard` maps cards to slots. Full spells are stored as null.
+ */
+export function chargesAfter(
+  wand: Wand,
+  slotOfCard: number[],
+  uses: { inv: number; uses: number }[],
+  spellById: Map<string, Spell>,
+): (number | null)[] {
+  const out = resize(wand.charges ?? [], wand.capacity);
+  for (const { inv, uses: left } of uses) {
+    const slot = slotOfCard[inv - 1];
+    const spell = slot === undefined ? undefined : spellById.get(wand.spells[slot] ?? '');
+    if (slot === undefined || !spell || spell.maxUses === null || left < 0) continue;
+    out[slot] = left >= spell.maxUses ? null : left;
+  }
+  return out;
+}
+
+export const sameCharges = (a: (number | null)[] | undefined, b: (number | null)[] | undefined, capacity: number) => {
+  const x = resize(a ?? [], capacity);
+  const y = resize(b ?? [], capacity);
+  return x.every((v, i) => (v ?? null) === (y[i] ?? null));
+};
 
 /**
  * The player carries at most 4 wands (the quick inventory), so Zeta can draw on 3 others. The wand builder
@@ -72,8 +112,7 @@ export function toSimRequest(
   wand.spells.forEach((id, slot) => {
     const spell = id ? spellById.get(id) : undefined;
     if (!spell) return;
-    const limited = spell.maxUses !== null && (!opts.unlimitedSpells || spell.neverUnlimited);
-    deck.push({ id: spell.id, uses: limited ? spell.maxUses! : -1 });
+    deck.push({ id: spell.id, uses: chargesLeft(wand, slot, spell, opts) ?? -1 });
     slotOfCard.push(slot);
   });
   return {
@@ -98,7 +137,8 @@ export function toSimRequest(
 // ---------- Share codes ----------
 
 /** Compact on-the-wire form: short keys, spells as one comma string. */
-type Packed = { v: 1; n?: string; w: [number, number, number, number, number, number, number, number, number, number]; s: string; a?: string };
+/** `c`: charges left per slot, one comma entry per slot (empty = full), only when any were spent. */
+type Packed = { v: 1; n?: string; w: [number, number, number, number, number, number, number, number, number, number]; s: string; a?: string; c?: string };
 
 export async function encodeWand(w: Wand): Promise<string> {
   const packed: Packed = {
@@ -107,6 +147,7 @@ export async function encodeWand(w: Wand): Promise<string> {
     w: [w.shuffle ? 1 : 0, w.spellsPerCast, w.castDelay, w.rechargeTime, w.manaMax, w.manaChargeSpeed, w.capacity, w.spread, w.speedMultiplier, 0],
     s: w.spells.map((s) => s ?? '').join(','),
     ...(w.alwaysCasts.length ? { a: w.alwaysCasts.join(',') } : {}),
+    ...(w.charges?.some((c) => c !== null && c !== undefined) ? { c: resize(w.charges, w.capacity).map((c) => c ?? '').join(',') } : {}),
   };
   return packJson(packed);
 }
@@ -132,5 +173,6 @@ export async function decodeWand(code: string): Promise<Wand> {
       cap,
     ),
     alwaysCasts: p.a ? p.a.split(',').filter(Boolean) : [],
+    ...(p.c ? { charges: resize(p.c.split(',').map((c) => (c === '' || !Number.isFinite(Number(c)) ? null : Math.max(0, Math.round(Number(c))))), cap) } : {}),
   };
 }

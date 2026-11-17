@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_OPTIONS, DEFAULT_WAND, decodeWand, encodeWand, resize, toSimRequest, type Wand } from '../src/features/wand/model.ts';
+import { DEFAULT_OPTIONS, DEFAULT_WAND, chargesAfter, decodeWand, encodeWand, resize, sameCharges, toSimRequest, type Wand } from '../src/features/wand/model.ts';
 import type { Spell } from '../src/data/types.ts';
 
 const wand: Wand = {
@@ -40,6 +40,34 @@ describe('toSimRequest', () => {
   it('limits charges unless Unlimited spells is on', () => {
     expect(toSimRequest(wand, { ...DEFAULT_OPTIONS, unlimitedSpells: false }, byId).req.deck[2]!.uses).toBe(3);
     expect(toSimRequest(wand, { ...DEFAULT_OPTIONS, unlimitedSpells: true }, byId).req.deck[2]!.uses).toBe(-1);
+  });
+
+  it('uses the charges left in each slot, down to 0 (a spent spell, for Add Trigger’s useful failure)', () => {
+    const limited = { ...DEFAULT_OPTIONS, unlimitedSpells: false };
+    const spent: Wand = { ...wand, charges: [null, null, null, 0, null] };
+    expect(toSimRequest(spent, limited, byId).req.deck[2]!.uses).toBe(0);
+    expect(toSimRequest({ ...wand, charges: [null, null, null, 2, null] }, limited, byId).req.deck[2]!.uses).toBe(2);
+    // Out-of-range values are clamped; Unlimited spells still overrides them.
+    expect(toSimRequest({ ...wand, charges: [null, null, null, 9, null] }, limited, byId).req.deck[2]!.uses).toBe(3);
+    expect(toSimRequest(spent, DEFAULT_OPTIONS, byId).req.deck[2]!.uses).toBe(-1);
+  });
+
+  it('turns the live deck’s spent charges back into slot charges (full = null)', () => {
+    const { slotOfCard } = toSimRequest(wand, { ...DEFAULT_OPTIONS, unlimitedSpells: false }, byId);
+    const uses = [
+      { inv: 1, uses: -1 },
+      { inv: 2, uses: -1 },
+      { inv: 3, uses: 1 },
+    ];
+    expect(chargesAfter(wand, slotOfCard, uses, byId)).toEqual([null, null, null, 1, null]);
+    expect(chargesAfter(wand, slotOfCard, [{ inv: 3, uses: 3 }], byId)).toEqual([null, null, null, null, null]);
+    expect(sameCharges([null, null, null, 1, null], [null, null, null, 1], 5)).toBe(true);
+    expect(sameCharges(undefined, [null, 0], 5)).toBe(false);
+  });
+
+  it('share codes keep spent charges', async () => {
+    const spent: Wand = { ...wand, charges: [null, null, null, 0, null] };
+    expect(await decodeWand(await encodeWand(spent))).toEqual(spent);
   });
 
   it('resizes slot arrays', () => {

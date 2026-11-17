@@ -5,6 +5,14 @@ import { DEFAULT_OPTIONS, DEFAULT_WAND, MAX_CAPACITY, resize, type SimOptions, t
 
 const HISTORY = 50;
 
+/** The wand with one slot's charges set (null = full); a wand with nothing spent keeps no charges list. */
+function withCharge(w: Wand, slot: number, n: number | null): Wand {
+  if (!w.charges && n === null) return w;
+  const charges = resize(w.charges ?? [], w.capacity);
+  charges[slot] = n;
+  return charges.some((c) => c !== null) ? { ...w, charges } : { ...w, charges: undefined };
+}
+
 type WandState = {
   wand: Wand;
   options: SimOptions;
@@ -23,6 +31,14 @@ type WandState = {
   addAlwaysCast: (id: string) => void;
   removeAlwaysCast: (index: number) => void;
   load: (w: Wand) => void;
+  /** Set a slot's charges left (null = full); recorded in undo history. */
+  setCharges: (slot: number, n: number | null) => void;
+  /** Charges spent by casting in the test range (not an edit, so not in undo history). */
+  spendCharges: (charges: (number | null)[]) => void;
+  /** Every spell back to full charges. */
+  refillCharges: () => void;
+  /** Bumped on every refill, so the test range refills its live deck even when the wand was already full. */
+  refills: number;
   setOptions: (o: Partial<SimOptions>) => void;
   undo: () => void;
   redo: () => void;
@@ -44,9 +60,10 @@ export const useWand = create<WandState>()(
       setStat: (key, value) => get().edit((w) => ({ ...w, [key]: value })),
       setCapacity: (n) => {
         const capacity = Math.max(1, Math.min(MAX_CAPACITY, Math.round(n)));
-        get().edit((w) => ({ ...w, capacity, spells: resize(w.spells, capacity) }));
+        get().edit((w) => ({ ...w, capacity, spells: resize(w.spells, capacity), ...(w.charges ? { charges: resize(w.charges, capacity) } : {}) }));
       },
-      place: (slot, id) => get().edit((w) => ({ ...w, spells: w.spells.map((s, i) => (i === slot ? id : s)) })),
+      // A spell put in a slot arrives with full charges.
+      place: (slot, id) => get().edit((w) => withCharge({ ...w, spells: w.spells.map((s, i) => (i === slot ? id : s)) }, slot, null)),
       addToFirstEmpty: (id) => {
         const slot = get().wand.spells.indexOf(null);
         if (slot < 0) return false;
@@ -58,13 +75,22 @@ export const useWand = create<WandState>()(
           if (a === b) return w;
           const spells = [...w.spells];
           [spells[a], spells[b]] = [spells[b] ?? null, spells[a] ?? null];
-          return { ...w, spells };
+          if (!w.charges) return { ...w, spells };
+          // Charges travel with their spell.
+          const charges = resize(w.charges, w.capacity);
+          [charges[a], charges[b]] = [charges[b] ?? null, charges[a] ?? null];
+          return { ...w, spells, charges };
         }),
-      remove: (slot) => get().edit((w) => ({ ...w, spells: w.spells.map((s, i) => (i === slot ? null : s)) })),
-      clear: () => get().edit((w) => ({ ...w, spells: w.spells.map(() => null), alwaysCasts: [] })),
+      remove: (slot) => get().edit((w) => withCharge({ ...w, spells: w.spells.map((s, i) => (i === slot ? null : s)) }, slot, null)),
+      clear: () => get().edit((w) => ({ ...w, spells: w.spells.map(() => null), alwaysCasts: [], charges: undefined })),
       addAlwaysCast: (id) => get().edit((w) => ({ ...w, alwaysCasts: [...w.alwaysCasts, id] })),
       removeAlwaysCast: (index) => get().edit((w) => ({ ...w, alwaysCasts: w.alwaysCasts.filter((_, i) => i !== index) })),
-      load: (w) => get().edit(() => ({ ...w, spells: resize(w.spells, w.capacity) })),
+      load: (w) => get().edit(() => ({ ...w, spells: resize(w.spells, w.capacity), ...(w.charges ? { charges: resize(w.charges, w.capacity) } : {}) })),
+      setCharges: (slot, n) => get().edit((w) => withCharge(w, slot, n)),
+      spendCharges: (charges) =>
+        set((s) => ({ wand: { ...s.wand, charges: charges.some((c) => c !== null) ? resize(charges, s.wand.capacity) : undefined } })),
+      refillCharges: () => set((s) => ({ wand: { ...s.wand, charges: undefined }, refills: s.refills + 1 })),
+      refills: 0,
       setOptions: (o) => set((s) => ({ options: { ...s.options, ...o } })),
       undo: () =>
         set((s) => {

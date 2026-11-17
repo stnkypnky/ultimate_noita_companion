@@ -1,4 +1,4 @@
-// The test range driven by real cast-simulator output (game scripts) and real extracted projectile data.
+﻿// The test range driven by real cast-simulator output (game scripts) and real extracted projectile data.
 import { beforeAll, describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -163,20 +163,20 @@ describe('test range basics', () => {
     // Its 50-frame fuse runs out in mid-air.
     for (let i = 0; i < 52 && !shards.length; i++) w.step();
     expect(shards).toHaveLength(12);
-    // SetStartVelocityComponent: 80–120 in any direction (they've moved one frame since).
+    // SetStartVelocityComponent: 80â€“120 in any direction (they've moved one frame since).
     const speeds = shards.map((s) => Math.hypot(s.vx, s.vy));
     expect(Math.min(...speeds)).toBeGreaterThan(50);
     expect(Math.max(...speeds)).toBeLessThan(125);
     const angles = new Set(shards.map((s) => Math.round(((Math.atan2(s.vy, s.vx) + Math.PI) / (2 * Math.PI)) * 4) % 4));
     expect(angles.size).toBeGreaterThan(1);
-    // They shed glitter clouds and sparkles as they fly…
+    // They shed glitter clouds and sparkles as they flyâ€¦
     let most = 0;
     for (let i = 0; i < 60; i++) {
       w.step();
       most = Math.max(most, w.spriteParticles.length);
     }
     expect(most).toBeGreaterThan(10);
-    // …and each pops within its 200-frame life.
+    // â€¦and each pops within its 200-frame life.
     for (let i = 0; i < 160; i++) w.step();
     expect(shards.every((s) => s.dead)).toBe(true);
   });
@@ -243,7 +243,7 @@ describe('spell fixes', () => {
     expect(rocks(w)).toBeLessThan(before);
   });
 
-  it('Dynamite is thrown hardest, Glitter bomb a little softer, Bomb is a slow lob (speed × throw_force_coeff)', () => {
+  it('Dynamite is thrown hardest, Glitter bomb a little softer, Bomb is a slow lob (speed Ã— throw_force_coeff)', () => {
     const P = 'data/entities/projectiles/';
     const fuse = (f: string) => data.projectiles[P + f]!.lifetime;
     expect([fuse('bomb.xml'), fuse('deck/glitter_bomb.xml'), fuse('deck/tnt.xml')]).toEqual([180, 50, 50]);
@@ -621,7 +621,7 @@ describe('note spell songs (kantele.lua / ocarina.lua)', () => {
     expect(play('ocarina', ['e', 'c', 'b', 'gsharp', 'f'])).toEqual(['alchemy']);
   });
 
-  it('kantele G always opens the alchemy song (pairs order in the game’s LuaJIT), so the kantele bomb song never completes', () => {
+  it('kantele G always opens the alchemy song (pairs order in the gameâ€™s LuaJIT), so the kantele bomb song never completes', () => {
     const s = new SongState('kantele');
     s.play('g');
     expect(s.song).toBe('alchemy');
@@ -700,6 +700,38 @@ describe('projection wands: Pollen trigger loops (wiki: Pollen; reddit "A vanill
     expect(count('lance_holy.xml')).toBeLessThan(10);
     expect(count('pollen.xml')).toBeGreaterThan(20 * count('lance_holy.xml'));
     expect(count('light_bullet.xml')).toBeGreaterThan(20 * count('lance_holy.xml'));
+  });
+});
+
+describe('charges', () => {
+  it('casting spends charges, a spent spell is skipped, and a refill brings them back without a new wand', () => {
+    const w = new RangeWorld(data);
+    const req: SimRequest = {
+      wand: { shuffle: false, spellsPerCast: 1, castDelay: 10, rechargeTime: 20, manaMax: 2000, manaChargeSpeed: 2000, capacity: 2, spread: 0, speedMultiplier: 1 },
+      deck: [
+        { id: 'BOMB', uses: 2 },
+        { id: 'LIGHT_BULLET', uses: -1 },
+      ],
+      alwaysCasts: [],
+      options: { maxCasts: 64, stopOnReload: true, hp: 100, maxHp: 100, money: 0, frame: 0 },
+    };
+    const call = (fn: string, ...args: unknown[]) => host.call(fn, ...args);
+    let n = 0;
+    const played: string[] = [];
+    w.wand = new WandRuntime({ reset: (r) => resetWand(call, r), cast: (f, m) => castWand(call, f, m, ++n) }, (c) => played.push(...c.played));
+    w.wand.equip(req, w.frame);
+    w.auto = true;
+    for (let i = 0; i < 400; i++) w.step();
+    expect(w.wand.liveUses()).toEqual([0, -1]);
+    expect(played.filter((p) => p === 'BOMB')).toHaveLength(2);
+    // Refilled: the deck has its charges back, and mana carries over.
+    const mana = w.wand.mana;
+    w.wand.recharge(req);
+    expect(w.wand.liveUses()).toEqual([2, -1]);
+    expect(w.wand.mana).toBe(mana);
+    played.length = 0;
+    for (let i = 0; i < 60; i++) w.step();
+    expect(played).toContain('BOMB');
   });
 });
 

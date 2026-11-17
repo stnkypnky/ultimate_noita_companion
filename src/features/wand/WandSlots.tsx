@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Plus, Trash2 } from 'lucide-react';
 import { gameUrl, useData } from '@/data/store';
 import { SpellIcon } from '@/ui/GameIcon';
+import { chargesLeft } from './model';
 import { useWand } from './store';
 
 export type DragData =
@@ -50,7 +51,8 @@ function Slot({
   onSelect: (slot: number | null) => void;
 }) {
   const { spellById } = useData();
-  const unlimited = useWand((s) => s.options.unlimitedSpells);
+  const options = useWand((s) => s.options);
+  const wand = useWand((s) => s.wand);
   const spell = spellId ? spellById.get(spellId) : undefined;
   const drop = useDroppable({ id: `drop-slot:${slot}`, data: { target: 'slot', slot } satisfies DropData });
   const drag = useDraggable({
@@ -59,7 +61,7 @@ function Slot({
     data: spell ? ({ source: 'slot', slot, spellId: spell.id } satisfies DragData) : undefined,
   });
   const size = 20 * scale + 8;
-  const charges = spell && spell.maxUses !== null && (!unlimited || spell.neverUnlimited) ? spell.maxUses : null;
+  const charges = spell ? chargesLeft(wand, slot, spell, options) : null;
 
   return (
     <div
@@ -82,12 +84,18 @@ function Slot({
           {...drag.listeners}
           {...drag.attributes}
           onClick={() => onSelect(selected ? null : slot)}
-          aria-label={`${spell.name}, slot ${slot + 1}`}
+          aria-label={`${spell.name}, slot ${slot + 1}${charges !== null ? `, ${charges} charges` : ''}`}
           className={`touch-manipulation select-none ${drag.isDragging ? 'opacity-30' : ''}`}
         >
-          <SpellIcon type={spell.type} icon={spell.icon} scale={scale} />
+          <span className={charges === 0 ? 'opacity-50 grayscale' : undefined}>
+            <SpellIcon type={spell.type} icon={spell.icon} scale={scale} />
+          </span>
           {charges !== null && (
-            <span className="absolute right-0.5 bottom-0.5 rounded bg-bg/80 px-1 text-[10px] leading-tight font-semibold text-gold tabular-nums">{charges}</span>
+            <span
+              className={`absolute right-0.5 bottom-0.5 rounded bg-bg/80 px-1 text-[10px] leading-tight font-semibold tabular-nums ${charges === 0 ? 'text-blood' : charges < spell.maxUses! ? 'text-ink' : 'text-gold'}`}
+            >
+              {charges}
+            </span>
           )}
         </button>
       ) : (

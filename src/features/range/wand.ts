@@ -64,6 +64,20 @@ export class WandRuntime {
     this.load({ ...this.req, deck: this.req.deck.map((c, i) => ({ ...c, uses: left.get(i + 1) ?? c.uses })), options: { ...this.req.options, mana: this.mana } });
   }
 
+  /**
+   * New charges from outside (edited in the builder, or refilled): the deck starts over with them, like
+   * swapping items. Mana and any recharge already running carry over.
+   */
+  recharge(req: SimRequest) {
+    this.load({ ...req, options: { ...req.options, mana: this.mana } });
+  }
+
+  /** Charges left per deck card as the wand stands now (-1 = unlimited). */
+  liveUses(): number[] {
+    const left = new Map(this.deck?.uses.map((u) => [u.inv, u.uses]));
+    return this.req?.deck.map((c, i) => left.get(i + 1) ?? c.uses) ?? [];
+  }
+
   private load(req: SimRequest) {
     const g = ++this.gen;
     this.req = req;
@@ -121,7 +135,10 @@ export class WandRuntime {
         this.reloadEnd = frame + Math.max(0, c.reload);
       }
       if (c.no_mana > 0) this.noManaFrame = frame;
-      this.deck = r.deck;
+      // gun.lua drops a card from the deck once its last charge is used, so a limited card missing from the list is spent.
+      const listed = new Set(r.deck.uses.map((u) => u.inv));
+      const spent = (this.req?.deck ?? []).flatMap((card, i) => (card.uses >= 0 && !listed.has(i + 1) ? [{ inv: i + 1, uses: 0 }] : []));
+      this.deck = spent.length ? { ...r.deck, uses: [...r.deck.uses, ...spent] } : r.deck;
       this.lastCast = c;
       for (const m of r.missing) this.missing.add(m);
       this.onCast(c);

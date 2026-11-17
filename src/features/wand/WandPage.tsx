@@ -12,7 +12,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { BookOpen, Dices, Eraser, FolderHeart, Info, Plus, Redo2, Repeat, Trash2, Undo2, X } from 'lucide-react';
+import { BatteryCharging, BookOpen, Dices, Eraser, FolderHeart, Info, Plus, Redo2, Repeat, Trash2, Undo2, X } from 'lucide-react';
 import { useData } from '@/data/store';
 import { warmUpSimulator } from '@/sim/client';
 import type { CastView } from '@/sim/analyze';
@@ -24,7 +24,7 @@ import { Sheet } from '@/ui/Sheet';
 import { useIsDesktop } from '@/ui/hooks';
 import { BuildsPanel } from './BuildsPanel';
 import { CastResults } from './CastResults';
-import { decodeWand } from './model';
+import { chargesAfter, chargesLeft, decodeWand, isLimited, sameCharges, toSimRequest } from './model';
 import { SpellPalette } from './SpellPalette';
 import { useWand } from './store';
 import { RangePreview } from '@/features/range/RangePreview';
@@ -44,6 +44,16 @@ export function WandPage() {
   const canRedo = useWand((s) => s.future.length > 0);
   const otherWands = useOtherWands(wand.name);
   const sim = useSimulation(wand, options, otherWands);
+  const refills = useWand((s) => s.refills);
+  // "Use up charges": what the test range spends stays spent on the wand, until refilled.
+  const onChargesSpent = useCallback(
+    (uses: { inv: number; uses: number }[]) => {
+      const s = store();
+      const next = chargesAfter(s.wand, toSimRequest(s.wand, s.options, spellById).slotOfCard, uses, spellById);
+      if (!sameCharges(next, s.wand.charges, s.wand.capacity)) s.spendCharges(next);
+    },
+    [spellById, store],
+  );
 
   const [selected, setSelected] = useState<number | null>(null);
   const [dragging, setDragging] = useState<DragData | null>(null);
@@ -221,6 +231,7 @@ export function WandPage() {
                   <SpellIcon type={selectedSpell.type} icon={selectedSpell.icon} scale={1} />
                   <span className="font-medium">{selectedSpell.name}</span>
                   <span className="text-faint">· {selectedSpell.mana} mana</span>
+                  <ChargesEditor slot={selected} spellId={selectedSpell.id} />
                   <span className="ml-auto flex gap-1">
                     <Link to={`/spells/${selectedSpell.id}`} className="rounded-lg p-1.5 text-muted hover:text-ink" title="Spell details">
                       <Info size={16} />
@@ -278,7 +289,15 @@ export function WandPage() {
     >
       {view === 'preview' ? (
         <div className="space-y-3">
-          <RangePreview wand={wand} options={options} otherWands={otherWands} active />
+          <RangePreview
+            wand={wand}
+            options={options}
+            otherWands={otherWands}
+            active
+            refills={refills}
+            onChargesSpent={options.useCharges ? onChargesSpent : undefined}
+            onRefill={() => store().refillCharges()}
+          />
           {sim.summary && (
             <p className="text-xs text-faint">
               Simulated: {sim.summary.casts} cast{sim.summary.casts === 1 ? '' : 's'} per {fmtNum(sim.summary.cycleFrames / 60)}s cycle, ≈{fmtNum(sim.summary.dps, 0)} DPS
@@ -393,16 +412,74 @@ function IconButton({ label, onClick, disabled, children }: { label: string; onC
   );
 }
 
+/** Charges left for the selected spell, when it has limited uses: set any amount, down to 0 (a spent spell). */
+function ChargesEditor({ slot, spellId }: { slot: number; spellId: string }) {
+  const { spellById } = useData();
+  const wand = useWand((s) => s.wand);
+  const options = useWand((s) => s.options);
+  const setCharges = useWand((s) => s.setCharges);
+  const setOptions = useWand((s) => s.setOptions);
+  const spell = spellById.get(spellId);
+  if (!spell || spell.maxUses === null) return null;
+  if (!isLimited(spell, options)) {
+    return (
+      <span className="text-faint">
+        · unlimited uses (
+        <button onClick={() => setOptions({ unlimitedSpells: false })} className="underline hover:text-ink">
+          turn off Unlimited spells
+        </button>{' '}
+        to set charges)
+      </span>
+    );
+  }
+  const max = spell.maxUses;
+  const left = chargesLeft(wand, slot, spell, options)!;
+  const set = (n: number) => Number.isFinite(n) && setCharges(slot, n >= max ? null : Math.max(0, Math.round(n)));
+  return (
+    <span className="inline-flex items-center gap-1 text-faint" role="group" aria-label="Charges">
+      · charges
+      <button onClick={() => set(left - 1)} disabled={left <= 0} aria-label="One charge less" className="slot px-2 py-0.5 text-ink disabled:opacity-30">
+        −
+      </button>
+      <input
+        type="number"
+        inputMode="numeric"
+        min={0}
+        max={max}
+        value={left}
+        onChange={(e) => set(Number(e.target.value))}
+        aria-label={`Charges left, out of ${max}`}
+        className={`w-11 rounded bg-surface-2 px-1 py-0.5 text-center tabular-nums ${left === 0 ? 'text-blood' : 'text-ink'}`}
+      />
+      <button onClick={() => set(left + 1)} disabled={left >= max} aria-label="One charge more" className="slot px-2 py-0.5 text-ink disabled:opacity-30">
+        +
+      </button>
+      <span>/ {max}</span>
+    </span>
+  );
+}
+
 function SimToggles() {
   const options = useWand((s) => s.options);
   const shuffle = useWand((s) => s.wand.shuffle);
+  const spent = useWand((s) => !!s.wand.charges?.some((c) => c !== null && c !== undefined));
   const setOptions = useWand((s) => s.setOptions);
+  const refill = useWand((s) => s.refillCharges);
   return (
-    <div className="flex items-center gap-2 text-xs">
+    <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs">
       <label className="inline-flex cursor-pointer items-center gap-1.5 text-muted">
         <input type="checkbox" checked={options.unlimitedSpells} onChange={(e) => setOptions({ unlimitedSpells: e.target.checked })} className="accent-[var(--ember)]" />
         Unlimited spells
       </label>
+      <label className="inline-flex cursor-pointer items-center gap-1.5 text-muted" title="Casting in the Preview spends charges, and they stay spent until you refill them, as in the game">
+        <input type="checkbox" checked={!!options.useCharges} onChange={(e) => setOptions({ useCharges: e.target.checked })} className="accent-[var(--ember)]" />
+        Use up charges
+      </label>
+      {spent && (
+        <button onClick={refill} title="Every spell back to full charges" className="inline-flex items-center gap-1 rounded-md bg-surface-2 px-2 py-1 text-muted hover:text-ink">
+          <BatteryCharging size={13} /> Refill
+        </button>
+      )}
       {shuffle && (
         <button onClick={() => setOptions({ frame: options.frame + 1 })} title="Re-roll the shuffle" className="inline-flex items-center gap-1 rounded-md bg-surface-2 px-2 py-1 text-muted hover:text-ink">
           <Dices size={13} /> Shuffle
