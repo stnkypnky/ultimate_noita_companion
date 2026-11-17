@@ -61,5 +61,27 @@ export function dedupeByName(reactions: Reaction[], name: (x: string) => string)
   });
 }
 
+/**
+ * Several materials share a name (the game calls fire, fire_blue and liquid_fire all "fire"). For those, a short
+ * hint from the id's extra words ("liquid", "blue"); the one whose id is just its name gets none.
+ */
+export function nameHints(materials: Pick<Material, 'id' | 'name'>[]): Map<string, string> {
+  const byName = new Map<string, Pick<Material, 'id' | 'name'>[]>();
+  for (const m of materials) {
+    const k = m.name.toLowerCase();
+    byName.set(k, [...(byName.get(k) ?? []), m]);
+  }
+  const hints = new Map<string, string>();
+  for (const [name, ms] of byName) {
+    if (ms.length < 2) continue;
+    const words = new Set(name.split(/\s+/));
+    for (const m of ms) {
+      const extra = m.id.split('_').filter((w) => !words.has(w));
+      if (extra.length) hints.set(m.id, extra.join(' '));
+    }
+  }
+  return hints;
+}
+
 /** Inputs and outputs without repeats (the game often lists "cement, fire, cement" or the same output twice). */
 export const unique = (xs: string[]) => [...new Set(xs)];

@@ -26,7 +26,8 @@ export type Projectile = {
   file: string;
   /** Damage on hit, in HP (the game's internal units ×25). */
   damage: Partial<Record<DamageType, number>>;
-  explosion?: { damage: number; radius: number; onDeath: boolean; onTimeout: boolean };
+  /** `strike`: a lightning projectile's blast where its strike lands (LightningComponent), not on death. */
+  explosion?: { damage: number; radius: number; onDeath: boolean; onTimeout: boolean; strike?: boolean };
   /** Frames; -1 = endless. */
   lifetime: number;
   lifetimeRandom: number;

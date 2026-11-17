@@ -13,7 +13,7 @@ import { useDebounced } from '@/ui/hooks';
 import { MaterialSwatch } from '@/features/materials/MaterialSwatch';
 import { titleCase, useMaterialVisibility } from '@/features/materials/MaterialsPage';
 import { MAX_SEED, alchemyRecipes, type Recipe } from './aplc';
-import { dedupeByName, lookupReactions, tagLabel, unique } from './lookup';
+import { dedupeByName, lookupReactions, nameHints, tagLabel, unique } from './lookup';
 
 export function AlchemyPage() {
   return (
@@ -145,10 +145,28 @@ function useAllRevealed() {
   return visible(ALCHEMY_ALL_KEY);
 }
 
-/** What the player sees for a reaction slot: a material's name, or a tag's label. */
+/** Hints that tell same-named materials apart, worked out once per data set. */
+const hintCache = new WeakMap<Material[], Map<string, string>>();
+function useNameHints() {
+  const { materials } = useData();
+  let h = hintCache.get(materials);
+  if (!h) hintCache.set(materials, (h = nameHints(materials)));
+  return h;
+}
+
+/** What the player sees for a reaction slot: a material's name (plus its hint), or a tag's label. */
 function useSlotName() {
   const { materialById } = useData();
-  return useCallback((x: string) => (x.startsWith('[') ? tagLabel(x) : (materialById.get(x)?.name ?? x)), [materialById]);
+  const hints = useNameHints();
+  return useCallback(
+    (x: string) => {
+      if (x.startsWith('[')) return tagLabel(x);
+      const name = materialById.get(x)?.name ?? x;
+      const hint = hints.get(x);
+      return hint ? `${name} ${hint}` : name;
+    },
+    [materialById, hints],
+  );
 }
 
 /** Type one material: how it's made, and everything it reacts with. */
@@ -212,8 +230,10 @@ function ReactionGroup({ title, reactions, focus, onPick, empty }: { title: stri
 
 /** One reaction as "A + B → C"; tapping a material looks it up next. */
 function ReactionRow({ r, focus, onPick }: { r: Reaction; focus?: Material; onPick?: (m: Material) => void }) {
-  const inputs = unique(r.inputs);
-  const outputs = unique(r.outputs);
+  // Looking up one material, a tag slot it fills ("any water") is that material, so name it.
+  const own = (x: string) => (focus && x.startsWith('[') && focus.tags.includes(x) ? focus.id : x);
+  const inputs = unique(r.inputs.map(own));
+  const outputs = unique(r.outputs.map(own));
   return (
     <li className="slot flex flex-wrap items-center gap-1.5 px-2.5 py-2">
       {inputs.map((x, i) => (
@@ -235,23 +255,23 @@ function ReactionRow({ r, focus, onPick }: { r: Reaction; focus?: Material; onPi
 
 function Ingredient({ id, focus, onPick }: { id: string; focus?: Material; onPick?: (m: Material) => void }) {
   const { materialById } = useData();
-  if (id.startsWith('[')) {
-    const mine = focus?.tags.includes(id);
-    return <span className={`rounded px-1.5 py-0.5 text-xs ${mine ? 'bg-gold/20 text-gold' : 'bg-arcane/15 text-arcane'}`}>{tagLabel(id)}</span>;
-  }
+  const hints = useNameHints();
+  if (id.startsWith('[')) return <span className="rounded bg-arcane/15 px-1.5 py-0.5 text-xs text-arcane">{tagLabel(id)}</span>;
   const m = materialById.get(id);
   if (!m) return <span className="text-xs text-muted">{id}</span>;
   const mine = focus?.id === id;
+  const hint = hints.get(id);
   const cls = `inline-flex items-center gap-1.5 rounded py-0.5 pr-1.5 pl-0.5 text-[13px] ${mine ? 'bg-gold/20 text-ink' : 'bg-surface-2 hover:bg-surface-3'}`;
   const body = (
     <>
       <MaterialSwatch material={m} size={18} />
       {titleCase(m.name)}
+      {hint && <span className="text-[11px] text-faint">· {hint}</span>}
     </>
   );
   if (onPick && !mine)
     return (
-      <button onClick={() => onPick(m)} className={cls} title={`Look up ${m.name}`}>
+      <button onClick={() => onPick(m)} className={cls} title={`Look up ${m.name} (${id})`}>
         {body}
       </button>
     );

@@ -4,13 +4,25 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Material, Reaction } from '../src/data/types.ts';
 import { SECRET_MATERIALS } from '../src/data/spoilers.ts';
-import { lookupReactions, tagLabel, unique } from '../src/features/alchemy/lookup.ts';
+import { lookupReactions, nameHints, tagLabel, unique } from '../src/features/alchemy/lookup.ts';
+import { projectileDamage } from '../src/sim/analyze.ts';
+import type { Projectile } from '../src/data/types.ts';
 
 const GAME = join(import.meta.dirname, '../public/game/data');
 const materials = JSON.parse(readFileSync(join(GAME, 'materials.json'), 'utf8')) as Material[];
 const reactions = JSON.parse(readFileSync(join(GAME, 'reactions.json'), 'utf8')) as Reaction[];
 const byId = new Map(materials.map((m) => [m.id, m]));
 const noSecrets = (id: string) => !SECRET_MATERIALS.has(id);
+
+describe('lightning damage', () => {
+  // Wiki: Lightning Bolt deals 25 electric and a 125 explosion of radius 35.
+  it("counts Lightning Bolt's explosion, not just its electric hit", () => {
+    const projectiles = JSON.parse(readFileSync(join(GAME, 'projectiles.json'), 'utf8')) as Record<string, Projectile>;
+    const d = projectileDamage(projectiles['data/entities/projectiles/deck/lightning.xml'], {});
+    expect(d.hit).toBe(25);
+    expect(d.explosion).toEqual({ damage: 125, radius: 35 });
+  });
+});
 
 describe('alchemy lookup', () => {
   it('shows how Pheromone is made: Flummoxium + Berserkium', () => {
@@ -47,5 +59,14 @@ describe('alchemy lookup', () => {
 
   it('names tags readably', () => {
     expect(tagLabel('[magic_liquid]')).toBe('Any magic liquid');
+    expect(tagLabel('[meltable]_molten')).toBe('Molten form');
+  });
+
+  it('tells same-named materials apart (the game calls liquid fire "fire" too)', () => {
+    const hints = nameHints(materials);
+    expect(hints.get('liquid_fire')).toBe('liquid');
+    expect(hints.get('fire_blue')).toBe('blue');
+    expect(hints.has('fire')).toBe(false);
+    expect(hints.has('magic_liquid_charm')).toBe(false);
   });
 });

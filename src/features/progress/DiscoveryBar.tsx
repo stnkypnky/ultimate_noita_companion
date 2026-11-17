@@ -2,8 +2,8 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router';
 import { useGameData } from '@/data/store';
-import { SECRET_ITEMS, SECRET_MATERIALS, itemKey, materialKey } from '@/data/spoilers';
-import { useProgress, useSpoilers } from '@/store/progress';
+import { ALCHEMY_ALL_KEY, SECRET_ITEMS, SECRET_MATERIALS, itemKey, materialKey } from '@/data/spoilers';
+import { useProgress } from '@/store/progress';
 import { HudBar } from '@/ui/game';
 import { isSafe } from '@/features/alchemy/lookup';
 
@@ -25,12 +25,15 @@ const SPEC: Record<DiscoveryKind, { label: string; color: string; fromSave: bool
 export function useDiscovery(kind: DiscoveryKind): Count | null {
   const data = useGameData((s) => s.data);
   const progress = useProgress((s) => s.progress);
-  const { visible } = useSpoilers();
+  const revealed = useProgress((s) => s.revealed);
 
   return useMemo(() => {
     if (!data) return null;
     const flags = new Set(progress?.flags ?? []);
     const met = new Set(progress?.enemies ?? []);
+    // Found = in the save or revealed by hand. "Show everything" mode makes things visible, not found.
+    const known = new Set([...flags, ...revealed]);
+    const visible = (key: string) => known.has(key);
     const materialVisible = (id: string) => !SECRET_MATERIALS.has(id) || visible(materialKey(id));
     const counts = {
       spells: [data.spells.filter((s) => flags.has(s.discoverFlag)).length, data.spells.length],
@@ -38,14 +41,14 @@ export function useDiscovery(kind: DiscoveryKind): Count | null {
       enemies: [data.enemies.filter((e) => met.has(e.id)).length, data.enemies.length],
       items: [[...SECRET_ITEMS].filter((id) => visible(itemKey(id))).length, SECRET_ITEMS.size],
       materials: [[...SECRET_MATERIALS].filter((id) => visible(materialKey(id))).length, SECRET_MATERIALS.size],
-      alchemy: [data.reactions.filter((r) => isSafe(r, materialVisible)).length, data.reactions.length],
+      alchemy: [known.has(ALCHEMY_ALL_KEY) ? data.reactions.length : data.reactions.filter((r) => isSafe(r, materialVisible)).length, data.reactions.length],
     } as const;
     const [value, max] =
       kind === 'overall'
         ? (['spells', 'perks', 'enemies'] as const).reduce<[number, number]>((a, k) => [a[0] + counts[k][0], a[1] + counts[k][1]], [0, 0])
         : counts[kind];
     return { ...SPEC[kind], value, max };
-  }, [data, progress, visible, kind]);
+  }, [data, progress, revealed, kind]);
 }
 
 export function DiscoveryBar({ kind }: { kind: DiscoveryKind }) {

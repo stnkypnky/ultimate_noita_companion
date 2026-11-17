@@ -13,6 +13,7 @@ import { MasterDetail } from '@/ui/MasterDetail';
 import { HiddenNotice } from '@/ui/Spoiler';
 import { useDebounced } from '@/ui/hooks';
 import { MaterialSwatch } from './MaterialSwatch';
+import { nameHints } from '@/features/alchemy/lookup';
 
 const STATES = ['liquid', 'powder', 'solid', 'gas', 'fire'] as const;
 const STATE_LABEL: Record<Material['state'], string> = { liquid: 'Liquids', powder: 'Powders', solid: 'Solids', gas: 'Gases', fire: 'Fire' };
@@ -209,15 +210,22 @@ function ReactionList({ reactions }: { reactions: Reaction[] }) {
   );
 }
 
+const hintCache = new WeakMap<Material[], Map<string, string>>();
+
 function MatChip({ id }: { id: string }) {
-  const { materialById } = useData();
+  const { materials, materialById } = useData();
   if (id.startsWith('[')) return <span className="rounded bg-arcane/15 px-1.5 py-0.5 font-mono text-[11px] text-arcane">{id}</span>;
   const m = materialById.get(id);
   if (!m) return <span className="text-xs text-muted">{id}</span>;
+  // Same-named materials (two kinds of ice) get a hint from their id, so the rows don't read as repeats.
+  let hints = hintCache.get(materials);
+  if (!hints) hintCache.set(materials, (hints = nameHints(materials)));
+  const hint = hints.get(id);
   return (
-    <Link to={`/materials/${id}`} className="inline-flex items-center gap-1.5 rounded bg-surface-2 py-0.5 pr-1.5 pl-0.5 text-xs hover:bg-surface-3">
+    <Link to={`/materials/${id}`} title={id} className="inline-flex items-center gap-1.5 rounded bg-surface-2 py-0.5 pr-1.5 pl-0.5 text-xs hover:bg-surface-3">
       <MaterialSwatch material={m} size={16} />
       {titleCase(m.name)}
+      {hint && <span className="text-[10px] text-faint">· {hint}</span>}
     </Link>
   );
 }

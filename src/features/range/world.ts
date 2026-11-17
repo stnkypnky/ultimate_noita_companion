@@ -1385,7 +1385,9 @@ export class RangeWorld {
       this.spark(p.x + (ex - p.x) * k, p.y + (ey - p.y) * k, LIGHTNING.sparks[i % 3]!, true, randInt(4, 10), 30);
     }
     if (struck) this.hurt(struck, p.hit, p.critChance);
-    this.explode(ex, ey, l.radius, l.damage, l.radius > 0 ? (p.visual?.explosion?.maxDurability ?? 12) : -1, p.critChance, l.color, true, p.visual?.explosion);
+    // The blast with the shot's modifiers applied (damage_explosion_add, explosion_radius), from the projectile stats.
+    const radius = p.explosion?.radius ?? l.radius;
+    this.explode(ex, ey, radius, p.explosion?.damage ?? l.damage, radius > 0 ? (p.visual?.explosion?.maxDurability ?? 12) : -1, p.critChance, l.color, true, p.visual?.explosion);
   }
 
   private bolt(x0: number, y0: number, x1: number, y1: number, o: { amp: number; forks: number; heavy: boolean; life: number }) {

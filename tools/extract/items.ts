@@ -50,7 +50,17 @@ export async function collectItems(wak: Wak, loader: EntityLoader, t: Translatio
     if (seenNames.has(name)) continue;
     seenNames.add(name);
 
-    const spriteFile = ic?.attrs.ui_sprite || comp(e, 'SpriteComponent')?.attrs.image_file || '';
+    // Auto-pickup gold never reaches the inventory, so a placeholder ui_sprite never shows in-game
+    // (goldnugget_10.xml, the base of the 10-gold nuggets, points at book.png). Its physics image is a
+    // material map, not art, so use the gold nugget icon every other nugget has.
+    const tags = [...new Set((e?.attrs.tags ?? '').split(',').filter(Boolean))];
+    const placeholder = ic?.attrs.auto_pickup === '1' && ic.attrs.ui_sprite === 'data/ui_gfx/items/book.png' && tags.includes('gold_nugget');
+    const spriteFile =
+      (placeholder && 'data/ui_gfx/items/goldnugget.png') ||
+      ic?.attrs.ui_sprite ||
+      comp(e, 'SpriteComponent')?.attrs.image_file ||
+      comp(e, 'PhysicsImageShapeComponent')?.attrs.image_file ||
+      '';
     const img = await spriteImage(wak, spriteFile);
     if (img) images.push({ key: id, png: await fitIcon(img) });
     items.push({
@@ -58,7 +68,7 @@ export async function collectItems(wak: Wak, loader: EntityLoader, t: Translatio
       name,
       description: tr(t, ic?.attrs.ui_description),
       iconKey: id,
-      ...(e?.attrs.tags ? { tags: e.attrs.tags.split(',').filter(Boolean) } : {}),
+      ...(tags.length ? { tags } : {}),
     });
   }
   return { items, images };

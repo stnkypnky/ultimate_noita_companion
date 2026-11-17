@@ -106,10 +106,16 @@ export function buildProjectile(file: string, loader: EntityLoader): Projectile 
   const ex = comp(pc, 'config_explosion');
   const onDeath = pc?.attrs.on_death_explode === '1';
   const onTimeout = pc?.attrs.on_lifetime_out_explode === '1';
+  // Lightning projectiles (Lightning Bolt, Ball Lightning…) explode where the strike lands, from the
+  // LightningComponent's own config_explosion rather than the ProjectileComponent's.
+  const lc = comp(e, 'LightningComponent');
+  const lex = lc?.attrs.is_projectile === '1' ? comp(lc, 'config_explosion') : undefined;
   const explosion =
     ex && (onDeath || onTimeout)
       ? { damage: round(num(ex.attrs.damage, EXPLOSION_DAMAGE_DEFAULT) * HP), radius: num(ex.attrs.explosion_radius, 0), onDeath, onTimeout }
-      : undefined;
+      : lex
+        ? { damage: round(num(lex.attrs.damage, EXPLOSION_DAMAGE_DEFAULT) * HP), radius: num(lex.attrs.explosion_radius, 0), onDeath: false, onTimeout: false, strike: true }
+        : undefined;
 
   let lifetime = num(pc?.attrs.lifetime, -1);
   if (lifetime < 0 && life) lifetime = num(life.attrs.lifetime, -1);
