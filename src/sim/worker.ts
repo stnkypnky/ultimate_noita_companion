@@ -5,6 +5,7 @@ import wasmUrl from 'wasmoon/dist/glue.wasm?url';
 import engineSource from './lua/engine.lua?raw';
 import driverSource from './lua/driver.lua?raw';
 import { castWand, resetWand, runWand, type LuaCall } from './protocol';
+import { NoitaRandom } from './rng';
 import type { LiveCast, SimRequest, SimResult } from './types';
 
 export type WorkerIn =
@@ -24,6 +25,7 @@ async function createEngine(base: string): Promise<LuaCall> {
 
   const lua: LuaEngine = await new LuaFactory(wasmUrl).createEngine();
   lua.global.set('__read_file', (path: string) => sources.get(path) ?? null);
+  for (const [k, f] of Object.entries(new NoitaRandom().luaGlobals())) lua.global.set(k, f);
   await lua.doString(engineSource);
   await lua.doString('dofile("data/scripts/gun/gun.lua")');
   await lua.doString(driverSource);

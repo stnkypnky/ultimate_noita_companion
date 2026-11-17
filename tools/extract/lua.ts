@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { LuaFactory, type LuaEngine } from 'wasmoon';
+import { NoitaRandom } from '../../src/sim/rng.ts';
 
 const SIM_LUA = join(import.meta.dirname, '../../src/sim/lua');
 export const engineSource = readFileSync(join(SIM_LUA, 'engine.lua'), 'utf8');
@@ -23,6 +24,7 @@ export async function createLuaHost(readFile: (path: string) => string | undefin
     if (text !== undefined && !filesRead.includes(path)) filesRead.push(path);
     return text ?? null;
   });
+  for (const [k, f] of Object.entries(new NoitaRandom().luaGlobals())) lua.global.set(k, f);
   await lua.doString(engineSource);
   return {
     lua,

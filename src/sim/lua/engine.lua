@@ -160,17 +160,31 @@ function GamePrint(s) table.insert(__world.log, { kind = "print", text = tostrin
 GamePrintImportant = GamePrint
 function print_error(s) table.insert(__world.log, { kind = "error", text = tostring(s) }) end
 
--- Deterministic RNG standing in for the engine's. Not bit-identical to Noita,
--- but stable for a given (frame, seed) so results are reproducible.
-function SetRandomSeed(x, y)
-  math.randomseed(math.floor((x or 0) * 1000) // 1, math.floor((y or 0) * 1000) // 1)
-end
-function Random(a, b)
-  if a == nil then return math.random() end
-  if b == nil then a, b = 0, a end
-  a, b = math.floor(a), math.floor(b)
-  if b < a then return a end
-  return math.random(a, b)
+-- The engine's RNG (src/sim/rng.ts, a port of Noita's NollaPrng), installed by the host as __rng_* globals.
+-- Without them (an old host), a deterministic stand-in that isn't the game's.
+if rawget(_G, "__rng_Random") then
+  SetRandomSeed = function(x, y) __rng_SetRandomSeed(x or 0, y or 0) end
+  Random = function(a, b) return __rng_Random(a, b) end
+  Randomf = function(a, b) return __rng_Randomf(a, b) end
+  ProceduralRandom = function(x, y, a, b) return __rng_ProceduralRandom(x, y, a, b) end
+  ProceduralRandomf = function(x, y, a, b) return __rng_ProceduralRandomf(x, y, a, b) end
+  ProceduralRandomi = function(x, y, a, b) return __rng_ProceduralRandomi(x, y, a, b) end
+  RandomDistribution = function(mn, mx, mean, s, base) return __rng_RandomDistribution(mn, mx, mean, s, base) end
+  RandomDistributionf = function(mn, mx, mean, s, base) return __rng_RandomDistributionf(mn, mx, mean, s, base) end
+  GameGetSeed = function() return __rng_GetWorldSeed() end
+  function sim_set_world_seed(s) __rng_SetWorldSeed(s) end
+else
+  function SetRandomSeed(x, y)
+    math.randomseed(math.floor((x or 0) * 1000) // 1, math.floor((y or 0) * 1000) // 1)
+  end
+  function Random(a, b)
+    if a == nil then return math.random() end
+    if b == nil then a, b = 0, a end
+    a, b = math.floor(a), math.floor(b)
+    if b < a then return a end
+    return math.random(a, b)
+  end
+  function sim_set_world_seed() end
 end
 
 -- Anything else capitalised (an engine API we haven't stubbed) becomes a recorded no-op.
