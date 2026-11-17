@@ -136,7 +136,8 @@ export function WandPage() {
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
+    // A short hold picks a spell up; moving more than 8 px first is a scroll, so the spell list still scrolls.
+    useSensor(TouchSensor, { activationConstraint: { delay: 90, tolerance: 8 } }),
     useSensor(KeyboardSensor),
   );
 
