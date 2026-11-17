@@ -1,6 +1,8 @@
 // Hidden mechanics: things the game never tells you, curated from noita.wiki.gg (each note links its page).
 // Game-file facts (speed-scaled damage, fuses, throw strength...) are added automatically in
-// src/ui/HiddenMechanics.tsx; these are the tricks that only show up in play.
+// src/ui/HiddenMechanics.tsx; these are the tricks that only show up in play. Most item notes live in
+// itemMechanics.ts.
+import { ITEM_MECHANICS } from './itemMechanics';
 
 export type MechanicKind = 'spell' | 'item' | 'material' | 'perk';
 
@@ -132,6 +134,7 @@ function runestones(): Entries {
 }
 
 export const MECHANICS: Entries = {
+  ...ITEM_MECHANICS,
   // ── Spells ──────────────────────────────────────────────────────────────────────────────
   'spell:RUBBER_BALL': [
     {

@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore, type ReactNode } from 'react';
 import { ExternalLink, Eye, EyeOff } from 'lucide-react';
 import { fmtNum, seconds } from '@/data/format';
 import { mechanicsFor, type MechanicKind, type MechanicNote } from '@/data/mechanics';
@@ -75,38 +75,45 @@ export function itemNotes(item: Item): MechanicNote[] {
   ];
 }
 
-/** The "Hidden mechanics" section of a detail page: game-file facts plus curated wiki notes. Renders nothing when empty. */
-export function HiddenMechanics({ kind, id, auto = [] }: { kind: MechanicKind; id: string; auto?: MechanicNote[] }) {
+/**
+ * The "Hidden mechanics" section of a detail page: game-file facts plus curated wiki notes, and any
+ * `extra` content (a chest's loot table) that should stay behind the same toggle. Renders nothing when empty.
+ */
+export function HiddenMechanics({ kind, id, auto = [], extra }: { kind: MechanicKind; id: string; auto?: MechanicNote[]; extra?: ReactNode }) {
   const [shown, setShown] = useShowMechanics();
   const notes = [...auto, ...mechanicsFor(kind, id)];
-  if (!notes.length) return null;
+  const count = notes.length + (extra ? 1 : 0);
+  if (!count) return null;
   const open = notes.filter((n) => !n.secret);
   const secret = notes.filter((n) => n.secret);
   const toggle = (
     <button onClick={() => setShown(!shown)} aria-expanded={shown} className="btn-game quiet font-game inline-flex items-center gap-1.5 px-2.5 py-1 text-[16px]">
       {shown ? <EyeOff size={14} /> : <Eye size={14} />}
-      {shown ? 'Hide' : `Show hidden mechanics (${notes.length})`}
+      {shown ? 'Hide' : `Show hidden mechanics (${count})`}
     </button>
   );
   if (!shown) return <div className="mt-5">{toggle}</div>;
   return (
     <Section title="Hidden mechanics" aside={toggle}>
-      <ul className="panel space-y-2.5 px-4 py-3">
-        {open.map((n) => (
-          <Note key={n.text} note={n} />
-        ))}
-        {secret.length > 0 && (
-          <li>
-            <InlineSpoiler label={`Show ${secret.length} late-game ${secret.length === 1 ? 'secret' : 'secrets'}`}>
-              <ul className="space-y-2.5">
-                {secret.map((n) => (
-                  <Note key={n.text} note={n} />
-                ))}
-              </ul>
-            </InlineSpoiler>
-          </li>
-        )}
-      </ul>
+      {notes.length > 0 && (
+        <ul className="panel space-y-2.5 px-4 py-3">
+          {open.map((n) => (
+            <Note key={n.text} note={n} />
+          ))}
+          {secret.length > 0 && (
+            <li>
+              <InlineSpoiler label={`Show ${secret.length} late-game ${secret.length === 1 ? 'secret' : 'secrets'}`}>
+                <ul className="space-y-2.5">
+                  {secret.map((n) => (
+                    <Note key={n.text} note={n} />
+                  ))}
+                </ul>
+              </InlineSpoiler>
+            </li>
+          )}
+        </ul>
+      )}
+      {extra}
     </Section>
   );
 }

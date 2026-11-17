@@ -31,6 +31,16 @@ describe('hidden mechanics', () => {
     }
   });
 
+  it('kickable, throwable and hatchable items explain what they do behind the toggle', () => {
+    const want = [
+      'chest_random', 'chest_random_super', 'utility_box', 'physics_die', 'physics_greed_die',
+      ...items.filter((i) => i.id.startsWith('egg_') || i.id.startsWith('essence_') || i.id.startsWith('runestone_')).map((i) => i.id),
+    ];
+    expect(want.filter((id) => !MECHANICS[`item:${id}`]?.length)).toEqual([]);
+    // What an egg hatches stays out of its visible description.
+    expect(MECHANICS['item:egg_worm']!.map((n) => n.text).join(' ')).toMatch(/not charmed/);
+  });
+
   it('reads the speed-scaled damage, fizzle speed, fuses and caster damage from the game files', () => {
     const burst = projectileNotes(projs('RUBBER_BALL')).map((n) => n.text).join(' ');
     expect(burst).toMatch(/scales with speed/);

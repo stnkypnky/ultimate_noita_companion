@@ -4,7 +4,7 @@ import type { Item } from '@/data/types';
 import { Section } from '@/ui/controls';
 import { InlineSpoiler } from '@/ui/Spoiler';
 
-/** The game's own description, then the companion's notes and loot odds (src/data/itemInfo.ts). */
+/** The game's own description, then the companion's note (src/data/itemInfo.ts). Loot odds go in hidden mechanics. */
 export function ItemDescription({ item }: { item: Item }) {
   const info = itemInfo(item.id);
   const game = isPlaceholder(item.description) ? '' : item.description;
@@ -12,7 +12,6 @@ export function ItemDescription({ item }: { item: Item }) {
     <>
       {game && <p className="mt-4 text-[15px] leading-relaxed whitespace-pre-line text-muted">{game}</p>}
       {info ? <CompanionNote info={info} quiet={!!game} /> : !game && <p className="mt-4 text-[15px] text-faint">No in-game description.</p>}
-      {info?.loot && <LootTable loot={info.loot} />}
     </>
   );
 }
@@ -49,7 +48,8 @@ function Source({ source }: { source: string }) {
   );
 }
 
-function LootTable({ loot }: { loot: NonNullable<ItemInfo['loot']> }) {
+/** A chest's loot odds; shown inside the hidden mechanics panel. */
+export function LootTable({ loot }: { loot: NonNullable<ItemInfo['loot']> }) {
   const open = loot.rows.filter((r) => !r.secret);
   const secret = loot.rows.filter((r) => r.secret);
   return (

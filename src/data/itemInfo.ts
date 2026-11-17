@@ -24,8 +24,7 @@ const WIKI = 'https://noita.wiki.gg/wiki/';
 /** Nolla's placeholder for "no description yet". */
 export const isPlaceholder = (text: string) => !text.trim() || /^lorem ipsum/i.test(text.trim());
 
-const CHEST_NOTE =
-  'Its contents are fixed by where it sits in the world, so reloading or breaking it instead of opening it won’t change them. Open it by picking it up, or break it with a kick or an explosion.';
+const OPEN = 'Open it by picking it up, or break it with a kick or an explosion.';
 
 const GOLD_TIMER = 'Like all gold it vanishes after 15 seconds on the ground unless you have Gold Is Forever. Greed doubles what each pickup is worth.';
 const gold = (value: string, extra = ''): ItemInfo => ({
@@ -43,9 +42,7 @@ const blood = (value: string, heal: string): ItemInfo => ({
 export const ITEM_INFO: Record<string, ItemInfo> = {
   // ── Chests ──────────────────────────────────────────────────────────────────────────────
   chest_random: {
-    text:
-      'A wooden chest with one random reward inside. Chests share their spawn spots with hearts: a spot holds a heart 30% of the time, a chest-like thing 40%, and nothing otherwise. Deeper than the first few areas, 1 in 10 of those chests is a mimic.\n\n' +
-      CHEST_NOTE,
+    text: `A wooden chest with a random reward inside. ${OPEN}`,
     source: 'data/scripts/items/chest_random.lua',
     loot: {
       title: 'What’s inside',
@@ -66,11 +63,8 @@ export const ITEM_INFO: Record<string, ItemInfo> = {
     },
   },
   chest_random_super: {
-    text:
-      'A glittering chest with much better loot. Only 1 in 1000 ordinary chest spots holds one; you also get one from some bosses and special spots, and two from a Greed die roll.\n\n' +
-      CHEST_NOTE,
+    text: `A rare glittering chest with much better loot than the ordinary one. ${OPEN}`,
     source: 'data/scripts/items/chest_random_super.lua',
-    secret: 'Before anything else it has a 1 in 100,001 chance of holding the Sampo.',
     loot: {
       title: 'What’s inside',
       note: '40% of rolls give extra rolls, so it often drops several rewards. No bombs.',
@@ -86,13 +80,11 @@ export const ITEM_INFO: Record<string, ItemInfo> = {
     },
   },
   chest_leggy: {
-    text:
-      'Looks exactly like a Treasure chest, but touching it, kicking it, damaging it or just walking near it turns it into a Leggy mimic. Of the mimics that take a chest spot, 1 in 20 is this one; the rest are ordinary chest mimics. A warning sign is sometimes painted nearby.',
-    source: 'data/scripts/biome_scripts.lua',
+    text: 'Looks exactly like a Treasure chest. It isn’t one.',
+    source: 'data/scripts/items/chest_leggy.lua',
   },
   utility_box: {
-    text:
-      'A crate that opens like a chest, mostly full of utility and modifier spells. Found in a few special places, and some fall from the sky. Its contents are fixed by its position.',
+    text: 'A crate that opens like a chest, mostly full of utility and modifier spells.',
     source: 'data/scripts/items/utility_box.lua',
     loot: {
       title: 'What’s inside',
@@ -156,7 +148,7 @@ export const ITEM_INFO: Record<string, ItemInfo> = {
       'It’s a mimic: picking it up, touching it or breaking it turns it into a Potion mimic. Hover over it first; it shows as full of Mimicium. 1 in 200 potion spots below the first few areas hold one, and the Barren Temple always has one.',
   },
   egg_monster: {
-    text: 'Throw it and it hatches where it lands: one or two Hurtta. The Summon Egg spell casts the same egg; the coloured eggs hatch other creatures.',
+    text: 'Throw it and it hatches where it breaks.',
     source: 'data/scripts/items/egg_hatch.lua',
   },
 
@@ -183,8 +175,9 @@ export const ITEM_INFO: Record<string, ItemInfo> = {
     source: 'data/scripts/items/drop_money.lua',
   },
 
-  // Runestones and the gold orbs keep only the game's own hint ("You feel like kicking it"); what a
-  // kick does is in their hidden mechanics (src/data/mechanics.ts), behind the toggle.
+  // Runestones, dice, eggs and the gold orbs keep only the game's own hint ("You feel like kicking it");
+  // what they actually do is in their hidden mechanics (src/data/itemMechanics.ts), behind the toggle.
+  // Loot tables are shown there too.
 
   // ── Odds and ends ───────────────────────────────────────────────────────────────────────
   cape: {

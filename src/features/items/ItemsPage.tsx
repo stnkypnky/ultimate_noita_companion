@@ -13,7 +13,7 @@ import { MasterDetail } from '@/ui/MasterDetail';
 import { HiddenNotice } from '@/ui/Spoiler';
 import { HiddenMechanics, itemNotes } from '@/ui/HiddenMechanics';
 import { useDebounced } from '@/ui/hooks';
-import { ItemDescription } from '@/ui/ItemDescription';
+import { ItemDescription, LootTable } from '@/ui/ItemDescription';
 import { itemInfo } from '@/data/itemInfo';
 
 function ItemIcon({ item, scale, hidden }: { item: Item; scale: number; hidden?: boolean }) {
@@ -56,6 +56,7 @@ export function ItemsPage() {
   );
   const selected = id ? items.find((it) => it.id === id) : undefined;
   const close = useCallback(() => navigate('/items'), [navigate]);
+  const loot = selected && itemInfo(selected.id)?.loot;
 
   return (
     <Page wide title="Items" progress={<DiscoveryBar kind="items" />} subtitle={`${items.length} world pickups`} toolbar={<SearchInput ref={searchRef} value={query} onChange={setQuery} placeholder="Search items…" />}>
@@ -74,7 +75,12 @@ export function ItemsPage() {
                   </div>
                 </header>
                 <ItemDescription key={selected.id} item={selected} />
-                <HiddenMechanics kind="item" id={selected.id} auto={itemNotes(selected)} />
+                <HiddenMechanics
+                  kind="item"
+                  id={selected.id}
+                  auto={itemNotes(selected)}
+                  extra={loot && <LootTable loot={loot} />}
+                />
               </article>
             ) : (
               <HiddenNotice what="item" onReveal={() => reveal(itemKey(selected.id))} />
