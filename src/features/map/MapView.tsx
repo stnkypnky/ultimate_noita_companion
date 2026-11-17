@@ -280,9 +280,11 @@ export function MapView({
       const have = patterns.get(id);
       if (have) return have;
       const m = materialById.get(id);
-      const color = m ? m.color.slice(0, 7) : '#5a5048';
+      const color = m ? (m.look ?? m.color).slice(0, 7) : '#5a5048';
       let fill: CanvasPattern | string = color;
-      if (m?.texture) {
+      // Zoomed out, a scaled-down pixel texture picks stray texels (a gold chunk read as a brown speck): the
+      // texture's average colour is the truer look. Close up, the texture itself.
+      if (m?.texture && cs >= 24) {
         const img = image(gameUrl(`materials/${m.texture.split('/').pop()}`), redraw);
         const p = img && ctx.createPattern(img, 'repeat');
         if (p) {

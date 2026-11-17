@@ -11,6 +11,7 @@ import { MasterDetail } from '@/ui/MasterDetail';
 import { Runes } from '@/ui/game';
 import { MapView } from './MapView';
 import { SeedPanel } from './SeedPanel';
+import { areaNotes } from './notes';
 import type { SeedReport } from '@/seed/worker';
 import type { AreaLayout } from '@/seed/layout';
 import { seedLayouts } from '@/seed/client';
@@ -234,6 +235,20 @@ function AreaDetail({
           ]}
         />
       </Section>
+      {areaNotes(b, cx, map.w).length > 0 && (
+        <Section title="Good to know">
+          <ul className="space-y-2 text-sm text-muted">
+            {areaNotes(b, cx, map.w).map((n, i) => (
+              <li key={i}>
+                {n.text}{' '}
+                <a href={n.source} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-xs text-gold hover:underline">
+                  wiki <ExternalLink size={11} />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
       {report && (
         <Section title="This seed">
           <p className="text-sm text-muted">
