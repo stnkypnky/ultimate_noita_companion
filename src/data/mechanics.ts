@@ -103,17 +103,31 @@ function runestones(): Entries {
     text: 'The new projectile keeps the old one’s speed and direction, and the old one never explodes. Fast spells turn into very fast replacements.',
     source: wiki,
   };
+  // What it does comes first: the item page shows only the game's "You feel like kicking it".
+  const does = (file: string, text: string): MechanicNote => ({ text, source: `data/scripts/items/runestones/${file}.lua` });
   return {
-    'item:runestone_slow': [...shared(192), yours, { text: 'Every 10 frames it cuts each projectile’s speed to a quarter, so anything inside barely moves.', source: 'data/scripts/items/runestones/runestone_slow.lua' }],
-    'item:runestone_disc': [...shared(192), yours, swap],
-    'item:runestone_fireball': [...shared(192), yours, swap],
-    'item:runestone_laser': [...shared(192), yours, swap],
-    'item:runestone_null': [...shared(192), yours, { text: 'Erased projectiles don’t explode, so explosive spells that fly into it just vanish.', source: 'data/scripts/items/runestones/runestone_null.lua' }],
-    'item:runestone_lava': [
+    'item:runestone_slow': [
+      does('runestone_slow', 'Switched on, it slows every projectile within 192 px: every 10 frames it cuts their speed to a quarter, so anything inside barely moves.'),
       ...shared(192),
-      { text: 'Every 40 frames it turns every liquid in reach into lava, which then reacts with the liquids around it.', source: wiki },
+      yours,
     ],
-    'item:runestone_metal': [...shared(160), { text: 'It turns meltable metals, such as copper and metal dust, into poison.', source: wiki }],
+    'item:runestone_disc': [does('runestone_disc', 'Switched on, it turns every projectile within 192 px into a Disc projectile.'), ...shared(192), yours, swap],
+    'item:runestone_fireball': [does('runestone_fireball', 'Switched on, it turns every projectile within 192 px into a Fireball.'), ...shared(192), yours, swap],
+    'item:runestone_laser': [does('runestone_laser', 'Switched on, it turns every projectile within 192 px into a Laser.'), ...shared(192), yours, swap],
+    'item:runestone_null': [
+      does('runestone_null', 'Switched on, it erases every projectile within 192 px. Erased projectiles don’t explode, so explosive spells that fly into it just vanish.'),
+      ...shared(192),
+      yours,
+    ],
+    'item:runestone_lava': [
+      does('runestone_lava', 'Switched on, every 40 frames it turns every liquid within 192 px into lava.'),
+      ...shared(192),
+      { text: 'The new lava reacts with the liquids around it.', source: wiki },
+    ],
+    'item:runestone_metal': [
+      does('runestone_metal', 'Switched on, it turns meltable metals within 160 px, such as copper and metal dust, into poison.'),
+      ...shared(160),
+    ],
   };
 }
 

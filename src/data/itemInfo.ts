@@ -39,8 +39,6 @@ const blood = (value: string, heal: string): ItemInfo => ({
   source: 'data/scripts/items/drop_money.lua',
 });
 
-const RUNESTONE = 'Kick it to switch it on; picking it up switches it off.';
-const rune = (effect: string): ItemInfo => ({ text: `${effect} ${RUNESTONE}`, source: 'data/scripts/items/runestones/' });
 
 export const ITEM_INFO: Record<string, ItemInfo> = {
   // ── Chests ──────────────────────────────────────────────────────────────────────────────
@@ -185,24 +183,8 @@ export const ITEM_INFO: Record<string, ItemInfo> = {
     source: 'data/scripts/items/drop_money.lua',
   },
 
-  // ── Runestones ──────────────────────────────────────────────────────────────────────────
-  runestone_slow: rune('Switched on, it keeps cutting the speed of every projectile within 192 px to a quarter, yours included, so they crawl.'),
-  runestone_disc: rune('Switched on, it turns every projectile within 192 px into a Disc projectile.'),
-  runestone_fireball: rune('Switched on, it turns every projectile within 192 px into a Fireball.'),
-  runestone_laser: rune('Switched on, it turns every projectile within 192 px into a Laser.'),
-  runestone_lava: rune('Switched on, every 40 frames it turns all liquids within 192 px into lava.'),
-  runestone_metal: rune('Switched on, it melts metal within 160 px into poison.'),
-  runestone_null: rune('Switched on, it erases every projectile within 192 px, yours included.'),
-
-  // ── Orbs ────────────────────────────────────────────────────────────────────────────────
-  physics_gold_orb: {
-    text: 'Kick it for gold: 30 on the first kick, then 20 to 200 per kick. After the 4th kick, each kick may make it explode.',
-    source: 'data/scripts/items/gold_orb.lua',
-  },
-  physics_gold_orb_greed: {
-    text: 'Kick it for healing blood money: 40 on the first kick, up to 1000 after. It can blow up with a giga explosion from the 2nd kick.',
-    source: 'data/scripts/items/gold_orb_greed.lua',
-  },
+  // Runestones and the gold orbs keep only the game's own hint ("You feel like kicking it"); what a
+  // kick does is in their hidden mechanics (src/data/mechanics.ts), behind the toggle.
 
   // ── Odds and ends ───────────────────────────────────────────────────────────────────────
   cape: {

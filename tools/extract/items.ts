@@ -66,6 +66,11 @@ async function fitIcon(png: Buffer, max = 24): Promise<Buffer> {
   return sharp(png).resize(max, max, { fit: 'contain', kernel: 'nearest', background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
 }
 
+async function upscale(png: Buffer, k: number): Promise<Buffer> {
+  const m = await sharp(png).metadata();
+  return sharp(png).resize((m.width ?? 0) * k, (m.height ?? 0) * k, { kernel: 'nearest' }).png().toBuffer();
+}
+
 export async function collectItems(wak: Wak, loader: EntityLoader, t: Translations) {
   const items: (Omit<Item, 'icon'> & { iconKey: string })[] = [];
   const images: { key: string; png: Buffer }[] = [];
@@ -99,7 +104,9 @@ export async function collectItems(wak: Wak, loader: EntityLoader, t: Translatio
             wak,
             (id.startsWith('egg_') && shape?.attrs.image_file) || ic?.attrs.ui_sprite || comp(e, 'SpriteComponent')?.attrs.image_file || shape?.attrs.image_file || '',
           );
-    if (img) images.push({ key: id, png: await fitIcon(img) });
+    // At 9×8 the world eggs read as dots next to the other icons: draw them at 2×, hard pixels.
+    const scaled = img && id.startsWith('egg_') ? await upscale(img, 2) : img;
+    if (scaled) images.push({ key: id, png: await fitIcon(scaled) });
     // base_item_projectile.xml: a thrown stone or egg hurts what it hits, damage × speed / max speed.
     const pc = comp(e, 'ProjectileComponent');
     const melee = num(comp(pc, 'damage_by_type')?.attrs.melee, 0);
