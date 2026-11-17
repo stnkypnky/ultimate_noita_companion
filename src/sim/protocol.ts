@@ -19,7 +19,7 @@ function normShot(s: SimShot): SimShot {
 const normCast = (c: SimCast): SimCast => ({ ...c, played: c.played ?? [], slots: c.slots ?? [], uses: c.uses ?? [], shot: normShot(c.shot) });
 
 /** Set up the wand and its deck (sim_reset + cards). */
-export function resetWand(call: LuaCall, { wand, deck, alwaysCasts, options }: SimRequest) {
+export function resetWand(call: LuaCall, { wand, deck, alwaysCasts, otherWands, options }: SimRequest) {
   call(
     'sim_reset',
     wand.spellsPerCast,
@@ -37,6 +37,7 @@ export function resetWand(call: LuaCall, { wand, deck, alwaysCasts, options }: S
     options.money,
     options.frame,
   );
+  call('sim_set_other_wands', (otherWands ?? []).map((w) => w.join(',')).join(';'));
   for (const card of deck) call('sim_add_card', card.id, card.uses);
   for (const id of alwaysCasts) call('sim_add_always_cast', id);
 }

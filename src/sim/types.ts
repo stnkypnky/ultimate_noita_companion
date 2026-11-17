@@ -79,6 +79,8 @@ export type SimRequest = {
   /** Deck in slot order; uses = remaining charges or -1 for unlimited. */
   deck: { id: string; uses: number }[];
   alwaysCasts: string[];
+  /** Spells (always casts included) of the other wands carried in the quick inventory, which Zeta copies from. */
+  otherWands?: string[][];
   options: {
     maxCasts: number;
     stopOnReload: boolean;

@@ -30,6 +30,7 @@ import { useWand } from './store';
 import { RangePreview } from '@/features/range/RangePreview';
 import { fmtNum } from '@/data/format';
 import { useSimulation } from './useSimulation';
+import { useOtherWands } from './useOtherWands';
 import { AlwaysCasts, TrashZone, WandSlots, type DragData, type DropData } from './WandSlots';
 import { WandStats } from './WandStats';
 
@@ -41,7 +42,8 @@ export function WandPage() {
   const store = useWand.getState;
   const canUndo = useWand((s) => s.past.length > 0);
   const canRedo = useWand((s) => s.future.length > 0);
-  const sim = useSimulation(wand, options);
+  const otherWands = useOtherWands(wand.name);
+  const sim = useSimulation(wand, options, otherWands);
 
   const [selected, setSelected] = useState<number | null>(null);
   const [dragging, setDragging] = useState<DragData | null>(null);
@@ -276,7 +278,7 @@ export function WandPage() {
     >
       {view === 'preview' ? (
         <div className="space-y-3">
-          <RangePreview wand={wand} options={options} active />
+          <RangePreview wand={wand} options={options} otherWands={otherWands} active />
           {sim.summary && (
             <p className="text-xs text-faint">
               Simulated: {sim.summary.casts} cast{sim.summary.casts === 1 ? '' : 's'} per {fmtNum(sim.summary.cycleFrames / 60)}s cycle, ≈{fmtNum(sim.summary.dps, 0)} DPS

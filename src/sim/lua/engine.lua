@@ -75,6 +75,24 @@ function world_reset(opts)
   add_comp(PLAYER, "DamageModelComponent", { hp = (opts.hp or 100) / 25, max_hp = (opts.max_hp or 100) / 25 })
   add_comp(PLAYER, "WalletComponent", { money = opts.money or 0, money_spent = 0 })
   add_comp(PLAYER, "Inventory2Component", { mActiveItem = WAND })
+  __other_wands = {}
+end
+
+-- The other wands in the quick inventory (Zeta copies from them). Wand i is entity 1000 + i and its
+-- spells are entities (1000 + i) * 1000 + j, each with an ItemActionComponent.
+INVENTORY_QUICK = 3
+__other_wands = {}
+
+-- "A,B;C" -> two wands, { A, B } and { C }. Call after world_reset.
+function sim_set_other_wands(spec)
+  __other_wands = {}
+  for wand in string.gmatch(spec or "", "[^;]+") do
+    local spells = {}
+    for id in string.gmatch(wand, "[^,]+") do spells[#spells + 1] = id end
+    __other_wands[#__other_wands + 1] = spells
+    local wand_id = 1000 + #__other_wands
+    for j, id in ipairs(spells) do add_comp(wand_id * 1000 + j, "ItemActionComponent", { action_id = id }) end
+  end
 end
 world_reset()
 
@@ -100,9 +118,27 @@ ComponentSetValue = ComponentSetValue2
 function EntityGetTransform(e) return 0, 0, 0, 1, 1 end
 function EntityGetWithTag(tag) if tag == "player_unit" then return { PLAYER } end return {} end
 function EntityGetInRadiusWithTag() return {} end
-function EntityGetAllChildren() return nil end
-function EntityGetName() return "" end
-function EntityHasTag(e, tag) return e == PLAYER and tag == "player_unit" end
+function EntityGetAllChildren(e)
+  if e == PLAYER then return { INVENTORY_QUICK } end
+  if e == INVENTORY_QUICK then
+    local list = { WAND }
+    for i in ipairs(__other_wands) do list[#list + 1] = 1000 + i end
+    return list
+  end
+  local spells = __other_wands[(e or 0) - 1000]
+  if spells and #spells > 0 then
+    local list = {}
+    for j in ipairs(spells) do list[j] = e * 1000 + j end
+    return list
+  end
+  return nil
+end
+function EntityGetName(e) if e == INVENTORY_QUICK then return "inventory_quick" end return "" end
+function EntityHasTag(e, tag)
+  if tag == "player_unit" then return e == PLAYER end
+  if tag == "wand" then return e == WAND or __other_wands[(e or 0) - 1000] ~= nil end
+  return false
+end
 function EntityGetRootEntity(e) return e end
 function EntityLoad(file) table.insert(__world.log, { kind = "entity_load", file = file }) return 0 end
 function EntityInflictDamage(e, amount)

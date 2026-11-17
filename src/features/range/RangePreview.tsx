@@ -64,7 +64,7 @@ type Hud = {
 };
 
 /** Live pixel test range: hold the wand and cast it at a target dummy, with the wand's real mana and recharge. */
-export function RangePreview({ wand, options, active }: { wand: Wand; options: SimOptions; active: boolean }) {
+export function RangePreview({ wand, options, otherWands, active }: { wand: Wand; options: SimOptions; otherWands?: string[][]; active: boolean }) {
   const { projectiles, materials, materialById, reactions, spellById } = useData();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -82,7 +82,7 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
   const [settings] = useState(rangeSettings);
   const [hud, setHud] = useState<Hud>({ dps: 0, total: 0, self: 0, healed: 0, song: null, casts: 0, live: 0, unsupported: [], wandError: null, deck: null, played: [] });
   const [fps, setFps] = useState<{ fps: number; step: number; draw: number } | null>(null);
-  const req = useMemo(() => toSimRequest(wand, options, spellById).req, [wand, options, spellById]);
+  const req = useMemo(() => toSimRequest(wand, options, spellById, otherWands).req, [wand, options, spellById, otherWands]);
   const empty = req.deck.length === 0 && req.alwaysCasts.length === 0;
   const wandSprite = useMemo(() => (ready?.data.kit ? pickWandSprite(ready.data.kit.wands, wand, look) : undefined), [ready, wand, look]);
   const touch = useMemo(() => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches, []);

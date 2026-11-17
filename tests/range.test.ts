@@ -609,7 +609,6 @@ describe('note spell songs (kantele.lua / ocarina.lua)', () => {
   };
 
   it('recognises each song from the game files', () => {
-    expect(play('kantele', ['g', 'd', 'e', 'd'])).toEqual(['bomb']);
     expect(play('kantele', ['a', 'dis', 'e', 'g'])).toEqual(['portal']);
     expect(play('kantele', ['d', 'e', 'a', 'e', 'dis'])).toEqual(['worm']);
     expect(play('ocarina', ['f', 'c', 'd', 'c'])).toEqual(['bomb']);
@@ -622,18 +621,32 @@ describe('note spell songs (kantele.lua / ocarina.lua)', () => {
     expect(play('ocarina', ['e', 'c', 'b', 'gsharp', 'f'])).toEqual(['alchemy']);
   });
 
+  it('kantele G always opens the alchemy song (pairs order in the game’s LuaJIT), so the kantele bomb song never completes', () => {
+    const s = new SongState('kantele');
+    s.play('g');
+    expect(s.song).toBe('alchemy');
+    expect(play('kantele', ['g', 'd', 'e', 'd'])).toEqual([]);
+    // D broke alchemy and started the worm song; E carried it on.
+    expect(play('kantele', ['g', 'd', 'e', 'a', 'e', 'dis'])).toEqual(['worm']);
+  });
+
   it('a wrong note breaks the song, but may start another', () => {
     expect(play('kantele', ['g', 'd', 'a', 'd'])).toEqual([]);
     // The stray A starts the portal song, which then completes.
     expect(play('kantele', ['g', 'd', 'a', 'dis', 'e', 'g'])).toEqual(['portal']);
+    // A note that fits no song leaves nothing in play.
+    const s = new SongState('ocarina');
+    s.play('a');
+    s.play('b');
+    expect(s.song).toBeNull();
   });
 
   it('each song works once per instrument; after that the energy is gone', () => {
     const m = new Musician();
     const run = (inst: 'kantele' | 'ocarina', notes: string[]) => notes.map((n) => m.hear(inst, n)).find(Boolean);
-    expect(run('kantele', ['g', 'd', 'e', 'd'])).toEqual({ song: 'bomb', first: true });
-    expect(run('kantele', ['g', 'd', 'e', 'd'])).toEqual({ song: 'bomb', first: false });
     expect(run('ocarina', ['f', 'c', 'd', 'c'])).toEqual({ song: 'bomb', first: true });
+    expect(run('ocarina', ['f', 'c', 'd', 'c'])).toEqual({ song: 'bomb', first: false });
+    expect(run('kantele', ['a', 'dis', 'e', 'g'])).toEqual({ song: 'portal', first: true });
     expect(noteOf('data/entities/projectiles/deck/kantele/kantele_dis.xml')).toEqual({ instrument: 'kantele', note: 'dis' });
   });
 
@@ -642,9 +655,50 @@ describe('note spell songs (kantele.lua / ocarina.lua)', () => {
     const spawned: string[] = [];
     const spawn = w.spawn.bind(w);
     w.spawn = (file, ...rest) => (spawned.push(file.split('/').pop()!), spawn(file, ...rest));
-    equip(w, ['BURST_4', 'KANTELE_G', 'KANTELE_D', 'KANTELE_E', 'KANTELE_D']);
+    equip(w, ['BURST_4', 'OCARINA_F', 'OCARINA_C', 'OCARINA_D', 'OCARINA_C']);
     w.step();
     expect(spawned).toContain('bomb_holy.xml');
     expect(w.songMessage?.text).toMatch(/world around you changes/);
+  });
+
+  it('the kantele bomb notes play no song in the range either', () => {
+    const w = new RangeWorld(data);
+    const spawned: string[] = [];
+    const spawn = w.spawn.bind(w);
+    w.spawn = (file, ...rest) => (spawned.push(file.split('/').pop()!), spawn(file, ...rest));
+    equip(w, ['BURST_4', 'KANTELE_G', 'KANTELE_D', 'KANTELE_E', 'KANTELE_D']);
+    w.step();
+    expect(spawned).not.toContain('bomb_holy.xml');
+    expect(w.songMessage).toBeNull();
+  });
+});
+
+describe('frozen + melee (wiki: Status Effects)', () => {
+  const tentacle = () => Object.keys(data.projectiles).find((f) => f.endsWith('deck/tentacle.xml'))!;
+
+  it('a tentacle hit on a frozen dummy is an instant kill; unfrozen it is just damage', () => {
+    for (const frozen of [true, false]) {
+      const w = new RangeWorld(data);
+      if (frozen) w.dummy.status.set('FROZEN', 600);
+      const d = w.dummy;
+      w.spawn(tentacle(), d.x - 2, d.y - d.h / 2, 0, 0);
+      for (let i = 0; i < 10; i++) w.step();
+      expect(w.totalDamage).toBeGreaterThan(0);
+      expect(w.frozenKills).toBe(frozen ? 1 : 0);
+      expect(w.floaters.some((f) => f.text === 'SHATTERED')).toBe(frozen);
+    }
+  });
+
+  it('a frozen player loses half their HP to melee, or dies at 25% or less', () => {
+    const w = new RangeWorld(data);
+    const hit = (w as unknown as { frozenMeleeHit(a: unknown): void }).frozenMeleeHit.bind(w);
+    w.player.status.set('FROZEN', 600);
+    w.body.invincible = 0;
+    const hp0 = w.body.hp;
+    hit(w.player);
+    expect(w.body.hp).toBeCloseTo(hp0 / 2, 5);
+    w.body.hp = w.maxHp * 0.25;
+    hit(w.player);
+    expect(w.body.hp).toBe(0);
   });
 });

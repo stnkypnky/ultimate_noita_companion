@@ -51,7 +51,10 @@ function greekLetters(): Entries {
     'spell:SIGMA': [free],
     'spell:ZETA': [
       free,
-      { text: 'It copies a random spell from another wand you carry, so it does nothing in a one-wand setup (including this app’s wand builder).', source: src },
+      {
+        text: 'It copies a random spell from the other wands you carry (up to 3), and does nothing with no other wand. In this app, your 3 most recently saved builds stand in for them.',
+        source: src,
+      },
     ],
   };
 }
@@ -67,8 +70,11 @@ function noteSpells(): Entries {
     },
   ];
   const kantele: MechanicNote[] = [
-    { text: 'Kantele songs: G D E D summons a live Holy Bomb at your feet; A D# E G opens a portal to the mountain top; D E A E D# summons a Jättimato.', source: src, secret: true },
-    { text: 'The kantele bomb song is unreliable: its first note also opens another song in the game’s code, and the game may follow that one instead.', source: src },
+    { text: 'Kantele songs: G D E D is meant to summon a live Holy Bomb at your feet (but see below); A D# E G opens a portal to the mountain top; D E A E D# summons a Jättimato.', source: src, secret: true },
+    {
+      text: 'The kantele bomb song can’t be finished: its first note (G) also opens the alchemy song, and the game always picks alchemy. Checked by running the song table through the game’s own Lua (kantele.lua).',
+      source: src,
+    },
   ];
   const ocarina: MechanicNote[] = [
     { text: 'Ocarina songs: F C D C summons a live Holy Bomb; A F D E A2 opens a portal to the mountain top; G# F E B D summons a Jättimato.', source: src, secret: true },
@@ -169,6 +175,19 @@ export const MECHANICS: Entries = {
       text: 'A frozen Jättimato can be kicked to death in one go. It thaws fast, so be quick. Killed this way it doesn’t bleed, but it still has its 50% chance to drop Extra Max Health.',
       source: `${WIKI}J%C3%A4ttimato`,
     },
+    {
+      text: 'Any Melee damage kills a frozen creature outright: kicks, Summon Tentacle, Tentacler. On a frozen player it takes half their current HP, or kills at 25% HP or less.',
+      source: `${WIKI}Status_Effects`,
+    },
+  ],
+  'spell:TENTACLE_RAY': [
+    {
+      text: 'Its tentacles deal Melee damage, and Melee damage kills any frozen creature instantly. Pair it with Freeze charge to one-shot a Jättimato (50% Extra Max Health).',
+      source: `${WIKI}Status_Effects`,
+    },
+  ],
+  'spell:TENTACLE': [
+    { text: 'The tentacle deals Melee damage, which kills any frozen creature instantly (and halves a frozen player’s HP).', source: `${WIKI}Status_Effects` },
   ],
   'spell:HEAL_BULLET': [
     { text: 'It heals only by hitting you (8.75 HP, doubled with Berserkium), and it has friendly fire on. Aim it at the ground and walk into it, or bring it back with Boomerang, Bounce or Orbiting Arc.', source: `${WIKI}Healing_Bolt` },

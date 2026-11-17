@@ -47,7 +47,25 @@ export function resize(spells: (string | null)[], capacity: number): (string | n
   return out;
 }
 
-export function toSimRequest(wand: Wand, opts: SimOptions, spellById: Map<string, Spell>): { req: SimRequest; slotOfCard: number[] } {
+/**
+ * The player carries at most 4 wands (the quick inventory), so Zeta can draw on 3 others. The wand builder
+ * holds only one, so saved builds stand in for the rest: the most recently saved, other than the one in hand.
+ */
+export const CARRIED_WANDS = 4;
+
+export function pickOtherWands(builds: { name: string; wand: Wand }[], current: string): string[][] {
+  return builds
+    .filter((b) => b.name !== current)
+    .slice(0, CARRIED_WANDS - 1)
+    .map(({ wand }) => [...wand.spells.filter((s): s is string => !!s), ...wand.alwaysCasts]);
+}
+
+export function toSimRequest(
+  wand: Wand,
+  opts: SimOptions,
+  spellById: Map<string, Spell>,
+  otherWands: string[][] = [],
+): { req: SimRequest; slotOfCard: number[] } {
   const deck: SimRequest['deck'] = [];
   // Card n (1-based, in sim_add_card order) came from slot slotOfCard[n - 1].
   const slotOfCard: number[] = [];
@@ -63,6 +81,7 @@ export function toSimRequest(wand: Wand, opts: SimOptions, spellById: Map<string
       wand,
       deck,
       alwaysCasts: wand.alwaysCasts.filter((id) => spellById.has(id)),
+      otherWands: otherWands.map((w) => w.filter((id) => spellById.has(id))).filter((w) => w.length),
       options: {
         maxCasts: opts.mode === 'cycle' ? 64 : opts.casts,
         stopOnReload: opts.mode === 'cycle',

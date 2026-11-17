@@ -233,9 +233,24 @@ describe('wand simulation (real gun.lua)', () => {
     });
 
     it('Zeta copies nothing without other wands in the inventory', () => {
-      // Zeta picks a random spell from the player's other wands; the sim has only the one wand.
+      // Zeta picks a random spell from the player's other wands; none are carried here.
       const c = greek(['ZETA', 'LIGHT_BULLET'], 'ZETA');
       expect(files(c.shot)).toEqual([SPARK]);
+    });
+
+    it('Zeta copies a spell from another carried wand (saved builds stand in for them)', () => {
+      const run = (others: string) => {
+        host.call('sim_reset', 1, false, 20, 2, 10, 0, 1, 1000, 100, 1000, 100, 100, 0, 0);
+        host.call('sim_set_other_wands', others);
+        for (const id of ['ZETA', 'LIGHT_BULLET']) host.call('sim_add_card', id, -1);
+        return (JSON.parse(host.call<string>('sim_run', 1, false)) as SimResult).casts[0]!;
+      };
+      expect(files(run('BOMB').shot)).toEqual(['bomb.xml', SPARK]);
+      // Only the other wands count; spells come from any of them.
+      for (let i = 0; i < 5; i++) expect(['bomb.xml', 'rocket.xml']).toContain(files(run('BOMB;ROCKET').shot)[0]);
+      // An empty other wand gives it nothing to copy, and a reset forgets the other wands.
+      expect(files(run('').shot)).toEqual([SPARK]);
+      expect(files(greek(['ZETA', 'LIGHT_BULLET'], 'ZETA').shot)).toEqual([SPARK]);
     });
   });
 

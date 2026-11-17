@@ -10,19 +10,23 @@
 export type Instrument = 'kantele' | 'ocarina';
 export type Song = 'portal' | 'bomb' | 'worm' | 'alchemy';
 
-/** As the scripts list them. The alchemy songs are written in another key (ALT_NOTES). */
+/**
+ * The scripts' song tables, in the order the game's `pairs()` walks them when a note starts a new song.
+ * Measured by running the tables through Noita's own lua51.dll (LuaJIT 2.0.4, no hash seed, so it is the
+ * same every time): worm, alchemy, portal, bomb. The alchemy songs are written in another key (ALT_NOTES).
+ */
 const SONGS: Record<Instrument, [Song, string[]][]> = {
   kantele: [
-    ['portal', ['a', 'dis', 'e', 'g']],
-    ['bomb', ['g', 'd', 'e', 'd']],
     ['worm', ['d', 'e', 'a', 'e', 'dis']],
     ['alchemy', ['f', 'g', 'f', 'a2', 'c']],
+    ['portal', ['a', 'dis', 'e', 'g']],
+    ['bomb', ['g', 'd', 'e', 'd']],
   ],
   ocarina: [
-    ['portal', ['a', 'f', 'd', 'e', 'a2']],
-    ['bomb', ['f', 'c', 'd', 'c']],
     ['worm', ['gsharp', 'f', 'e', 'b', 'd']],
     ['alchemy', ['a2', 'd', 'dis', 'e', 'a']],
+    ['portal', ['a', 'f', 'd', 'e', 'a2']],
+    ['bomb', ['f', 'c', 'd', 'c']],
   ],
 };
 
@@ -43,33 +47,45 @@ const noteAt = (song: Song, notes: string[], i: number) => (song === 'alchemy' ?
 /**
  * One instrument's song progress, as the player's VariableStorageComponents keep it.
  *
- * The game follows a single song. Two kantele songs open on the same note once the alchemy song is translated
- * (G), and which one the game follows then comes down to Lua's table order, which the files don't pin down
- * (the wiki notes the kantele bomb song is unreliable for this reason). The range follows every song that
- * fits, so either one can be completed here.
+ * The game follows a single song, a line-by-line port of the script. On the kantele the translated alchemy
+ * song and the bomb song both open on G; alchemy comes first in table order, so G always starts alchemy and
+ * the kantele bomb song can never be finished (the wiki calls it unreliable).
  */
 export class SongState {
-  /** Songs still in play and how many of their notes have been heard. */
-  tracks: { song: Song; pos: number }[] = [];
+  /** The song being played (kantele_song) and how many of its notes have been heard (kantele_song_pos). */
+  song: Song | null = null;
+  pos = 0;
 
   constructor(readonly instrument: Instrument) {}
 
   /** Play a note; returns the song it completes, if any. */
   play(note: string): Song | null {
     const songs = SONGS[this.instrument];
-    const next: { song: Song; pos: number }[] = [];
-    for (const t of this.tracks) {
-      const notes = songs.find(([s]) => s === t.song)![1];
-      if (note !== noteAt(t.song, notes, t.pos)) continue;
-      if (t.pos + 1 === notes.length) {
-        this.tracks = [];
-        return t.song;
+    let found = false;
+    let done: Song | null = null;
+    const current = this.song && songs.find(([s]) => s === this.song);
+    if (current) {
+      const [song, notes] = current;
+      if (note === noteAt(song, notes, this.pos)) {
+        if (this.pos + 1 < notes.length) {
+          this.pos++;
+          found = true;
+        } else done = song;
       }
-      next.push({ song: t.song, pos: t.pos + 1 });
     }
-    // A note that continues no song breaks the tune, and may begin a new one.
-    this.tracks = next.length ? next : songs.filter(([song, notes]) => note === noteAt(song, notes, 0)).map(([song]) => ({ song, pos: 1 }));
-    return null;
+    if (!found) {
+      this.song = null;
+      this.pos = 0;
+    }
+    // A note that breaks the tune may begin a new one: the first song (in table order) that opens on it.
+    if (!this.song && !done) {
+      const start = songs.find(([song, notes]) => note === noteAt(song, notes, 0));
+      if (start) {
+        this.song = start[0];
+        this.pos = 1;
+      }
+    }
+    return done;
   }
 }
 

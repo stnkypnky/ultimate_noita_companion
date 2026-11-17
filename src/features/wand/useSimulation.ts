@@ -17,18 +17,18 @@ export type SimState = {
 };
 
 /** Re-simulates (debounced) whenever the wand or options change; keeps the previous result while running. */
-export function useSimulation(wand: Wand, options: SimOptions): SimState {
+export function useSimulation(wand: Wand, options: SimOptions, otherWands: string[][] = []): SimState {
   const { spells, spellById, projectiles } = useData();
   const analyzer = useMemo(() => new Analyzer(projectiles, spells), [projectiles, spells]);
   const input = useDebounced(
-    useMemo(() => ({ wand, options }), [wand, options]),
+    useMemo(() => ({ wand, options, otherWands }), [wand, options, otherWands]),
     120,
   );
   const [state, setState] = useState<SimState>({ status: 'idle', casts: [], summary: null, slotOfCard: [], missing: [] });
 
   useEffect(() => {
     let cancelled = false;
-    const { req, slotOfCard } = toSimRequest(input.wand, input.options, spellById);
+    const { req, slotOfCard } = toSimRequest(input.wand, input.options, spellById, input.otherWands);
     if (!req.deck.length && !req.alwaysCasts.length) {
       setState({ status: 'idle', casts: [], summary: null, slotOfCard: [], missing: [] });
       return;

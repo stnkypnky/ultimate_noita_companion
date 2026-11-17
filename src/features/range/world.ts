@@ -125,6 +125,8 @@ export type Proj = {
   hit: number;
   /** Health given back on a hit: the Healing damage type is negative (Healing bolt), net of any other damage. */
   heal: number;
+  /** Deals Melee damage (Tentacle): on a frozen creature that is fatal (frozenMeleeHit). */
+  melee: boolean;
   critChance: number;
   explosion: { damage: number; radius: number; onDeath: boolean; onTimeout: boolean; digs: boolean; digDurability: number; color?: string } | null;
   spareShooter: boolean;
@@ -339,6 +341,8 @@ export class RangeWorld {
   selfDamage = 0;
   /** Health your own spells gave back (Healing bolt). */
   healed = 0;
+  /** Melee hits on a frozen target (an instant kill on anything but the player). */
+  frozenKills = 0;
   /** Note spells' song progress, and the last message a finished song gave (shown for a few seconds). */
   musician = new Musician();
   songMessage: { text: string; frame: number } | null = null;
@@ -832,6 +836,7 @@ export class RangeWorld {
       beamLike: !vis?.sprites?.length && life > 0 && life <= 4 && speedOf({ vx, vy }) > 300,
       hit,
       heal,
+      melee: (dmg.damage.melee ?? 0) !== 0,
       critChance: dmg.critChance,
       explosion:
         base?.explosion && dmg.explosion
@@ -1281,6 +1286,7 @@ export class RangeWorld {
       if (p.parent) {
         // Orbiting blades/orbs keep hitting as they sweep through; explosive ones blow up.
         if (p.rehitCooldown > 0) continue;
+        if (p.melee) this.frozenMeleeHit(a);
         this.hurt(a, p.hit, p.critChance, p);
         this.applyEffects(a, p.effects);
         p.rehitCooldown = 20;
@@ -1292,6 +1298,7 @@ export class RangeWorld {
       }
       if (p.hitActors.has(a.id)) continue;
       p.hitActors.add(a.id);
+      if (p.melee) this.frozenMeleeHit(a);
       this.hurt(a, hitDamage(p), p.critChance, p);
       if (p.heal > 0) this.heal(a, p.heal);
       this.applyEffects(a, p.effects);
@@ -1440,6 +1447,22 @@ export class RangeWorld {
     if (!r) return;
     this.songMessage = { text: songMessage(r), frame: this.frame };
     if (r.first && r.song === 'bomb') this.spawn('data/entities/projectiles/bomb_holy.xml', x, y, 0, 0);
+  }
+
+  /**
+   * Melee damage on a Frozen target (wiki: Status Effects): any creature but the player dies outright; the
+   * player loses half their current HP, or dies at 25% of max HP or less. The dummy can't die, so it shows it.
+   */
+  private frozenMeleeHit(a: Actor) {
+    if (!a.status.has('FROZEN')) return;
+    this.frozenKills++;
+    if (a.id === 'player') {
+      const b = this.body;
+      this.hurt(a, b.hp <= this.maxHp * 0.25 ? b.hp : b.hp / 2, 0);
+      return;
+    }
+    this.floaters.push({ x: a.x, y: a.y - a.h - 10, text: 'SHATTERED', age: 0, crit: true, self: false });
+    if (this.floaters.length > 40) this.floaters.shift();
   }
 
   /** Healing from a hit (Healing bolt): the player gets health back up to the maximum; the dummy just shows it. */
