@@ -8,6 +8,7 @@ import { collectItems } from './items.ts';
 import { collectVisuals, rangeProps, type LayerOut } from './visuals.ts';
 import { rangeKit } from './kit.ts';
 import { BIOMES } from '../../src/features/range/biomes.ts';
+import { buildWorldMap } from './map.ts';
 import { Wak } from './wak.ts';
 import { findNoita } from './paths.ts';
 import { createLuaHost, loadGun } from './lua.ts';
@@ -135,9 +136,15 @@ for (const [key, f] of Object.entries(await rangeProps(wak))) {
   await writeFile(join(OUT, `sprites/range_${key}.png`), f.png);
 }
 console.log(`visuals: ${Object.keys(visuals).length} entities, ${vis.images.length} sprites; range props: ${Object.keys(props).join(', ')}`);
-// The cave backgrounds behind each biome the range can look like (Topology background_image).
+// The world map: biome per chunk, and the pictures of the fixed pixel scenes.
+const world = await buildWorldMap(wak, t);
+await mkdir(join(OUT, 'map'), { recursive: true });
+for (const [key, png] of world.images) await writeFile(join(OUT, 'map', `${key}.png`), png);
+await writeJson('data/map.json', world.map);
+console.log(`map: ${world.map.w}×${world.map.h} chunks, ${world.map.biomes.length} biomes, ${world.map.scenes.length} pixel scenes`);
+// The cave backgrounds behind each biome the range can look like and the map shows (Topology background_image).
 await mkdir(join(OUT, 'backgrounds'), { recursive: true });
-for (const bg of new Set(BIOMES.flatMap((b) => (b.background ? [b.background] : [])))) {
+for (const bg of new Set([...BIOMES.flatMap((b) => (b.background ? [b.background] : [])), ...world.backgrounds])) {
   const file = `data/weather_gfx/${bg}.png`;
   if (wak.has(file)) await writeFile(join(OUT, 'backgrounds', `${bg}.png`), wak.bytes(file));
   else console.warn(`range background missing: ${file}`);

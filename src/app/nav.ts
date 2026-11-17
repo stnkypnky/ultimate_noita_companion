@@ -10,6 +10,7 @@ import {
   Settings,
   Menu,
   Skull,
+  Map as MapIcon,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -23,6 +24,7 @@ export const NAV: NavItem[] = [
   { to: '/perks', label: 'Perks', icon: Gem },
   { to: '/items', label: 'Items', icon: Package },
   { to: '/bestiary', label: 'Bestiary', icon: Skull },
+  { to: '/map', label: 'World Map', icon: MapIcon },
   { to: '/materials', label: 'Materials', icon: FlaskConical, mobile: true },
   { to: '/alchemy', label: 'Alchemy', icon: Beaker },
   { to: '/progress', label: 'Progress Sync', icon: RefreshCw },

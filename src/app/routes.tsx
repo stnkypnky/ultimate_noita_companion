@@ -21,6 +21,7 @@ export const router = createBrowserRouter(
         { path: 'perks/:id?', ...page(() => import('@/features/perks/PerksPage').then((m) => ({ default: m.PerksPage }))) },
         { path: 'items/:id?', ...page(() => import('@/features/items/ItemsPage').then((m) => ({ default: m.ItemsPage }))) },
         { path: 'bestiary/:id?', ...page(() => import('@/features/bestiary/BestiaryPage').then((m) => ({ default: m.BestiaryPage }))) },
+        { path: 'map/:place?', ...page(() => import('@/features/map/MapPage').then((m) => ({ default: m.MapPage }))) },
         { path: 'materials/:id?', ...page(() => import('@/features/materials/MaterialsPage').then((m) => ({ default: m.MaterialsPage }))) },
         { path: 'alchemy', ...page(() => import('@/features/alchemy/AlchemyPage').then((m) => ({ default: m.AlchemyPage }))) },
         { path: 'progress', ...page(() => import('@/features/progress/ProgressPage').then((m) => ({ default: m.ProgressPage }))) },

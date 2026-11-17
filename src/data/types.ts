@@ -458,6 +458,49 @@ export type Reaction = {
   entity?: string;
 };
 
+/** A biome on the world map (data/biome/<id>.xml). */
+export type MapBiome = {
+  id: string;
+  file: string;
+  /** In-game name, '' for the unnamed filler biomes. */
+  name: string;
+  /** Its colour in biome_map.png. */
+  color: string;
+  /** Main rock material (widest <MaterialComponent>). */
+  material?: string;
+  /** data/weather_gfx/<background>.png. */
+  background?: string;
+  /** Generated from wang tiles (a cave biome). */
+  wang: boolean;
+};
+
+/** A pixel scene placed at a fixed world position. */
+export type MapScene = {
+  id: string;
+  file: string;
+  /** Which list placed it (pixel_scenes, background_images, or a spliced scene's name). */
+  from: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Key of its picture under game/map/. */
+  image?: string;
+  background?: string;
+};
+
+/** The main world (biome_map.png): w×h chunks of `chunk` px; world x = (cx − w/2)·chunk, y = (cy − offsetY)·chunk. */
+export type WorldMap = {
+  w: number;
+  h: number;
+  offsetY: number;
+  chunk: number;
+  /** Biome index per chunk, row by row. */
+  cells: number[];
+  biomes: MapBiome[];
+  scenes: MapScene[];
+};
+
 export type GameData = {
   spells: Spell[];
   projectiles: Record<string, Projectile>;

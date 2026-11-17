@@ -38,6 +38,9 @@ export default defineConfig({
       workbox: {
         // Everything the app needs offline: shell, game data, sprites, Lua sources, wasm.
         globPatterns: ['**/*.{js,css,html,svg,png,webp,json,lua,wasm,woff2,otf}'],
+        // The world map's room pictures (~3 MB) are only fetched when the map is opened, then kept for offline.
+        globIgnores: ['**/game/map/**'],
+        runtimeCaching: [{ urlPattern: /\/game\/map\/.+\.png$/, handler: 'CacheFirst', options: { cacheName: 'map-pictures', expiration: { maxEntries: 400 } } }],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         navigateFallback: 'index.html',
       },

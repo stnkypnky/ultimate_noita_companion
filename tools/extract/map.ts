@@ -1,0 +1,127 @@
+// The world map: data/biome_impl/biome_map.png (loaded by data/scripts/biome_map.lua, one pixel per 512×512
+// chunk), its colours resolved to biomes through data/biome/_biomes_all.xml, and the pixel scenes the game
+// places at fixed world positions (data/biome/_pixel_scenes.xml).
+import sharp from 'sharp';
+import type { MapBiome, MapScene, WorldMap } from '../../src/data/types.ts';
+import { tr, type Translations } from './translations.ts';
+import type { Wak } from './wak.ts';
+
+const CHUNK = 512;
+const attr = (s: string, k: string) => new RegExp(`\\b${k}="([^"]*)"`).exec(s)?.[1];
+
+/** The widest-ranging <MaterialComponent> is the biome's main rock (the others are seams and ores). */
+function mainMaterial(xml: string) {
+  let best: { name: string; span: number } | null = null;
+  for (const m of xml.matchAll(/<MaterialComponent[\s\S]*?(?:<\/MaterialComponent>|\/>)/g)) {
+    const name = attr(m[0], 'material_name');
+    if (!name || attr(m[0], '_enabled') === '0' || attr(m[0], 'is_rare') === '1') continue;
+    const span = Number(attr(m[0], 'material_max') ?? 0) - Number(attr(m[0], 'material_min') ?? 0);
+    if (!best || span > best.span) best = { name, span };
+  }
+  return best?.name;
+}
+
+export async function buildWorldMap(wak: Wak, t: Translations) {
+  const all = wak.text('data/biome/_biomes_all.xml');
+  const offsetY = Number(attr(all, 'biome_offset_y') ?? 14);
+  const byColor = new Map<string, string>();
+  for (const m of all.matchAll(/<Biome\s[\s\S]*?>/g)) {
+    const file = attr(m[0], 'biome_filename');
+    const color = attr(m[0], 'color');
+    if (file && color) byColor.set(color.toLowerCase().slice(-6), file);
+  }
+
+  const mapFile = /BiomeMapLoadImage\(\s*0,\s*0,\s*"([^"]+)"/.exec(wak.text('data/scripts/biome_map.lua'))?.[1] ?? 'data/biome_impl/biome_map.png';
+  const { data, info } = await sharp(wak.bytes(mapFile)).raw().ensureAlpha().toBuffer({ resolveWithObject: true });
+
+  const biomes: MapBiome[] = [];
+  const index = new Map<string, number>();
+  const cells: number[] = [];
+  const backgrounds = new Set<string>();
+  const roomScripts: [number, string][] = [];
+  for (let i = 0; i < info.width * info.height; i++) {
+    const hex = [data[i * 4], data[i * 4 + 1], data[i * 4 + 2]].map((v) => v!.toString(16).padStart(2, '0')).join('');
+    const file = byColor.get(hex) ?? '';
+    let k = index.get(file);
+    if (k === undefined) {
+      k = biomes.length;
+      index.set(file, k);
+      const xml = file && wak.has(file) ? wak.text(file) : '';
+      const nameKey = attr(xml, 'name');
+      const name = nameKey && nameKey.startsWith('$') ? tr(t, nameKey) : '';
+      const bg = /background_image="data\/weather_gfx\/([^"]+)\.png"/.exec(xml)?.[1];
+      if (bg) backgrounds.add(bg);
+      biomes.push({
+        id: file ? file.split('/').pop()!.replace(/\.xml$/, '') : 'unknown',
+        file,
+        name,
+        color: `#${hex}`,
+        ...(mainMaterial(xml) ? { material: mainMaterial(xml)! } : {}),
+        ...(bg ? { background: bg } : {}),
+        wang: !!attr(xml, 'wang_template_file'),
+      });
+      const script = attr(xml, 'lua_script');
+      if (script && wak.has(script)) roomScripts.push([k, script]);
+    }
+    cells.push(k);
+  }
+
+  // Pixel scenes at fixed spots, inside the drawn world. Spliced scenes (.plz pieces) show by their PNG backgrounds.
+  const x0 = -(info.width / 2) * CHUNK;
+  const y0 = -offsetY * CHUNK;
+  const inside = (x: number, y: number) => x >= x0 && x < x0 + info.width * CHUNK && y >= y0 && y < y0 + info.height * CHUNK;
+  const images = new Map<string, Buffer>();
+  const scenes: MapScene[] = [];
+  const imageKey = async (file: string | undefined) => {
+    if (!file || !file.endsWith('.png') || !wak.has(file)) return undefined;
+    const key = file.replace(/^data\//, '').replace(/\//g, '__');
+    if (!images.has(key)) images.set(key, wak.bytes(file));
+    return key;
+  };
+  const addScene = async (el: string, from: string) => {
+    const x = Number(attr(el, 'pos_x') ?? attr(el, 'x'));
+    const y = Number(attr(el, 'pos_y') ?? attr(el, 'y'));
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !inside(x, y)) return;
+    const look = (await imageKey(attr(el, 'colors_filename'))) ?? (await imageKey(attr(el, 'material_filename'))) ?? (await imageKey(attr(el, 'filename')));
+    const back = await imageKey(attr(el, 'background_filename'));
+    const key = look ?? back;
+    if (!key) return;
+    const meta = await sharp(images.get(key)!).metadata();
+    const file = attr(el, 'material_filename') ?? attr(el, 'filename') ?? '';
+    scenes.push({ id: file.split('/').pop()!.replace(/\.\w+$/, ''), file, from, x, y, w: meta.width ?? 0, h: meta.height ?? 0, ...(look ? { image: look } : {}), ...(back && back !== look ? { background: back } : {}) });
+  };
+  // Rooms that draw themselves: a biome script whose init() loads a pixel scene at the chunk (orb rooms, Holy
+  // Mountains, secret rooms). Placed at every chunk of that biome, at the script's literal offset.
+  for (const [k, script] of roomScripts) {
+    const src = wak.text(script);
+    const init = /function\s+init\s*\([^)]*\)([\s\S]*?)(?=\nfunction\s|$)/.exec(src)?.[1];
+    if (!init) continue;
+    const call = /LoadPixelScene\(\s*"([^"]+)"\s*,\s*"([^"]*)"\s*,\s*(x[-+\d\s]*)\s*,\s*(y[-+\d\s]*)\s*,\s*"([^"]*)"/.exec(init);
+    if (!call) continue;
+    // "y-40+300" → 260: the literal sum after the coordinate.
+    const offset = (e: string) => [...e.slice(1).replace(/\s/g, '').matchAll(/([+-])(\d+)/g)].reduce((n, m) => n + Number(m[2]) * (m[1] === '-' ? -1 : 1), 0);
+    const dx = offset(call[3]!);
+    const dy = offset(call[4]!);
+    const look = (await imageKey(call[2])) ?? (await imageKey(call[1]));
+    const back = await imageKey(call[5]);
+    if (!look) continue;
+    const meta = await sharp(images.get(look)!).metadata();
+    for (let c = 0; c < cells.length; c++) {
+      if (cells[c] !== k) continue;
+      const x = (c % info.width) * CHUNK + x0 + dx;
+      const y = Math.floor(c / info.width) * CHUNK + y0 + dy;
+      scenes.push({ id: biomes[k]!.id, file: call[1]!, from: 'biome', x, y, w: meta.width ?? 0, h: meta.height ?? 0, image: look, ...(back && back !== look ? { background: back } : {}) });
+    }
+  }
+  const sceneXml = wak.text('data/biome/_pixel_scenes.xml');
+  for (const m of sceneXml.matchAll(/<PixelScene\s[\s\S]*?>/g)) await addScene(m[0], 'pixel_scenes');
+  for (const m of sceneXml.matchAll(/<Image\s[\s\S]*?>/g)) await addScene(m[0], 'background_images');
+  for (const m of sceneXml.matchAll(/<File>([^<]+)<\/File>/g)) {
+    const f = m[1]!.trim();
+    if (!wak.has(f)) continue;
+    for (const s of wak.text(f).matchAll(/<PixelScene\s[\s\S]*?>/g)) await addScene(s[0], f.split('/').pop()!.replace(/\.xml$/, ''));
+  }
+
+  const map: WorldMap = { w: info.width, h: info.height, offsetY, chunk: CHUNK, cells, biomes, scenes };
+  return { map, images, backgrounds: [...backgrounds] };
+}
