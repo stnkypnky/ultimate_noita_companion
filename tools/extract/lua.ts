@@ -6,6 +6,7 @@ import { NoitaRandom } from '../../src/sim/rng.ts';
 const SIM_LUA = join(import.meta.dirname, '../../src/sim/lua');
 export const engineSource = readFileSync(join(SIM_LUA, 'engine.lua'), 'utf8');
 export const driverSource = readFileSync(join(SIM_LUA, 'driver.lua'), 'utf8');
+export const seedSource = readFileSync(join(import.meta.dirname, '../../src/seed/lua/seed.lua'), 'utf8');
 
 export type LuaHost = {
   lua: LuaEngine;

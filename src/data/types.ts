@@ -499,6 +499,8 @@ export type WorldMap = {
   cells: number[];
   biomes: MapBiome[];
   scenes: MapScene[];
+  /** Where each Holy Mountain's shop spawns (spawn_all_shopitems), top to bottom. */
+  shops: { x: number; y: number }[];
 };
 
 export type GameData = {

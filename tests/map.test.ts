@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Material, WorldMap } from '../src/data/types.ts';
 import { biomeKey, biomeName, holyMountains, makeVisibility, orbOf, sceneKey } from '../src/features/map/world.ts';
+import { SHOP_SPOTS } from '../src/seed/seed.ts';
 
 const GAME = join(import.meta.dirname, '../public/game');
 const map = JSON.parse(readFileSync(join(GAME, 'data/map.json'), 'utf8')) as WorldMap;
@@ -33,6 +34,10 @@ describe('world map', () => {
     for (const b of map.biomes) if (b.material) expect(ids, b.id).toContain(b.material);
     for (const s of map.scenes) for (const k of [s.image, s.background]) if (k) expect(existsSync(join(GAME, 'map', `${k}.png`)), k).toBe(true);
     for (const b of map.biomes) if (b.background) expect(existsSync(join(GAME, 'backgrounds', `${b.background}.png`)), b.background).toBe(true);
+  });
+
+  it('finds the seven Holy Mountain shops, the same spots the seed tool uses', () => {
+    expect(map.shops).toEqual(SHOP_SPOTS);
   });
 
   it('shows the way down and the overworld; side areas, orb rooms and secrets stay hidden', () => {

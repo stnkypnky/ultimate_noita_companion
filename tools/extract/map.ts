@@ -122,6 +122,27 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
     for (const s of wak.text(f).matchAll(/<PixelScene\s[\s\S]*?>/g)) await addScene(s[0], f.split('/').pop()!.replace(/\.xml$/, ''));
   }
 
-  const map: WorldMap = { w: info.width, h: info.height, offsetY, chunk: CHUNK, cells, biomes, scenes };
+  // Holy Mountain shops: temple_altar.lua registers spawn_all_shopitems on pixel colour ff33934c, so each altar
+  // picture's marker pixel is where its shop spawns. The last mountain (above the Laboratory) is inside a spliced
+  // .plz scene we can't read; its spot is from TwoAbove/noita-tools' temple-locations.json (x 2560, y 13181, less
+  // the same −299, −15 every other shop has from its temple point).
+  const shops: { x: number; y: number }[] = [];
+  const markers = new Map<string, { x: number; y: number }[]>();
+  // Only the altars: other biomes' scripts give the same colour other meanings.
+  for (const s of scenes.filter((s) => s.from === 'biome' && s.id.startsWith('temple_altar') && s.file.endsWith('.png') && wak.has(s.file))) {
+    if (!markers.has(s.file)) {
+      const px = await sharp(wak.bytes(s.file)).raw().ensureAlpha().toBuffer({ resolveWithObject: true });
+      const found: { x: number; y: number }[] = [];
+      for (let i = 0; i < px.info.width * px.info.height; i++) {
+        if (px.data[i * 4] === 0x33 && px.data[i * 4 + 1] === 0x93 && px.data[i * 4 + 2] === 0x4c) found.push({ x: i % px.info.width, y: Math.floor(i / px.info.width) });
+      }
+      markers.set(s.file, found);
+    }
+    for (const m of markers.get(s.file)!) shops.push({ x: s.x + m.x, y: s.y + m.y });
+  }
+  shops.sort((a, b) => a.y - b.y);
+  shops.push({ x: 2560 - 299, y: 13181 - 15 });
+
+  const map: WorldMap = { w: info.width, h: info.height, offsetY, chunk: CHUNK, cells, biomes, scenes, shops };
   return { map, images, backgrounds: [...backgrounds] };
 }

@@ -89,6 +89,13 @@ export class NollaPrng {
   }
 }
 
+/** One value from a fresh generator seeded at (x, y) for a seed (the engine's spell picks use this). */
+export function seededRandom(seed: number, x: number, y: number) {
+  const r = new NollaPrng();
+  r.setRandomSeed(seed >>> 0, Math.fround(x), Math.fround(y));
+  return r.next();
+}
+
 /** The engine's mean-weighted distribution (RandomDistribution). */
 function distribution(rng: NollaPrng, mean: number, sharpness: number, baseline = 0.005) {
   const meanOffset = Math.fround(0.5 - mean);
@@ -108,6 +115,11 @@ function distribution(rng: NollaPrng, mean: number, sharpness: number, baseline 
 /** The functions the game's Lua calls, over one world seed. */
 export class NoitaRandom {
   private rng = new NollaPrng();
+  /**
+   * ProceduralRandom* seed a generator of their own: they don't disturb the SetRandomSeed / Random sequence (what
+   * noita-tools' fungal shift port relies on to match the game, e.g. the "flask of gold" result).
+   */
+  private procedural = new NollaPrng();
   constructor(public worldSeed = 0) {}
 
   setWorldSeed(seed: number) {
@@ -135,15 +147,15 @@ export class NoitaRandom {
 
   /** ProceduralRandom(x, y) → [0, 1); (x, y, a) → int 0..a; (x, y, a, b) → number a..b (lua_api_documentation.txt). */
   ProceduralRandom(x: number, y: number, a?: number, b?: number) {
-    this.rng.setRandomSeed(this.worldSeed, x, y);
-    if (a === undefined) return Math.fround(this.rng.next());
-    if (b === undefined) return this.rng.random(0, roundHalfEven(a));
-    return Math.fround(a + (b - a) * this.rng.next());
+    this.procedural.setRandomSeed(this.worldSeed, x, y);
+    if (a === undefined) return Math.fround(this.procedural.next());
+    if (b === undefined) return this.procedural.random(0, roundHalfEven(a));
+    return Math.fround(a + (b - a) * this.procedural.next());
   }
 
   ProceduralRandomf(x: number, y: number, a?: number, b?: number) {
-    this.rng.setRandomSeed(this.worldSeed, x, y);
-    const v = this.rng.next();
+    this.procedural.setRandomSeed(this.worldSeed, x, y);
+    const v = this.procedural.next();
     if (a === undefined) return Math.fround(v);
     if (b === undefined) return Math.fround(a * v);
     return Math.fround(a + (b - a) * v);
@@ -151,10 +163,10 @@ export class NoitaRandom {
 
   /** (x, y) → 0 or 1; (x, y, a) → 0..a; (x, y, a, b) → a..b. */
   ProceduralRandomi(x: number, y: number, a?: number, b?: number) {
-    this.rng.setRandomSeed(this.worldSeed, x, y);
-    if (a === undefined) return this.rng.random(0, 1);
-    if (b === undefined) return this.rng.random(0, roundHalfEven(a));
-    return this.rng.random(roundHalfEven(a), roundHalfEven(b));
+    this.procedural.setRandomSeed(this.worldSeed, x, y);
+    if (a === undefined) return this.procedural.random(0, 1);
+    if (b === undefined) return this.procedural.random(0, roundHalfEven(a));
+    return this.procedural.random(roundHalfEven(a), roundHalfEven(b));
   }
 
   RandomDistribution(min: number, max: number, mean: number, sharpness = 1, baseline = 0.005) {
@@ -182,6 +194,8 @@ export class NoitaRandom {
       __rng_RandomDistribution: (min, max, mean, s, base) => this.RandomDistribution(min!, max!, mean!, s ?? 1, base ?? 0.005),
       __rng_RandomDistributionf: (min, max, mean, s, base) => this.RandomDistributionf(min!, max!, mean!, s ?? 1, base ?? 0.005),
       __rng_SetWorldSeed: (s) => this.setWorldSeed(s ?? 0),
+      __rng_SeededRandom: (seed, x, y) => seededRandom(seed ?? 0, x ?? 0, y ?? 0),
+      __rng_RoundHalfEven: (v) => roundHalfEven(v ?? 0),
       __rng_GetWorldSeed: () => this.worldSeed,
     };
   }

@@ -10,6 +10,8 @@ import { HiddenNotice } from '@/ui/Spoiler';
 import { MasterDetail } from '@/ui/MasterDetail';
 import { Runes } from '@/ui/game';
 import { MapView } from './MapView';
+import { SeedPanel } from './SeedPanel';
+import type { SeedReport } from '@/seed/worker';
 import { biomeKey, biomeName, chunkWorld, holyMountains, makeVisibility, namedInGame, onPath, orbOf, sceneKey } from './world';
 
 let mapData: Promise<WorldMap> | null = null;
@@ -52,6 +54,7 @@ export function MapPage() {
     }
   }, [spoilers]);
 
+  const [report, setReport] = useState<SeedReport | null>(null);
   const all = mode === 'all' || spoilers;
   const vis = useMemo(() => (map ? makeVisibility(map, { all, visible, orbs: orbs ?? [] }) : null), [map, all, visible, orbs]);
   const selected = parsePlace(place);
@@ -81,7 +84,7 @@ export function MapPage() {
         <MasterDetail
           detailKey={place}
           onClose={close}
-          detail={selected ? <AreaDetail map={map} vis={vis} cx={selected.cx} cy={selected.cy} orbs={orbs ?? []} onReveal={reveal} /> : null}
+          detail={selected ? <AreaDetail map={map} vis={vis} cx={selected.cx} cy={selected.cy} orbs={orbs ?? []} onReveal={reveal} report={report} /> : null}
           empty={
             <div className="mt-24 text-center text-sm text-faint">
               <Runes className="mb-2 block text-[16px] text-gold/40">the world below</Runes>
@@ -97,6 +100,7 @@ export function MapPage() {
           }
         />
       )}
+      {map && <SeedPanel map={map} onReport={setReport} />}
     </Page>
   );
 }
@@ -108,6 +112,7 @@ function AreaDetail({
   cy,
   orbs,
   onReveal,
+  report,
 }: {
   map: WorldMap;
   vis: ReturnType<typeof makeVisibility>;
@@ -115,7 +120,12 @@ function AreaDetail({
   cy: number;
   orbs: number[];
   onReveal: (key: string) => void;
+  report: SeedReport | null;
 }) {
+  const [texts, setTexts] = useState<Record<string, string>>({});
+  useEffect(() => {
+    void fetchJson<Record<string, string>>('data/seed_strings.json').then(setTexts, () => {});
+  }, []);
   if (cx >= map.w || cy >= map.h) return null;
   const b = map.biomes[map.cells[cy * map.w + cx]!]!;
   if (!vis.biome(b)) return <HiddenNotice what="area" onReveal={() => onReveal(biomeKey(b))} />;
@@ -143,6 +153,13 @@ function AreaDetail({
           ]}
         />
       </Section>
+      {report && (
+        <Section title="This seed">
+          <p className="text-sm text-muted">
+            {report.modifiers[b.id] ? (texts[report.modifiers[b.id]!.description.replace(/^\$/, '')] ?? report.modifiers[b.id]!.id) : 'No biome modifier.'}
+          </p>
+        </Section>
+      )}
       {inside.length > 0 && (
         <Section title="Here">
           <ul className="space-y-1 text-sm">

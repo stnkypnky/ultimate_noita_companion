@@ -11,7 +11,8 @@ import { BIOMES } from '../../src/features/range/biomes.ts';
 import { buildWorldMap } from './map.ts';
 import { Wak } from './wak.ts';
 import { findNoita } from './paths.ts';
-import { createLuaHost, loadGun } from './lua.ts';
+import { createLuaHost, loadGun, seedSource } from './lua.ts';
+import { materialTable, runAllSeedInfo, setupSeed } from '../../src/seed/seed.ts';
 import { parseTranslations } from './translations.ts';
 import { buildProjectile, buildSpells, type RawAction } from './spells.ts';
 import { buildPerks, type RawPerk } from './perks.ts';
@@ -103,6 +104,23 @@ for (const [id, tex] of textures) {
   if (wak.has(tex)) await writeFile(join(OUT, 'materials', `${id}.png`), wak.bytes(tex));
 }
 console.log(`materials: ${materials.length}, reactions: ${reactions.length}, textures: ${textures.size}`);
+
+// ---------- Seed tool: the game scripts it runs, found by running them once ----------
+const seedHost = await createLuaHost(readGame);
+await seedHost.lua.doString(seedSource);
+setupSeed(seedHost.call, { seed: 1, materials: materialTable(materials), allUnlocked: true, flags: [] });
+runAllSeedInfo(seedHost.call);
+// Shop wands load data/scripts/gun/procedural/wand_<kind>_<level>.lua by level, which depends on the seed: take them all.
+const seedLuaFiles = [...new Set([...seedHost.filesRead, ...wak.list('data/scripts/gun/procedural/').filter((f) => /\/wand_(level|unshuffle)_\d+\.lua$/.test(f))])];
+for (const f of seedLuaFiles) {
+  const dest = join(OUT, 'lua', f);
+  await mkdir(dirname(dest), { recursive: true });
+  await writeFile(dest, wak.bytes(f));
+}
+seedHost.close();
+console.log(`seed tool: ${seedLuaFiles.length} game scripts`);
+// Texts the seed tool shows: biome modifier descriptions ("The air feels extremely humid").
+await writeJson('data/seed_strings.json', Object.fromEntries([...t].filter(([k]) => k.startsWith('biomemodifierdesc_'))));
 
 // ---------- Test range: projectile/effect visuals, dummy & player sprites ----------
 const materialLook = new Map(materials.map((m) => [m.id, { color: m.color, glow: m.cellType === 'fire', texture: textures.get(m.id) }]));
@@ -199,6 +217,7 @@ await writeJson('data/materials.json', materials);
 await writeJson('data/reactions.json', reactions);
 await writeJson('data/default_state.json', defaultState);
 await writeJson('lua/files.json', luaFiles);
+await writeJson('lua/seed-files.json', seedLuaFiles);
 
 const hashFile = join(noita, '_version_hash.txt');
 const branchFile = join(noita, '_branch.txt');
