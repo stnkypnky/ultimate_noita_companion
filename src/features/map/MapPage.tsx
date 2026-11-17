@@ -1,18 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
-import { ExternalLink, Eye, EyeOff } from 'lucide-react';
+import { Link, useNavigate, useParams } from 'react-router';
+import { ExternalLink, Eye, EyeOff, RotateCcw } from 'lucide-react';
 import { fetchJson, useData } from '@/data/store';
 import type { WorldMap } from '@/data/types';
 import { useProgress, useSpoilers } from '@/store/progress';
 import { Page } from '@/ui/Page';
-import { Section, StatTable } from '@/ui/controls';
+import { Chip, Section, StatTable } from '@/ui/controls';
 import { HiddenNotice } from '@/ui/Spoiler';
 import { MasterDetail } from '@/ui/MasterDetail';
 import { Runes } from '@/ui/game';
 import { MapView } from './MapView';
 import { SeedPanel } from './SeedPanel';
 import type { SeedReport } from '@/seed/worker';
+import type { AreaLayout } from '@/seed/layout';
+import { seedLayouts } from '@/seed/client';
 import { biomeKey, biomeName, chunkWorld, holyMountains, makeVisibility, namedInGame, onPath, orbOf, sceneKey } from './world';
+
+/** Whose caves the map shows before you pick a seed. */
+const EXAMPLE_SEED = 123;
 
 let mapData: Promise<WorldMap> | null = null;
 const loadMap = () => (mapData ??= fetchJson<WorldMap>('data/map.json'));
@@ -55,32 +60,87 @@ export function MapPage() {
   }, [spoilers]);
 
   const [report, setReport] = useState<SeedReport | null>(null);
+  // The caves are drawn for the chosen seed; until one is chosen, for an example seed.
+  const [seed, setSeed] = useState<number | null>(null);
+  const caveSeed = seed ?? EXAMPLE_SEED;
+  const [layouts, setLayouts] = useState<AreaLayout[] | null>(null);
+  const [wangColors, setWangColors] = useState<Record<string, string> | null>(null);
+  useEffect(() => {
+    void fetchJson<Record<string, string>>('data/wang_colors.json').then(setWangColors, () => {});
+  }, []);
+  useEffect(() => {
+    let live = true;
+    seedLayouts(caveSeed).then(
+      (l) => live && setLayouts(l),
+      () => live && setLayouts(null),
+    );
+    return () => {
+      live = false;
+    };
+  }, [caveSeed]);
   const all = mode === 'all' || spoilers;
   const vis = useMemo(() => (map ? makeVisibility(map, { all, visible, orbs: orbs ?? [] }) : null), [map, all, visible, orbs]);
   const selected = parsePlace(place);
   const close = useCallback(() => navigate('/map'), [navigate]);
   const select = useCallback((cx: number, cy: number) => navigate(`/map/${cx}-${cy}`), [navigate]);
 
+  const [tab, setTab] = useState<'map' | 'seed'>(() => (location.hash === '#seed' ? 'seed' : 'map'));
+  const revealedCount = useProgress((s) => s.revealed.length);
+  // Everything back under wraps: the page's switch off, and every item revealed one at a time hidden again.
+  const hideAll = () => {
+    setSpoilers(false);
+    useProgress.setState({ revealed: [] });
+  };
+
   return (
     <Page
       wide
       title="World map"
-      subtitle="The main world as the game lays it out. Tap an area for details."
-      actions={
-        mode !== 'all' && (
-          <button
-            onClick={() => setSpoilers(!spoilers)}
-            aria-pressed={spoilers}
-            className={`slot slot-hover font-game inline-flex h-9 shrink-0 items-center gap-2 px-3 text-[16px] ${spoilers ? 'text-ember' : 'text-muted hover:text-ink'}`}
-          >
-            {spoilers ? <Eye size={15} /> : <EyeOff size={15} />} {spoilers ? 'Spoilers shown' : 'Show spoilers'}
-          </button>
-        )
+      subtitle={tab === 'map' ? 'The main world as the game lays it out. Tap an area for details.' : 'What a world seed gives, from the game’s own scripts.'}
+      toolbar={
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-2" role="tablist" aria-label="World map views">
+            {(
+              [
+                ['map', 'Map'],
+                ['seed', 'Seed: perks, shops, shifts'],
+              ] as const
+            ).map(([id, label]) => (
+              <Chip key={id} active={tab === id} onClick={() => setTab(id)}>
+                {label}
+              </Chip>
+            ))}
+          </div>
+          {mode !== 'all' ? (
+          <div className="ml-auto flex flex-wrap justify-end gap-2">
+            {(spoilers || revealedCount > 0) && (
+              <button
+                onClick={hideAll}
+                title={`Hide the map's spoilers and re-hide ${revealedCount} item${revealedCount === 1 ? '' : 's'} you revealed one at a time (anywhere in the app)`}
+                className="slot slot-hover inline-flex h-9 shrink-0 items-center gap-2 px-3 text-sm text-muted hover:text-ink"
+              >
+                <RotateCcw size={14} /> Hide all again
+              </button>
+            )}
+            <button
+              onClick={() => setSpoilers(!spoilers)}
+              aria-pressed={spoilers}
+              className={`slot slot-hover font-game inline-flex h-9 shrink-0 items-center gap-2 px-3 text-[16px] ${spoilers ? 'text-ember' : 'text-muted hover:text-ink'}`}
+            >
+              {spoilers ? <Eye size={15} /> : <EyeOff size={15} />} {spoilers ? 'Spoilers shown' : 'Show spoilers'}
+            </button>
+          </div>
+        ) : (
+          <Link to="/settings" className="ml-auto text-xs text-muted hover:text-ink" title="Spoiler protection is off for the whole app; turn it back on in Settings">
+            Spoilers: all shown (Settings)
+          </Link>
+          )}
+        </div>
       }
     >
-      {!map || !vis ? (
+      {tab === 'map' && (!map || !vis) ? (
         <p className="py-24 text-center text-sm text-muted">{error ? `Couldn't load the map: ${error}` : 'Loading the map…'}</p>
-      ) : (
+      ) : tab === 'map' && map && vis ? (
         <MasterDetail
           detailKey={place}
           onClose={close}
@@ -94,13 +154,34 @@ export function MapPage() {
           }
           list={
             // Phones: tall, to pan and zoom in. Laptops: the world's own shape (70 × 48 chunks), up to the screen's height.
-            <div className="h-[calc(100dvh-var(--page-header-h,88px)-120px)] md:aspect-[70/48] md:h-auto md:max-h-[calc(100vh-var(--page-header-h,88px)-40px)]">
-              <MapView map={map} vis={vis} materialById={materialById} selected={selected} onSelect={select} />
+            <div>
+              <div className="h-[calc(100dvh-var(--page-header-h,88px)-140px)] md:aspect-[70/48] md:h-auto md:max-h-[calc(100vh-var(--page-header-h,88px)-60px)]">
+                <MapView map={map} vis={vis} materialById={materialById} selected={selected} onSelect={select} layouts={layouts} wangColors={wangColors} />
+              </div>
+              <p className="mt-1.5 text-xs text-faint">
+                {layouts ? `Caves laid out as in seed ${caveSeed}` : 'Laying out the caves…'}
+                {seed === null && (
+                  <>
+                    {' '}
+                    (an example:{' '}
+                    <button className="text-gold hover:underline" onClick={() => setTab('seed')}>
+                      enter your seed
+                    </button>
+                    )
+                  </>
+                )}
+                . Each pixel of a cave is 10 × 10 in the game; spawns, items and enemies aren't drawn.
+              </p>
             </div>
           }
         />
+      ) : null}
+      {/* Kept mounted (just hidden) on the map tab, so the chosen seed's modifiers show in the area details. */}
+      {map && (
+        <div hidden={tab !== 'seed'}>
+          <SeedPanel map={map} onReport={setReport} onSeed={setSeed} />
+        </div>
       )}
-      {map && <SeedPanel map={map} onReport={setReport} />}
     </Page>
   );
 }

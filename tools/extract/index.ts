@@ -101,7 +101,12 @@ console.log(`items: ${items.length}`);
 const { materials, reactions, textures, wang } = buildMaterials(wak.text('data/materials.xml'), t);
 await mkdir(join(OUT, 'materials'), { recursive: true });
 for (const [id, tex] of textures) {
-  if (wak.has(tex)) await writeFile(join(OUT, 'materials', `${id}.png`), wak.bytes(tex));
+  if (!wak.has(tex)) continue;
+  await writeFile(join(OUT, 'materials', `${id}.png`), wak.bytes(tex));
+  // The texture's average colour: how the material reads from afar (its `color` is often just its wang key).
+  const s = await sharp(wak.bytes(tex), { ignoreIcc: true }).stats();
+  const m = materials.find((x) => x.id === id);
+  if (m && s.channels.length >= 3) m.look = `#${s.channels.slice(0, 3).map((c) => Math.round(c.mean).toString(16).padStart(2, '0')).join('')}`;
 }
 console.log(`materials: ${materials.length}, reactions: ${reactions.length}, textures: ${textures.size}`);
 
@@ -159,6 +164,12 @@ const world = await buildWorldMap(wak, t);
 await mkdir(join(OUT, 'map'), { recursive: true });
 for (const [key, png] of world.images) await writeFile(join(OUT, 'map', `${key}.png`), png);
 await writeJson('data/map.json', world.map);
+// Cave layouts: the wang templates, the Mines' fixed entrance overlay (from noita-tools, MIT), and which material
+// each layout colour is (materials.xml wang_color).
+await mkdir(join(OUT, 'wang'), { recursive: true });
+for (const [key, png] of world.wangImages) await writeFile(join(OUT, 'wang', `${key}.png`), png);
+await writeFile(join(OUT, 'wang', 'coalmine_overlay.png'), readFileSync(join(import.meta.dirname, 'assets/coalmine_overlay.png')));
+await writeJson('data/wang_colors.json', Object.fromEntries(wang));
 console.log(`map: ${world.map.w}×${world.map.h} chunks, ${world.map.biomes.length} biomes, ${world.map.scenes.length} pixel scenes`);
 // The cave backgrounds behind each biome the range can look like and the map shows (Topology background_image).
 await mkdir(join(OUT, 'backgrounds'), { recursive: true });

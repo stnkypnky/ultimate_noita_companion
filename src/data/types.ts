@@ -442,6 +442,8 @@ export type Material = {
   stains: string[];
   ingestion: string[];
   showInCreative: boolean;
+  /** What it looks like on the whole: its texture's average colour (#rrggbb), when it has a texture. */
+  look?: string;
 };
 
 /** One side of a reaction is either a material id or a "[tag]". */
@@ -472,6 +474,10 @@ export type MapBiome = {
   background?: string;
   /** Generated from wang tiles (a cave biome). */
   wang: boolean;
+  /** game/wang/<wangTemplate>.png: its wang tile template (for the seed's cave layout). */
+  wangTemplate?: string;
+  /** <RandomMaterials>: a colour in the layout that becomes one of these (rrggbb). */
+  randomMaterials?: { from: string; to: string[] }[];
 };
 
 /** A pixel scene placed at a fixed world position. */
@@ -487,6 +493,8 @@ export type MapScene = {
   /** Key of its picture under game/map/. */
   image?: string;
   background?: string;
+  /** The image is a material file (wang key colours), not a picture: recolour it as its materials to show it. */
+  materials?: boolean;
 };
 
 /** The main world (biome_map.png): w×h chunks of `chunk` px; world x = (cx − w/2)·chunk, y = (cy − offsetY)·chunk. */
@@ -501,6 +509,8 @@ export type WorldMap = {
   scenes: MapScene[];
   /** Where each Holy Mountain's shop spawns (spawn_all_shopitems), top to bottom. */
   shops: { x: number; y: number }[];
+  /** Patches of cave biomes (chunk bounding boxes, inclusive): one generated layout each. */
+  areas: { biome: number; x1: number; y1: number; x2: number; y2: number }[];
 };
 
 export type GameData = {

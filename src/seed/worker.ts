@@ -7,6 +7,9 @@ import seedSource from './lua/seed.lua?raw';
 import { NoitaRandom } from '../sim/rng';
 import type { LuaCall } from '../sim/protocol';
 import { biomeModifiers, fungalShifts, holyMountainPerks, holyMountainShops, setupSeed, type SeedSetup } from './seed';
+import { generateLayouts, type AreaLayout } from './layout';
+import { buildTileset, type Tileset } from './wang';
+import type { WorldMap } from '../data/types';
 
 export type SeedQuery = SeedSetup & {
   /** Perks taken at each Holy Mountain (changes what the later ones offer). */
@@ -19,8 +22,42 @@ export type SeedReport = {
   perks: ReturnType<typeof holyMountainPerks>;
   shops: ReturnType<typeof holyMountainShops>;
 };
-export type SeedIn = { id: number; base: string; query: SeedQuery };
-export type SeedOut = { id: number; ok: true; report: SeedReport } | { id: number; ok: false; error: string };
+export type SeedIn = { id: number; base: string; query: SeedQuery } | { id: number; base: string; layoutSeed: number };
+export type SeedOut = { id: number; ok: true; report?: SeedReport; layouts?: AreaLayout[] } | { id: number; ok: false; error: string };
+
+// ---- Cave layouts (wang.ts): the map and the templates, decoded once ----
+let layoutData: Promise<{ map: WorldMap; tilesets: Map<string, Tileset>; overlay?: Uint8Array }> | null = null;
+
+/** Raw RGB of a PNG, without colour management (the game reads the stored values). */
+async function rgbOf(url: string) {
+  const bmp = await createImageBitmap(await (await fetch(url)).blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+  const c = new OffscreenCanvas(bmp.width, bmp.height);
+  const ctx = c.getContext('2d', { willReadFrequently: true })!;
+  ctx.drawImage(bmp, 0, 0);
+  const rgba = ctx.getImageData(0, 0, bmp.width, bmp.height).data;
+  const rgb = new Uint8Array(bmp.width * bmp.height * 3);
+  for (let i = 0, j = 0; i < rgba.length; i += 4) {
+    rgb[j++] = rgba[i]!;
+    rgb[j++] = rgba[i + 1]!;
+    rgb[j++] = rgba[i + 2]!;
+  }
+  return { rgb, w: bmp.width, h: bmp.height };
+}
+
+async function loadLayoutData(base: string) {
+  const map = (await (await fetch(`${base}game/data/map.json`)).json()) as WorldMap;
+  const tilesets = new Map<string, Tileset>();
+  const names = [...new Set(map.biomes.flatMap((b) => (b.wangTemplate ? [b.wangTemplate] : [])))];
+  await Promise.all(
+    names.map(async (n) => {
+      const img = await rgbOf(`${base}game/wang/${n}.png`);
+      const ts = buildTileset(img.rgb, img.w, img.h);
+      if (ts) tilesets.set(n, ts);
+    }),
+  );
+  const overlay = await rgbOf(`${base}game/wang/coalmine_overlay.png`).then((o) => o.rgb, () => undefined);
+  return { map, tilesets, overlay };
+}
 
 let engine: Promise<LuaCall> | null = null;
 
@@ -37,7 +74,18 @@ async function createEngine(base: string): Promise<LuaCall> {
 }
 
 self.onmessage = async (e: MessageEvent<SeedIn>) => {
-  const { id, base, query } = e.data;
+  const { id, base } = e.data;
+  if ('layoutSeed' in e.data) {
+    try {
+      const d = await (layoutData ??= loadLayoutData(base));
+      const layouts = generateLayouts(d.map, e.data.layoutSeed, d.tilesets, d.overlay);
+      postMessage({ id, ok: true, layouts } satisfies SeedOut, { transfer: layouts.map((l) => l.rgb.buffer) });
+    } catch (err) {
+      postMessage({ id, ok: false, error: String((err as Error)?.message ?? err) } satisfies SeedOut);
+    }
+    return;
+  }
+  const { query } = e.data;
   try {
     engine ??= createEngine(base);
     const call = await engine;

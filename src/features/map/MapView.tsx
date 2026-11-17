@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Maximize, Minus, Plus } from 'lucide-react';
 import { gameUrl } from '@/data/store';
 import type { Material, WorldMap } from '@/data/types';
-import { biomeName, chunkWorld, namedInGame, type makeVisibility } from './world';
+import { biomeName, chunkWorld, displayMaterial, namedInGame, type makeVisibility } from './world';
+import type { AreaLayout } from '@/seed/layout';
 
 type Vis = ReturnType<typeof makeVisibility>;
 type View = { x: number; y: number; s: number };
@@ -23,6 +24,39 @@ function image(url: string, onLoad: () => void) {
     onLoad();
   };
   i.src = url;
+  return null;
+}
+
+/** Material-file pictures recoloured as their materials, by URL; null while loading. */
+const recoloured = new Map<string, HTMLCanvasElement | null>();
+function materialPicture(url: string, colorOf: (rgb: number) => readonly [number, number, number, number] | null, onLoad: () => void) {
+  if (recoloured.has(url)) return recoloured.get(url) ?? null;
+  recoloured.set(url, null);
+  void fetch(url)
+    .then((r) => r.blob())
+    // The stored key colours, untouched by colour management.
+    .then((b) => createImageBitmap(b, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' }))
+    .then((bmp) => {
+      const c = document.createElement('canvas');
+      c.width = bmp.width;
+      c.height = bmp.height;
+      const ctx = c.getContext('2d', { willReadFrequently: true })!;
+      ctx.drawImage(bmp, 0, 0);
+      const img = ctx.getImageData(0, 0, c.width, c.height);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const m = d[i + 3] ? colorOf((d[i]! << 16) | (d[i + 1]! << 8) | d[i + 2]!) : null;
+        if (!m) {
+          d[i + 3] = 0;
+          continue;
+        }
+        [d[i], d[i + 1], d[i + 2], d[i + 3]] = m;
+      }
+      ctx.putImageData(img, 0, 0);
+      recoloured.set(url, c);
+      onLoad();
+    })
+    .catch(() => {});
   return null;
 }
 
@@ -75,6 +109,72 @@ function labelSpots(map: WorldMap) {
     });
 }
 
+const rgbOfHex = (h: string) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)] as const;
+
+/**
+ * A cave layout as a picture (one pixel per 10 world pixels): the biome's rock in its colour with lit edges where it
+ * meets open cave, other layout colours as their materials (materials.xml wang_color), open cave and spawn markers
+ * clear, and nothing outside the biome's own chunks.
+ */
+function layoutCanvas(map: WorldMap, l: AreaLayout, wangColors: Record<string, string>, materialById: Map<string, Material>) {
+  const a = map.areas[l.area]!;
+  const biome = map.biomes[a.biome]!;
+  const lookOf = (m: Material | undefined) => m?.look ?? m?.color;
+  const rock = rgbOfHex(lookOf(materialById.get(biome.material ?? '')) ?? '#6b5d52');
+  const c = document.createElement('canvas');
+  c.width = l.width;
+  c.height = l.height;
+  const ctx = c.getContext('2d')!;
+  const img = ctx.createImageData(l.width, l.height);
+  const d = img.data;
+  const mat = new Map<number, readonly [number, number, number, number] | null>();
+  const colorOf = (rgb: number) => {
+    let v = mat.get(rgb);
+    if (v !== undefined) return v;
+    const m = materialById.get(wangColors[rgb.toString(16).padStart(6, '0')] ?? '');
+    v = m ? ([...rgbOfHex(lookOf(m)!), m.state === 'gas' ? 90 : m.state === 'liquid' ? 210 : 255] as const) : null;
+    mat.set(rgb, v);
+    return v;
+  };
+  const at = (x: number, y: number) => {
+    const p = (y * l.width + x) * 3;
+    return (l.rgb[p]! << 16) | (l.rgb[p + 1]! << 8) | l.rgb[p + 2]!;
+  };
+  for (let y = 0; y < l.height; y++) {
+    const cy = a.y1 + Math.floor((y * 10) / map.chunk);
+    for (let x = 0; x < l.width; x++) {
+      const cx = a.x1 + Math.floor((x * 10) / map.chunk);
+      if (cx >= map.w || cy >= map.h || map.cells[cy * map.w + cx] !== a.biome) continue;
+      const v = at(x, y);
+      const o = (y * l.width + x) * 4;
+      // Black and near-black: open cave.
+      if (v === 0 || ((v >> 16) === (v & 0xff) && ((v >> 8) & 0xff) === (v & 0xff) && (v & 0xff) < 40)) continue;
+      // White is the biome's rock; greys are its other rock layers (the <Materials> material_index colours), drawn as
+      // darker shades of it.
+      const shade = (v >> 16) === (v & 0xff) && ((v >> 8) & 0xff) === (v & 0xff) ? (v & 0xff) / 255 : -1;
+      if (shade > 0.15) {
+        // Rock: a little grain, and lit where it borders open cave (as the game's edges catch the light).
+        const open = (x > 0 && at(x - 1, y) === 0) || (y > 0 && at(x, y - 1) === 0) || (x + 1 < l.width && at(x + 1, y) === 0) || (y + 1 < l.height && at(x, y + 1) === 0);
+        const grain = ((((x * 73856093) ^ (y * 19349663)) >>> 0) % 17) - 8;
+        const k = (open ? 1.6 : 1) * (0.75 + 0.25 * shade);
+        d[o] = Math.min(255, rock[0] * k + grain);
+        d[o + 1] = Math.min(255, rock[1] * k + grain);
+        d[o + 2] = Math.min(255, rock[2] * k + grain);
+        d[o + 3] = 255;
+        continue;
+      }
+      const m = colorOf(v);
+      if (!m) continue;
+      d[o] = m[0];
+      d[o + 1] = m[1];
+      d[o + 2] = m[2];
+      d[o + 3] = m[3];
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+
 /** The world map: biomes in their own rock, the game's fixed rooms on top. Drag to pan, wheel or pinch to zoom. */
 export function MapView({
   map,
@@ -82,13 +182,33 @@ export function MapView({
   materialById,
   selected,
   onSelect,
+  layouts,
+  wangColors,
 }: {
   map: WorldMap;
   vis: Vis;
   materialById: Map<string, Material>;
   selected: { cx: number; cy: number } | null;
   onSelect: (cx: number, cy: number) => void;
+  /** The seed's cave layouts, when generated. */
+  layouts?: AreaLayout[] | null;
+  wangColors?: Record<string, string> | null;
 }) {
+  const caves = useMemo(() => {
+    const out = new Map<number, HTMLCanvasElement>();
+    if (layouts && wangColors) for (const l of layouts) out.set(l.area, layoutCanvas(map, l, wangColors, materialById));
+    return out;
+  }, [layouts, wangColors, map, materialById]);
+  const caveBiomes = useMemo(() => new Set([...caves.keys()].map((i) => map.areas[i]!.biome)), [caves, map]);
+  // A material file's key colour → what that material looks like (unknown keys and spawn markers: clear).
+  const sceneColor = useCallback(
+    (rgb: number) => {
+      const m = materialById.get(wangColors?.[rgb.toString(16).padStart(6, '0')] ?? '');
+      if (!m) return null;
+      return [...rgbOfHex(m.look ?? m.color), m.state === 'gas' ? 90 : m.state === 'liquid' ? 210 : 255] as const;
+    },
+    [materialById, wangColors],
+  );
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -197,24 +317,37 @@ export function MapView({
           ctx.fillRect(rx, ry, rs, rs);
           continue;
         }
-        // Rooms with no rock of their own (Holy Mountains, secret rooms) underground: just their backdrop.
-        const roomOnly = !b.material && b.background && cy >= map.offsetY;
+        // Rooms with no rock of their own (Holy Mountains, secret rooms) underground: just their backdrop. Biomes with
+        // a generated layout: the backdrop, dimmed, behind the layout's rock (drawn next).
+        const laidOut = caveBiomes.has(map.cells[cy * map.w + cx]!);
+        const roomOnly = (!b.material && b.background && cy >= map.offsetY) || laidOut;
         const cave = (b.wang || roomOnly) && b.background ? backdropFor(b.background) : null;
-        ctx.fillStyle = roomOnly ? '#0b0910' : fillFor(b.material);
+        ctx.fillStyle = roomOnly ? '#0b0910' : fillFor(displayMaterial(b, cy < map.offsetY));
         ctx.fillRect(rx, ry, rs, rs);
         if (cave) {
-          ctx.globalAlpha = roomOnly ? 1 : 0.72;
+          ctx.globalAlpha = laidOut ? 0.55 : roomOnly ? 1 : 0.72;
           ctx.fillStyle = cave;
           ctx.fillRect(rx, ry, rs, rs);
           ctx.globalAlpha = 1;
         }
       }
     }
+    // The seed's caves: each layout pixel is 10 × 10 world pixels.
+    for (const [i, cnv] of caves) {
+      const a = map.areas[i]!;
+      if (!vis.biome(map.biomes[a.biome]!)) continue;
+      const w = chunkWorld(map, a.x1, a.y1);
+      const [sx, sy] = toScreen(w.x, w.y);
+      const sw = cnv.width * 10 * v.s;
+      const sh = cnv.height * 10 * v.s;
+      if (sx > size.w || sy > size.h || sx + sw < 0 || sy + sh < 0) continue;
+      ctx.drawImage(cnv, sx, sy, sw, sh);
+    }
     // Shade the plain rock and sky so the areas stand out.
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) {
         const b = map.biomes[map.cells[cy * map.w + cx]!]!;
-        if (!vis.biome(b) || namedInGame(b) || !b.material) continue;
+        if (!vis.biome(b) || namedInGame(b) || !displayMaterial(b, cy < map.offsetY)) continue;
         const w = chunkWorld(map, cx, cy);
         const [sx, sy] = toScreen(w.x, w.y);
         ctx.fillStyle = 'rgba(0,0,0,0.45)';
@@ -230,6 +363,12 @@ export function MapView({
       if (sx > size.w || sy > size.h || sx + sw < 0 || sy + sh < 0 || sw < 1) continue;
       for (const key of [sc.background, sc.image]) {
         if (!key) continue;
+        if (key === sc.image && sc.materials) {
+          if (!wangColors) continue;
+          const pic = materialPicture(gameUrl(`map/${key}.png`), sceneColor, redraw);
+          if (pic) ctx.drawImage(pic, sx, sy, sw, sh);
+          continue;
+        }
         const img = image(gameUrl(`map/${key}.png`), redraw);
         if (img) ctx.drawImage(img, sx, sy, sw, sh);
       }
@@ -297,7 +436,7 @@ export function MapView({
       ctx.lineWidth = 2;
       ctx.strokeRect(Math.round(sx) + 1, Math.round(sy) + 1, Math.max(4, cs - 2), Math.max(4, cs - 2));
     }
-  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw]);
+  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, caveBiomes, wangColors, sceneColor]);
 
   // Pointer: drag pans, two fingers pinch, a tap selects.
   const pointers = useRef(new Map<number, { x: number; y: number }>());

@@ -39,6 +39,7 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
   const cells: number[] = [];
   const backgrounds = new Set<string>();
   const roomScripts: [number, string][] = [];
+  const wangImages = new Map<string, Buffer>();
   for (let i = 0; i < info.width * info.height; i++) {
     const hex = [data[i * 4], data[i * 4 + 1], data[i * 4 + 2]].map((v) => v!.toString(16).padStart(2, '0')).join('');
     const file = byColor.get(hex) ?? '';
@@ -62,6 +63,21 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
       });
       const script = attr(xml, 'lua_script');
       if (script && wak.has(script)) roomScripts.push([k, script]);
+      // The cave layout's ingredients: its wang tile template and the RandomMaterials colour swaps.
+      const tpl = attr(xml, 'wang_template_file');
+      if (tpl && wak.has(tpl)) {
+        const key = tpl.split('/').pop()!.replace(/\.png$/, '');
+        // Re-encoded without the colour profile some templates carry: the game reads the raw values (as stb_image
+        // does), and a profile would make a browser or decoder shift them (and break the tile header).
+        if (!wangImages.has(key)) wangImages.set(key, await sharp(wak.bytes(tpl), { ignoreIcc: true }).removeAlpha().png().toBuffer());
+        biomes[k]!.wangTemplate = key;
+        const swaps = [...xml.matchAll(/<RandomColor[^>]*>/g)].flatMap((m) => {
+          const from = attr(m[0], 'input_color');
+          const to = attr(m[0], 'output_colors');
+          return from && to ? [{ from: from.slice(-6).toLowerCase(), to: to.split(',').map((c) => c.trim().slice(-6).toLowerCase()) }] : [];
+        });
+        if (swaps.length) biomes[k]!.randomMaterials = swaps;
+      }
     }
     cells.push(k);
   }
@@ -82,13 +98,16 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
     const x = Number(attr(el, 'pos_x') ?? attr(el, 'x'));
     const y = Number(attr(el, 'pos_y') ?? attr(el, 'y'));
     if (!Number.isFinite(x) || !Number.isFinite(y) || !inside(x, y)) return;
-    const look = (await imageKey(attr(el, 'colors_filename'))) ?? (await imageKey(attr(el, 'material_filename'))) ?? (await imageKey(attr(el, 'filename')));
+    const visual = await imageKey(attr(el, 'colors_filename'));
+    const look = visual ?? (await imageKey(attr(el, 'material_filename'))) ?? (await imageKey(attr(el, 'filename')));
     const back = await imageKey(attr(el, 'background_filename'));
     const key = look ?? back;
     if (!key) return;
     const meta = await sharp(images.get(key)!).metadata();
     const file = attr(el, 'material_filename') ?? attr(el, 'filename') ?? '';
-    scenes.push({ id: file.split('/').pop()!.replace(/\.\w+$/, ''), file, from, x, y, w: meta.width ?? 0, h: meta.height ?? 0, ...(look ? { image: look } : {}), ...(back && back !== look ? { background: back } : {}) });
+    // A material file (no visual): its pixels are wang key colours, recoloured as their materials when drawn.
+    const raw = !visual && !!attr(el, 'material_filename') && look !== undefined;
+    scenes.push({ id: file.split('/').pop()!.replace(/\.\w+$/, ''), file, from, x, y, w: meta.width ?? 0, h: meta.height ?? 0, ...(look ? { image: look } : {}), ...(back && back !== look ? { background: back } : {}), ...(raw ? { materials: true } : {}) });
   };
   // Rooms that draw themselves: a biome script whose init() loads a pixel scene at the chunk (orb rooms, Holy
   // Mountains, secret rooms). Placed at every chunk of that biome, at the script's literal offset.
@@ -102,7 +121,8 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
     const offset = (e: string) => [...e.slice(1).replace(/\s/g, '').matchAll(/([+-])(\d+)/g)].reduce((n, m) => n + Number(m[2]) * (m[1] === '-' ? -1 : 1), 0);
     const dx = offset(call[3]!);
     const dy = offset(call[4]!);
-    const look = (await imageKey(call[2])) ?? (await imageKey(call[1]));
+    const visual = await imageKey(call[2]);
+    const look = visual ?? (await imageKey(call[1]));
     const back = await imageKey(call[5]);
     if (!look) continue;
     const meta = await sharp(images.get(look)!).metadata();
@@ -110,7 +130,7 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
       if (cells[c] !== k) continue;
       const x = (c % info.width) * CHUNK + x0 + dx;
       const y = Math.floor(c / info.width) * CHUNK + y0 + dy;
-      scenes.push({ id: biomes[k]!.id, file: call[1]!, from: 'biome', x, y, w: meta.width ?? 0, h: meta.height ?? 0, image: look, ...(back && back !== look ? { background: back } : {}) });
+      scenes.push({ id: biomes[k]!.id, file: call[1]!, from: 'biome', x, y, w: meta.width ?? 0, h: meta.height ?? 0, image: look, ...(back && back !== look ? { background: back } : {}), ...(!visual ? { materials: true } : {}) });
     }
   }
   const sceneXml = wak.text('data/biome/_pixel_scenes.xml');
@@ -143,6 +163,39 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
   shops.sort((a, b) => a.y - b.y);
   shops.push({ x: 2560 - 299, y: 13181 - 15 });
 
-  const map: WorldMap = { w: info.width, h: info.height, offsetY, chunk: CHUNK, cells, biomes, scenes, shops };
-  return { map, images, backgrounds: [...backgrounds] };
+  // Areas: each 4-connected patch of a cave biome, by its bounding box. The game generates a biome's layout once per
+  // patch, over the whole box (checked against noita-tools' areas and its generated-map fixtures).
+  const areas: WorldMap['areas'] = [];
+  const seen = new Uint8Array(cells.length);
+  for (let i = 0; i < cells.length; i++) {
+    if (seen[i] || !biomes[cells[i]!]!.wangTemplate) continue;
+    const k = cells[i]!;
+    const stack = [i];
+    seen[i] = 1;
+    let x1 = i % info.width;
+    let x2 = x1;
+    let y1 = Math.floor(i / info.width);
+    let y2 = y1;
+    while (stack.length) {
+      const j = stack.pop()!;
+      const x = j % info.width;
+      const y = (j - x) / info.width;
+      x1 = Math.min(x1, x);
+      x2 = Math.max(x2, x);
+      y1 = Math.min(y1, y);
+      y2 = Math.max(y2, y);
+      for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]] as const) {
+        if (nx < 0 || ny < 0 || nx >= info.width || ny >= info.height) continue;
+        const m = ny * info.width + nx;
+        if (!seen[m] && cells[m] === k) {
+          seen[m] = 1;
+          stack.push(m);
+        }
+      }
+    }
+    areas.push({ biome: k, x1, y1, x2, y2 });
+  }
+
+  const map: WorldMap = { w: info.width, h: info.height, offsetY, chunk: CHUNK, cells, biomes, scenes, shops, areas };
+  return { map, images, backgrounds: [...backgrounds], wangImages };
 }

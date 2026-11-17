@@ -72,6 +72,26 @@ const NAMES: Record<string, string> = {
   unknown: 'Unknown',
 };
 
+/**
+ * The overworld biomes are procedural (noise, not wang tiles) and the map can't lay them out; it fills them with the
+ * layer you see from the surface (from each biome's own <Materials>) rather than the rock that lies deep under it.
+ */
+const SURFACE_LOOK: Record<string, string> = {
+  desert: 'sand_surface',
+  scale: 'sand_surface',
+  pyramid_right: 'sandstone_surface',
+  winter: 'snow_static',
+  hills: 'soil',
+  hills2: 'soil',
+  hills_flat: 'soil',
+};
+
+/** Above the ground line (y < 0) these overworld columns are open sky; the biome map marks them all the way up. */
+const SKY_ABOVE_GROUND = new Set(['hills', 'hills2', 'hills_flat', 'desert', 'winter', 'lake', 'scale']);
+
+/** The material a chunk is filled with on the map (undefined: sky). */
+export const displayMaterial = (b: MapBiome, aboveGround = false) => (aboveGround && SKY_ABOVE_GROUND.has(b.id) ? undefined : (SURFACE_LOOK[b.id] ?? b.material));
+
 /** Pictures that are part of what's always shown, even in the overworld (the rest of the overworld's are secrets). */
 const OPEN_SCENES = new Set(['tree', 'boss_arena']);
 

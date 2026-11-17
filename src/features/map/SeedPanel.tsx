@@ -27,7 +27,7 @@ const remembered = () => {
 };
 
 /** A seed's Holy Mountains, shops, fungal shifts and biome modifiers, from the game's own scripts. */
-export function SeedPanel({ map, onReport }: { map: WorldMap; onReport: (r: SeedReport | null) => void }) {
+export function SeedPanel({ map, onReport, onSeed }: { map: WorldMap; onReport: (r: SeedReport | null) => void; onSeed?: (seed: number | null) => void }) {
   const { materials } = useData();
   const progress = useProgress((s) => s.progress);
   const recent = progress?.runs?.recent.slice(0, 4) ?? [];
@@ -46,6 +46,9 @@ export function SeedPanel({ map, onReport }: { map: WorldMap; onReport: (r: Seed
     void loadStrings().then(setTexts);
   }, []);
 
+  useEffect(() => {
+    onSeed?.(seed);
+  }, [seed, onSeed]);
   useEffect(() => {
     if (seed === null) {
       setReport(null);

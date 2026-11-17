@@ -1,0 +1,1 @@
+﻿Cave layouts generated from the game, from TwoAbove/noita-tools (MIT, src/services/SeedInfo/infoHandler/InfoProviders/Map/fixtures/<seed>/<biome>.png), named <seed>_<biome>.png. Used by tests/wang.test.ts.
