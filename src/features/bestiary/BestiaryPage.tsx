@@ -6,6 +6,7 @@ import { useData } from '@/data/store';
 import type { DamageType, Enemy } from '@/data/types';
 import { SECRET_MATERIALS, materialKey } from '@/data/spoilers';
 import { useProgress, useSpoilers } from '@/store/progress';
+import { DiscoveryBar } from '@/features/progress/DiscoveryBar';
 import { Page } from '@/ui/Page';
 import { Chip, ChipRow, SearchInput, Section, Select, StatTable, useSearchFocus } from '@/ui/controls';
 import { AtlasIcon } from '@/ui/GameIcon';
@@ -71,15 +72,14 @@ export function BestiaryPage() {
     return list;
   }, [q, search, enemyById, enemies, filter, sort, seen, stats]);
 
-  const discovered = enemies.filter(seen).length;
   const selected = id ? enemyById.get(id) : undefined;
   const close = useCallback(() => navigate('/bestiary'), [navigate]);
 
   return (
     <Page
       wide
-      title="Bestiary"
-      subtitle={mode === 'all' ? `${enemies.length} creatures` : `${discovered} of ${enemies.length} encountered`}
+      title="Bestiary" progress={<DiscoveryBar kind="enemies" />}
+      subtitle={mode === 'all' ? `${enemies.length} creatures` : undefined}
       toolbar={
         <>
           <SearchInput ref={searchRef} value={query} onChange={setQuery} placeholder="Search creatures…" />

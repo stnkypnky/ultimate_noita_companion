@@ -6,6 +6,7 @@ import { useData } from '@/data/store';
 import type { Material, Reaction } from '@/data/types';
 import { SECRET_MATERIALS, materialKey } from '@/data/spoilers';
 import { useSpoilers } from '@/store/progress';
+import { DiscoveryBar } from '@/features/progress/DiscoveryBar';
 import { Page } from '@/ui/Page';
 import { Chip, ChipRow, SearchInput, Section, StatTable, useSearchFocus } from '@/ui/controls';
 import { MasterDetail } from '@/ui/MasterDetail';
@@ -68,7 +69,7 @@ export function MaterialsPage() {
   return (
     <Page
       wide
-      title="Materials"
+      title="Materials" progress={<DiscoveryBar kind="materials" />}
       subtitle={`${shown.length} materials`}
       toolbar={
         <>

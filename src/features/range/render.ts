@@ -4,6 +4,7 @@ import { layerFrame } from './particles';
 import { animFrame } from './player';
 import { K_FIRE, K_POWDER, K_STATIC } from './cells';
 import { H, W, type RangeWorld } from './world';
+import { LIGHTNING, type Cell, type Crackle } from './lightning';
 
 /**
  * Drawing scale over world pixels. 1, like the game's own 427×242 frame: CSS scales the canvas up with crisp
@@ -385,12 +386,13 @@ export class RangeRenderer {
       both((c) => line(c, s.x0, s.y0, s.x1, s.y1, s.color, s.width + 1.5, 0.35 * a));
       line(ctx, s.x0, s.y0, s.x1, s.y1, s.color, s.width, a);
     }
-    // lightning: bolts and electric arcs
+    // lightning: hard pixels like lightning_ray.png, a white core in a deep blue fringe, plus a blue bloom
     for (const b of w.bolts) {
-      const a = 1 - b.age / b.life;
-      both((c) => polyline(c, b.points, b.color, 4, 0.35 * a));
-      polyline(ctx, b.points, b.color, 2, 0.9 * a);
-      polyline(ctx, b.points, '#ffffff', 1.1, a);
+      // Full strength, then gone over its last few frames (the game's ray doesn't fade slowly).
+      const k = b.age / b.life;
+      const a = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4;
+      drawBolt(ctx, b.shape, a);
+      if (bloom) cells(g, [b.shape.core, b.shape.thick, b.shape.forks], 0, LIGHTNING.glow, 0.8 * a);
     }
 
     // projectiles: every sprite layer, animated from the projectile's birth
@@ -664,18 +666,28 @@ function line(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number,
   ctx.globalAlpha = 1;
 }
 
-function polyline(ctx: CanvasRenderingContext2D, pts: [number, number][], color: string, width: number, alpha: number) {
-  if (alpha <= 0 || pts.length < 2) return;
-  ctx.globalCompositeOperation = 'lighter';
-  ctx.globalAlpha = alpha;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  ctx.lineJoin = 'round';
+/**
+ * Fill whole pixels, each grown by `pad` on every side, as one path: overlaps are painted once, so a
+ * see-through colour stays even instead of building up where the squares meet.
+ */
+function cells(ctx: CanvasRenderingContext2D, lists: Cell[][], pad: number, color: string, alpha: number) {
+  if (alpha <= 0) return;
+  const s = 1 + pad * 2;
   ctx.beginPath();
-  ctx.moveTo(pts[0]![0], pts[0]![1]);
-  for (const [x, y] of pts.slice(1)) ctx.lineTo(x, y);
-  ctx.stroke();
+  for (const list of lists) for (const [x, y] of list) ctx.rect(x - pad, y - pad, s, s);
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  ctx.fill();
   ctx.globalAlpha = 1;
+}
+
+/** A bolt as the game draws it: the deep blue fringe one pixel around, then the white core. */
+function drawBolt(ctx: CanvasRenderingContext2D, b: Crackle, alpha: number) {
+  ctx.globalCompositeOperation = 'source-over';
+  cells(ctx, [b.core, b.thick, b.forks], 1, LIGHTNING.fringe, LIGHTNING.fringeAlpha * alpha);
+  ctx.globalCompositeOperation = 'lighter';
+  cells(ctx, [b.core, b.thick, b.forks], 0, LIGHTNING.core, alpha);
+  ctx.globalCompositeOperation = 'source-over';
 }
 
 /** One soft round light per colour, drawn once and stretched to any radius (gradients per light are slow). */

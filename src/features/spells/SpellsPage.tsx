@@ -5,6 +5,7 @@ import { motion } from 'motion/react';
 import { useData } from '@/data/store';
 import { SPELL_TYPES, type Spell, type SpellType } from '@/data/types';
 import { useSpoilers } from '@/store/progress';
+import { DiscoveryBar } from '@/features/progress/DiscoveryBar';
 import { Page } from '@/ui/Page';
 import { Chip, ChipRow, SearchInput, Select, useSearchFocus } from '@/ui/controls';
 import { SpellIcon, TYPE_COLOR, TYPE_LABEL } from '@/ui/GameIcon';
@@ -50,7 +51,6 @@ export function SpellsPage() {
     return list;
   }, [q, search, spellById, spells, types, sort, visible]);
 
-  const discovered = spells.filter((s) => visible(s.discoverFlag)).length;
   const selected = id ? spellById.get(id) : undefined;
   const close = useCallback(() => navigate('/spells'), [navigate]);
   const toggleType = (t: SpellType) => setTypes((ts) => (ts.includes(t) ? ts.filter((x) => x !== t) : [...ts, t]));
@@ -58,8 +58,8 @@ export function SpellsPage() {
   return (
     <Page
       wide
-      title="Spells"
-      subtitle={mode === 'all' ? `${spells.length} spells` : `${discovered} of ${spells.length} discovered`}
+      title="Spells" progress={<DiscoveryBar kind="spells" />}
+      subtitle={mode === 'all' ? `${spells.length} spells` : undefined}
       toolbar={
         <>
           <SearchInput ref={searchRef} value={query} onChange={setQuery} placeholder="Search spells…" />

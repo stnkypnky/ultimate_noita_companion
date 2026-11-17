@@ -9,6 +9,7 @@ export function Page({
   subtitle,
   actions,
   toolbar,
+  progress,
   children,
   wide,
 }: {
@@ -16,6 +17,8 @@ export function Page({
   subtitle?: ReactNode;
   actions?: ReactNode;
   toolbar?: ReactNode;
+  /** A discovery bar shown under the title. */
+  progress?: ReactNode;
   children: ReactNode;
   wide?: boolean;
 }) {
@@ -45,7 +48,8 @@ export function Page({
           </div>
           {actions}
         </div>
-        {toolbar && <div className="mt-3 space-y-3">{toolbar}</div>}
+        {progress && <div className="mt-2.5">{progress}</div>}
+        {toolbar &&<div className="mt-3 space-y-3">{toolbar}</div>}
       </header>
       <div className="pt-1 pb-8">{children}</div>
     </div>

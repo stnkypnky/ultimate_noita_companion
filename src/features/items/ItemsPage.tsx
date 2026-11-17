@@ -5,6 +5,7 @@ import { useData } from '@/data/store';
 import type { Item } from '@/data/types';
 import { SECRET_ITEMS, itemKey } from '@/data/spoilers';
 import { useSpoilers } from '@/store/progress';
+import { DiscoveryBar } from '@/features/progress/DiscoveryBar';
 import { Page } from '@/ui/Page';
 import { SearchInput, useSearchFocus } from '@/ui/controls';
 import { AtlasIcon } from '@/ui/GameIcon';
@@ -47,7 +48,7 @@ export function ItemsPage() {
   const close = useCallback(() => navigate('/items'), [navigate]);
 
   return (
-    <Page wide title="Items" subtitle={`${items.length} world pickups`} toolbar={<SearchInput ref={searchRef} value={query} onChange={setQuery} placeholder="Search items…" />}>
+    <Page wide title="Items" progress={<DiscoveryBar kind="items" />} subtitle={`${items.length} world pickups`} toolbar={<SearchInput ref={searchRef} value={query} onChange={setQuery} placeholder="Search items…" />}>
       <MasterDetail
         detailKey={selected?.id}
         onClose={close}

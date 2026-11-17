@@ -41,3 +41,6 @@ export const itemKey = (id: string) => (id.startsWith('essence_') ? id : `item:$
 
 /** Lively Concoction & Alchemic Precursor recipes are seed secrets. */
 export const ALCHEMY_KEY = 'secret:alchemy';
+
+/** The full reaction table, secret materials included. */
+export const ALCHEMY_ALL_KEY = 'secret:alchemy-all';

@@ -49,12 +49,25 @@ const steps: Step[] = [
   { name: 'items', run: async (p) => { await p.goto(`${base}/items/heart`); await p.waitForTimeout(1900); } },
   { name: 'alchemy', run: async (p) => {
       await p.goto(`${base}/alchemy`); await p.waitForTimeout(1600);
-      await p.getByLabel('World seed').fill('1517558277');
-      await p.getByLabel('First material').click(); await p.getByLabel('First material').fill('water');
-      await p.getByRole('button', { name: /^Water water$/ }).first().click();
-      await p.getByLabel('Second material').click(); await p.getByLabel('Second material').fill('lava');
-      await p.getByRole('button', { name: /^Lava lava$/ }).first().click();
+      const pick = p.getByLabel(/Type a material/);
+      await pick.click(); await pick.fill('pheromone'); await pick.press('Enter');
       await p.waitForTimeout(500);
+    } },
+  { name: 'alchemy-all', run: async (p) => {
+      await p.getByRole('button', { name: /Reveal all recipes/ }).click();
+      await p.getByRole('button', { name: 'Show everything' }).click().catch(() => {});
+      await p.getByPlaceholder('Filter by material…').fill('blood');
+      await p.waitForTimeout(500);
+    } },
+  { name: 'lightning', run: async (p) => {
+      await p.goto(`${base}/wand`);
+      await p.getByLabel('Clear spells').click();
+      await p.goto(`${base}/wand?add=LIGHTNING`);
+      await p.getByText(/^Added /).waitFor({ timeout: 15000 });
+      await p.getByRole('tab', { name: 'Preview' }).click();
+      await p.getByTitle('Auto-fire at the dummy (F)').click();
+      await p.getByLabel(/^Test range:/).scrollIntoViewIfNeeded();
+      await p.waitForTimeout(1500);
     } },
 ];
 

@@ -1,24 +1,28 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { motion } from 'motion/react';
-import { ArrowRight, Dices, EyeOff, FlaskConical, Plus, RotateCcw, X } from 'lucide-react';
+import { ArrowRight, BookOpen, Dices, EyeOff, Plus, X } from 'lucide-react';
 import { useData } from '@/data/store';
 import type { Material, Reaction } from '@/data/types';
-import { ALCHEMY_KEY } from '@/data/spoilers';
+import { ALCHEMY_ALL_KEY, ALCHEMY_KEY } from '@/data/spoilers';
 import { useProgress, useSpoilers } from '@/store/progress';
+import { DiscoveryBar } from '@/features/progress/DiscoveryBar';
 import { Page } from '@/ui/Page';
-import { Section } from '@/ui/controls';
+import { SearchInput, Section } from '@/ui/controls';
+import { useDebounced } from '@/ui/hooks';
 import { MaterialSwatch } from '@/features/materials/MaterialSwatch';
 import { titleCase, useMaterialVisibility } from '@/features/materials/MaterialsPage';
 import { MAX_SEED, alchemyRecipes, type Recipe } from './aplc';
+import { dedupeByName, lookupReactions, tagLabel, unique } from './lookup';
 
 export function AlchemyPage() {
   return (
-    <Page title="Alchemy" subtitle="Seed recipes and material reactions">
-      <SeedRecipes />
-      <Section title="What happens if I mix…">
-        <Mixer />
+    <Page title="Alchemy" progress={<DiscoveryBar kind="alchemy" />} subtitle="Look up a material, or this seed's secret recipes">
+      <Section title="Look up a material">
+        <MaterialLookup />
       </Section>
+      <AllRecipes />
+      <SeedRecipes />
     </Page>
   );
 }
@@ -135,53 +139,51 @@ function RecipeCard({ title, recipe }: { title: string; recipe: Recipe }) {
   );
 }
 
-/** Pick two materials, see every reaction the game defines between them (tags included). */
-function Mixer() {
-  const { materials, reactions } = useData();
-  const { isVisible } = useMaterialVisibility();
-  const [a, setA] = useState<Material | null>(null);
-  const [b, setB] = useState<Material | null>(null);
-  const options = useMemo(() => materials.filter((m) => m.showInCreative && isVisible(m.id)).sort((x, y) => x.name.localeCompare(y.name)), [materials, isVisible]);
+/** Every reaction is shown, secrets included, once the player asks for it. */
+function useAllRevealed() {
+  const { visible } = useSpoilers();
+  return visible(ALCHEMY_ALL_KEY);
+}
 
-  const matches = (m: Material, input: string) => input === m.id || m.tags.includes(input);
+/** What the player sees for a reaction slot: a material's name, or a tag's label. */
+function useSlotName() {
+  const { materialById } = useData();
+  return useCallback((x: string) => (x.startsWith('[') ? tagLabel(x) : (materialById.get(x)?.name ?? x)), [materialById]);
+}
+
+/** Type one material: how it's made, and everything it reacts with. */
+function MaterialLookup() {
+  const { materials, reactions } = useData();
+  const { isVisible: materialVisible } = useMaterialVisibility();
+  const all = useAllRevealed();
+  const name = useSlotName();
+  const isVisible = useCallback((id: string) => all || materialVisible(id), [all, materialVisible]);
+  const [m, setM] = useState<Material | null>(null);
+  const options = useMemo(() => materials.filter((x) => x.showInCreative && isVisible(x.id)).sort((x, y) => x.name.localeCompare(y.name)), [materials, isVisible]);
   const found = useMemo(() => {
-    if (!a || !b) return [];
-    return reactions.filter((r) => {
-      const [i1, i2] = r.inputs;
-      if (!i1 || !i2) return false;
-      return (matches(a, i1) && matches(b, i2)) || (matches(b, i1) && matches(a, i2));
-    });
-  }, [a, b, reactions]);
-  const safe = found.filter((r) => r.outputs.every((o) => o.startsWith('[') || isVisible(o)));
+    if (!m) return null;
+    const f = lookupReactions(m, reactions, isVisible);
+    return { ...f, makes: dedupeByName(f.makes, name), mixes: dedupeByName(f.mixes, name) };
+  }, [m, reactions, isVisible, name]);
 
   return (
     <div className="panel p-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <MaterialPicker value={a} onChange={setA} options={options} label="First material" />
-        <Plus size={16} className="mx-auto shrink-0 text-faint sm:mx-0" />
-        <MaterialPicker value={b} onChange={setB} options={options} label="Second material" />
-        {(a || b) && (
-          <button
-            onClick={() => {
-              setA(null);
-              setB(null);
-            }}
-            className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3 text-sm text-muted hover:text-ink"
-          >
-            <RotateCcw size={15} /> Reset
-          </button>
+      <div className="flex items-center gap-2">
+        <MaterialPicker value={m} onChange={setM} options={options} label="Type a material, e.g. Pheromone" />
+        {m && (
+          <Link to={`/materials/${m.id}`} className="inline-flex h-11 shrink-0 items-center gap-1.5 px-2 text-sm text-muted hover:text-ink" title="Open the material page">
+            Details <ArrowRight size={14} />
+          </Link>
         )}
       </div>
-      {a && b && (
-        <div className="mt-4">
-          {safe.length === 0 ? (
-            <p className="text-sm text-muted">{found.length ? 'The result is a spoiler — reveal it from the material pages.' : 'Nothing happens — no reaction between these two.'}</p>
-          ) : (
-            <ul className="space-y-1.5">
-              {safe.map((r, i) => (
-                <ReactionResult key={i} r={r} />
-              ))}
-            </ul>
+      {m && found && (
+        <div className="mt-4 space-y-4">
+          <ReactionGroup title="How to make it" reactions={found.makes} focus={m} onPick={setM} empty="Nothing makes it — it's found in the world." />
+          <ReactionGroup title="Mixes with" reactions={found.mixes} focus={m} onPick={setM} empty="It doesn't react with anything." />
+          {found.hidden > 0 && (
+            <p className="text-xs text-faint">
+              {found.hidden} more reaction{found.hidden > 1 ? 's' : ''} hidden to avoid spoilers.
+            </p>
           )}
         </div>
       )}
@@ -189,34 +191,161 @@ function Mixer() {
   );
 }
 
-function ReactionResult({ r }: { r: Reaction }) {
-  const { materialById } = useData();
+function ReactionGroup({ title, reactions, focus, onPick, empty }: { title: string; reactions: Reaction[]; focus: Material; onPick: (m: Material) => void; empty: string }) {
   return (
-    <li className="flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] bg-raised px-3 py-2 text-sm">
-      <FlaskConical size={15} className="text-toxic" />
-      <ArrowRight size={14} className="text-faint" />
-      {r.outputs.map((o, i) => {
-        const m = materialById.get(o);
-        return (
-          <span key={i} className="inline-flex items-center gap-1.5">
-            {m && <MaterialSwatch material={m} size={18} />}
-            {m ? titleCase(m.name) : o}
-          </span>
-        );
-      })}
-      <span className="ml-auto text-xs text-faint">
-        {r.probability}% {r.requiresLifetime ? `· after ${r.requiresLifetime} frames` : ''}
+    <div>
+      <h4 className="font-game-caps mb-1.5 text-[16px] text-gold/80">
+        {title} <span className="text-faint">({reactions.length})</span>
+      </h4>
+      {reactions.length ? (
+        <ul className="space-y-1.5">
+          {reactions.map((r, i) => (
+            <ReactionRow key={i} r={r} focus={focus} onPick={onPick} />
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-muted">{empty}</p>
+      )}
+    </div>
+  );
+}
+
+/** One reaction as "A + B → C"; tapping a material looks it up next. */
+function ReactionRow({ r, focus, onPick }: { r: Reaction; focus?: Material; onPick?: (m: Material) => void }) {
+  const inputs = unique(r.inputs);
+  const outputs = unique(r.outputs);
+  return (
+    <li className="slot flex flex-wrap items-center gap-1.5 px-2.5 py-2">
+      {inputs.map((x, i) => (
+        <span key={`i${i}`} className="contents">
+          {i > 0 && <Plus size={13} className="text-faint" />}
+          <Ingredient id={x} focus={focus} onPick={onPick} />
+        </span>
+      ))}
+      <ArrowRight size={14} className="mx-0.5 text-faint" />
+      {outputs.map((x, i) => (
+        <Ingredient key={`o${i}`} id={x} focus={focus} onPick={onPick} />
+      ))}
+      <span className="ml-auto pl-2 text-[11px] text-faint tabular-nums">
+        {r.probability}%{r.requiresLifetime ? ` · after ${r.requiresLifetime} frames` : ''}
       </span>
     </li>
+  );
+}
+
+function Ingredient({ id, focus, onPick }: { id: string; focus?: Material; onPick?: (m: Material) => void }) {
+  const { materialById } = useData();
+  if (id.startsWith('[')) {
+    const mine = focus?.tags.includes(id);
+    return <span className={`rounded px-1.5 py-0.5 text-xs ${mine ? 'bg-gold/20 text-gold' : 'bg-arcane/15 text-arcane'}`}>{tagLabel(id)}</span>;
+  }
+  const m = materialById.get(id);
+  if (!m) return <span className="text-xs text-muted">{id}</span>;
+  const mine = focus?.id === id;
+  const cls = `inline-flex items-center gap-1.5 rounded py-0.5 pr-1.5 pl-0.5 text-[13px] ${mine ? 'bg-gold/20 text-ink' : 'bg-surface-2 hover:bg-surface-3'}`;
+  const body = (
+    <>
+      <MaterialSwatch material={m} size={18} />
+      {titleCase(m.name)}
+    </>
+  );
+  if (onPick && !mine)
+    return (
+      <button onClick={() => onPick(m)} className={cls} title={`Look up ${m.name}`}>
+        {body}
+      </button>
+    );
+  return (
+    <Link to={`/materials/${id}`} className={cls}>
+      {body}
+    </Link>
+  );
+}
+
+/** The whole reaction table, spoilers included, behind a confirm. */
+function AllRecipes() {
+  const { reactions } = useData();
+  const { reveal } = useSpoilers();
+  const hideAgain = useProgress((s) => s.hideAgain);
+  const all = useAllRevealed();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const q = useDebounced(query).trim().toLowerCase();
+
+  const name = useSlotName();
+  const distinct = useMemo(() => dedupeByName(reactions, name), [reactions, name]);
+  const shown = useMemo(() => {
+    if (!q) return distinct;
+    return distinct.filter((r) => [...r.inputs, ...r.outputs].some((x) => name(x).toLowerCase().includes(q) || x.includes(q)));
+  }, [distinct, name, q]);
+
+  if (!open) {
+    return (
+      <div className="mt-5 flex flex-wrap items-center gap-3">
+        <button onClick={() => setOpen(true)} className="btn-game font-game px-4 py-2 text-[16px]">
+          <BookOpen size={16} className="mr-2 inline" />
+          Reveal all recipes
+        </button>
+        <span className="text-xs text-faint">{distinct.length} reactions</span>
+      </div>
+    );
+  }
+
+  if (!all) {
+    return (
+      <div className="mt-5 panel p-6 text-center">
+        <EyeOff className="mx-auto text-muted" />
+        <h2 className="mt-3 font-game text-[24px]">Every recipe, secrets included</h2>
+        <p className="mx-auto mt-1 max-w-sm text-sm text-muted">The full list includes reactions with secret and endgame materials. Reveal only if you want to know.</p>
+        <div className="mt-4 flex justify-center gap-2">
+          <button onClick={() => reveal(ALCHEMY_ALL_KEY)} className="btn-game font-game px-4 py-2 text-[16px]">
+            Show everything
+          </button>
+          <button onClick={() => setOpen(false)} className="px-3 text-sm text-muted hover:text-ink">
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Section
+      title={`All recipes (${shown.length})`}
+      aside={
+        <button
+          onClick={() => {
+            hideAgain(ALCHEMY_ALL_KEY);
+            setOpen(false);
+          }}
+          className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-ink"
+        >
+          <EyeOff size={14} /> Hide again
+        </button>
+      }
+    >
+      <SearchInput value={query} onChange={setQuery} placeholder="Filter by material…" />
+      <ul className="mt-3 space-y-1.5">
+        {shown.map((r, i) => (
+          <ReactionRow key={i} r={r} />
+        ))}
+      </ul>
+      {!shown.length && <p className="mt-3 text-sm text-faint">No reaction uses that.</p>}
+    </Section>
   );
 }
 
 function MaterialPicker({ value, onChange, options, label }: { value: Material | null; onChange: (m: Material | null) => void; options: Material[]; label: string }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
-  const list = useMemo(() => options.filter((m) => m.name.toLowerCase().includes(q.toLowerCase()) || m.id.includes(q.toLowerCase())), [options, q]);
+  // Names that start with the query come first, so "phe" lands on Pheromone, not Worm Pheromone.
+  const list = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    const hits = options.filter((m) => m.name.toLowerCase().includes(s) || m.id.includes(s));
+    return s ? [...hits].sort((a, b) => Number(!a.name.toLowerCase().startsWith(s)) - Number(!b.name.toLowerCase().startsWith(s))) : hits;
+  }, [options, q]);
   return (
-    <div className="relative flex-1">
+    <div className="relative min-w-0 flex-1">
       <div className="flex h-11 items-center gap-2 rounded-xl border border-line bg-raised px-2 focus-within:border-line-strong">
         {value && <MaterialSwatch material={value} size={24} />}
         <input
@@ -229,6 +358,13 @@ function MaterialPicker({ value, onChange, options, label }: { value: Material |
           }}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && open && list[0]) {
+              onChange(list[0]);
+              setOpen(false);
+              e.currentTarget.blur();
+            }
+          }}
           className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none focus-visible:outline-none"
         />
         {value && !open && (

@@ -16,6 +16,7 @@ import { BookOpen, Dices, Eraser, FolderHeart, Info, Plus, Redo2, Repeat, Trash2
 import { useData } from '@/data/store';
 import { warmUpSimulator } from '@/sim/client';
 import type { CastView } from '@/sim/analyze';
+import { DiscoveryBar } from '@/features/progress/DiscoveryBar';
 import { Page } from '@/ui/Page';
 import { Section } from '@/ui/controls';
 import { SpellIcon } from '@/ui/GameIcon';
@@ -293,7 +294,7 @@ export function WandPage() {
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDragging(null)}>
       <Page
         wide
-        title="Wand Builder"
+        title="Wand Builder" progress={<DiscoveryBar kind="spells" />}
         subtitle={desktop ? "Drag spells onto the wand — every cast is simulated with Noita's own code" : 'Simulated with Noita’s own code'}
         actions={toolbar}
       >

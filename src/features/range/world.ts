@@ -13,6 +13,7 @@ import { HP_UNIT } from '@/data/format';
 import type { ShotState, SimCast, SimShot } from '@/sim/types';
 import { DEFAULT_FLIGHT, DEFAULT_MOVE, newPlayerState, stepPlayer, wandPose, type Controls, type PlayerState } from './player';
 import type { WandRuntime } from './wand';
+import { LIGHTNING, crackle, type Crackle } from './lightning';
 
 /** The game's internal screen size, so distances and speeds read 1:1. */
 export const W = 427;
@@ -174,8 +175,8 @@ export type Effect = { x: number; y: number; rot: number; vis: EntityVisual; age
 export type Floater = { x: number; y: number; text: string; age: number; crit: boolean; self: boolean };
 /** A fading line (luminous drill beams, chain-bolt hops). */
 export type Segment = { x0: number; y0: number; x1: number; y1: number; age: number; life: number; color: string; width: number };
-/** Jagged lightning (bolts, electric arcs). */
-export type Bolt = { points: [number, number][]; age: number; life: number; color: string };
+/** Lightning (strikes, electric arcs): re-crackled between its two ends every frame it lives. */
+export type Bolt = { x0: number; y0: number; x1: number; y1: number; amp: number; forks: number; heavy: boolean; age: number; life: number; shape: Crackle };
 /** A laser beam this frame. */
 export type Beam = { x0: number; y0: number; x1: number; y1: number; color: string; radius: number };
 
@@ -826,7 +827,11 @@ export class RangeWorld {
     if (this.shake < 0.05) this.shake = 0;
     for (const s of this.segments) s.age++;
     this.segments = this.segments.filter((s) => s.age < s.life);
-    for (const b of this.bolts) b.age++;
+    for (const b of this.bolts) {
+      b.age++;
+      // It flickers: a fresh crackle each frame, like the game.
+      if (b.age < b.life) b.shape = crackle(b.x0, b.y0, b.x1, b.y1, b);
+    }
     this.bolts = this.bolts.filter((b) => b.age < b.life);
     for (const f of this.floaters) {
       f.age++;
@@ -1339,7 +1344,7 @@ export class RangeWorld {
     const t = arc?.target;
     if (!arc || !t || t.dead || p.age > arc.lifetime) return;
     if (arc.kind === 'lightning') {
-      if (p.age % 2 === 0) this.bolts.push({ points: this.jagged(p.x, p.y, t.x, t.y, 6), age: 0, life: 3, color: arc.color });
+      if (p.age % 2 === 0) this.bolt(p.x, p.y, t.x, t.y, { amp: 5, forks: 0, heavy: false, life: 2 });
       for (const a of this.actors) {
         if (a.id === 'player') continue;
         const b = this.actorBox(a, 2);
@@ -1371,24 +1376,20 @@ export class RangeWorld {
         break;
       }
     }
-    this.bolts.push({ points: this.jagged(p.x, p.y, ex, ey, 10), age: 0, life: 10, color: l.color });
-    this.segments.push({ x0: p.x, y0: p.y, x1: ex, y1: ey, age: 0, life: 6, color: '#ffffff', width: 0.6 });
+    const len = Math.hypot(ex - p.x, ey - p.y);
+    this.bolt(p.x, p.y, ex, ey, { amp: Math.min(12, 3 + len * 0.05), forks: len > 60 ? randInt(1, 3) : 0, heavy: true, life: 8 });
+    // Electric sparks fly where it lands (spark_electric), and a few crackle off along the way.
+    for (let i = 0; i < 14; i++) this.spark(ex, ey, LIGHTNING.sparks[i % 3]!, true, randInt(6, 16), 70);
+    for (let i = 0; i < 4; i++) {
+      const k = Math.random();
+      this.spark(p.x + (ex - p.x) * k, p.y + (ey - p.y) * k, LIGHTNING.sparks[i % 3]!, true, randInt(4, 10), 30);
+    }
     if (struck) this.hurt(struck, p.hit, p.critChance);
     this.explode(ex, ey, l.radius, l.damage, l.radius > 0 ? (p.visual?.explosion?.maxDurability ?? 12) : -1, p.critChance, l.color, true, p.visual?.explosion);
   }
 
-  private jagged(x0: number, y0: number, x1: number, y1: number, amp: number): [number, number][] {
-    const len = Math.hypot(x1 - x0, y1 - y0);
-    const n = Math.max(2, Math.ceil(len / 8));
-    const nx = -(y1 - y0) / (len || 1);
-    const ny = (x1 - x0) / (len || 1);
-    const pts: [number, number][] = [];
-    for (let i = 0; i <= n; i++) {
-      const t = i / n;
-      const j = i === 0 || i === n ? 0 : rand(-amp, amp) * Math.sin(Math.PI * t);
-      pts.push([x0 + (x1 - x0) * t + nx * j, y0 + (y1 - y0) * t + ny * j]);
-    }
-    return pts;
+  private bolt(x0: number, y0: number, x1: number, y1: number, o: { amp: number; forks: number; heavy: boolean; life: number }) {
+    this.bolts.push({ x0, y0, x1, y1, ...o, age: 0, shape: crackle(x0, y0, x1, y1, o) });
   }
 
   private spawnBounceFx(p: Proj) {

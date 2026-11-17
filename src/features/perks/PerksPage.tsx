@@ -4,6 +4,7 @@ import MiniSearch from 'minisearch';
 import { useData } from '@/data/store';
 import type { Perk } from '@/data/types';
 import { useSpoilers } from '@/store/progress';
+import { DiscoveryBar } from '@/features/progress/DiscoveryBar';
 import { Page } from '@/ui/Page';
 import { Chip, ChipRow, SearchInput, Section, StatTable, useSearchFocus } from '@/ui/controls';
 import { AtlasIcon } from '@/ui/GameIcon';
@@ -42,15 +43,14 @@ export function PerksPage() {
     return list;
   }, [q, search, perkById, perks, filter, visible]);
 
-  const discovered = perks.filter((p) => visible(p.discoverFlag)).length;
   const selected = id ? perkById.get(id) : undefined;
   const close = useCallback(() => navigate('/perks'), [navigate]);
 
   return (
     <Page
       wide
-      title="Perks"
-      subtitle={mode === 'all' ? `${perks.length} perks` : `${discovered} of ${perks.length} discovered`}
+      title="Perks" progress={<DiscoveryBar kind="perks" />}
+      subtitle={mode === 'all' ? `${perks.length} perks` : undefined}
       toolbar={
         <>
           <SearchInput ref={searchRef} value={query} onChange={setQuery} placeholder="Search perks…" />

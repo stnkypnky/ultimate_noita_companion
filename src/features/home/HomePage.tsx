@@ -4,6 +4,7 @@ import { ArrowRight, Beaker, FlaskConical, RefreshCw, Sparkles, Wand2, type Luci
 import { useGameData } from '@/data/store';
 import { useProgress } from '@/store/progress';
 import { HudBar, Runes } from '@/ui/game';
+import { DiscoveryBar } from '@/features/progress/DiscoveryBar';
 
 const TILES: { to: string; title: string; text: string; icon: LucideIcon; accent: string }[] = [
   { to: '/wand', title: 'Wand Builder', text: 'Drag spells onto a wand and simulate every cast.', icon: Wand2, accent: 'var(--ember)' },
@@ -65,6 +66,9 @@ export function HomePage() {
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 pt-6 pb-10 md:px-8 md:pt-10">
+      <div className="safe-top mb-4">
+        <DiscoveryBar kind="overall" />
+      </div>
       <motion.section
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
