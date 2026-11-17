@@ -395,26 +395,29 @@ function MaterialPicker({ value, onChange, options, label }: { value: Material |
           </button>
         )}
       </div>
+      {/* The frame lives on the wrapper, not the scrolling list: .panel draws it in a ::before, which would scroll away with the items. */}
       {open && (
-        <ul className="scrollbar-thin absolute inset-x-0 top-12 z-20 max-h-64 overflow-y-auto panel bg-bg p-1 shadow-[var(--shadow)]">
-          {list.map((m) => (
-            <li key={m.id}>
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onChange(m);
-                  setOpen(false);
-                }}
-                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-surface-3"
-              >
-                <MaterialSwatch material={m} size={20} />
-                {titleCase(m.name)}
-                <span className="ml-auto text-[11px] text-faint">{m.id}</span>
-              </button>
-            </li>
-          ))}
-          {!list.length && <li className="px-2 py-2 text-sm text-faint">No match</li>}
-        </ul>
+        <div className="panel absolute inset-x-0 top-12 z-20 bg-bg p-1 shadow-[var(--shadow)]">
+          <ul className="scrollbar-thin max-h-64 overflow-y-auto overscroll-contain">
+            {list.map((m) => (
+              <li key={m.id}>
+                <button
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    onChange(m);
+                    setOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-surface-3"
+                >
+                  <MaterialSwatch material={m} size={20} />
+                  {titleCase(m.name)}
+                  <span className="ml-auto text-[11px] text-faint">{m.id}</span>
+                </button>
+              </li>
+            ))}
+            {!list.length && <li className="px-2 py-2 text-sm text-faint">No match</li>}
+          </ul>
+        </div>
       )}
     </div>
   );
