@@ -1,41 +1,44 @@
 import { useCallback, useSyncExternalStore, type ReactNode } from 'react';
-import { ExternalLink, Eye, EyeOff } from 'lucide-react';
+import { ExternalLink, Eye, EyeOff, KeyRound } from 'lucide-react';
+import { useSpoilers } from '@/store/progress';
 import { fmtNum, seconds } from '@/data/format';
 import { mechanicsFor, type MechanicKind, type MechanicNote } from '@/data/mechanics';
 import type { Item, Projectile } from '@/data/types';
 import { Section } from '@/ui/controls';
 import { InlineSpoiler } from '@/ui/Spoiler';
 
-// Collapsed by default; once opened it stays open on every page (per device) until hidden again.
-const SHOW_KEY = 'show-hidden-mechanics';
+// Collapsed by default; once opened a section stays open on every page (per device) until hidden again.
 const listeners = new Set<() => void>();
-let memo = false; // fallback when storage is blocked
-const readShown = () => {
+const memo: Record<string, boolean> = {}; // fallback when storage is blocked
+const readShown = (key: string) => {
   try {
-    const v = localStorage.getItem(SHOW_KEY);
-    return v === null ? memo : v === '1';
+    const v = localStorage.getItem(key);
+    return v === null ? (memo[key] ?? false) : v === '1';
   } catch {
-    return memo;
+    return memo[key] ?? false;
   }
 };
-function useShowMechanics(): [boolean, (v: boolean) => void] {
+function usePersistedToggle(key: string): [boolean, (v: boolean) => void] {
   const shown = useSyncExternalStore(
     (cb) => {
       listeners.add(cb);
       return () => listeners.delete(cb);
     },
-    readShown,
+    () => readShown(key),
     () => false,
   );
-  const set = useCallback((v: boolean) => {
-    memo = v;
-    try {
-      localStorage.setItem(SHOW_KEY, v ? '1' : '0');
-    } catch {
-      /* private mode: just this render */
-    }
-    listeners.forEach((l) => l());
-  }, []);
+  const set = useCallback(
+    (v: boolean) => {
+      memo[key] = v;
+      try {
+        localStorage.setItem(key, v ? '1' : '0');
+      } catch {
+        /* private mode: just this session */
+      }
+      listeners.forEach((l) => l());
+    },
+    [key],
+  );
   return [shown, set];
 }
 
@@ -80,7 +83,7 @@ export function itemNotes(item: Item): MechanicNote[] {
  * `extra` content (a chest's loot table) that should stay behind the same toggle. Renders nothing when empty.
  */
 export function HiddenMechanics({ kind, id, auto = [], extra }: { kind: MechanicKind; id: string; auto?: MechanicNote[]; extra?: ReactNode }) {
-  const [shown, setShown] = useShowMechanics();
+  const [shown, setShown] = usePersistedToggle('show-hidden-mechanics');
   const notes = [...auto, ...mechanicsFor(kind, id)];
   const count = notes.length + (extra ? 1 : 0);
   if (!count) return null;
@@ -114,6 +117,36 @@ export function HiddenMechanics({ kind, id, auto = [], extra }: { kind: Mechanic
         </ul>
       )}
       {extra}
+    </Section>
+  );
+}
+
+/**
+ * "How to unlock": how a spell or item is unlocked or obtained, behind its own toggle (it names bosses and
+ * places outright). With a save flag, it also says whether this save has it yet.
+ */
+export function HowToUnlock({ notes, flag }: { notes: MechanicNote[]; flag?: string }) {
+  const [shown, setShown] = usePersistedToggle('show-unlocks');
+  const { mode, hasFlag } = useSpoilers();
+  if (!notes.length) return null;
+  const toggle = (
+    <button onClick={() => setShown(!shown)} aria-expanded={shown} className="btn-game quiet font-game inline-flex items-center gap-1.5 px-2.5 py-1 text-[16px]">
+      {shown ? <EyeOff size={14} /> : <KeyRound size={14} />}
+      {shown ? 'Hide' : 'Show how to unlock'}
+    </button>
+  );
+  if (!shown) return <div className="mt-3">{toggle}</div>;
+  const have = flag ? hasFlag(flag) : false;
+  return (
+    <Section title="How to unlock" aside={toggle}>
+      <ul className="panel space-y-2.5 px-4 py-3">
+        {notes.map((n) => (
+          <Note key={n.text} note={n} />
+        ))}
+        {flag && mode !== 'all' && (
+          <li className={`text-[13px] ${have ? 'text-toxic' : 'text-faint'}`}>{have ? '✓ Unlocked on your save.' : 'Not unlocked on your save yet.'}</li>
+        )}
+      </ul>
     </Section>
   );
 }

@@ -117,7 +117,7 @@ function dice(): Entries {
       n('1 roll in 100 is special: a smile (0.5%) casts a long Circle of Vigour, a frown (0.5%) a Circle of Acid that ignores walls.', chaos),
       n('Its shots fly out in every direction and can hit you: kick it and back off, or roll it from afar.', chaos),
       neverBreaks,
-      n('Item pedestals and chests only hold one once you’ve beaten Ylialkemisti; under the Greed curse it’s replaced by a Greed Die.', SPAWNS, true),
+      n('Under the Greed curse it’s replaced by a Greed Die.', SPAWNS, true),
     ],
     'item:physics_greed_die': [
       rolls,

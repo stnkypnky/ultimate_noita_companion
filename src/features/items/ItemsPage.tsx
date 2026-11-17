@@ -1,17 +1,18 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { Package, Sparkles } from 'lucide-react';
+import { Package } from 'lucide-react';
 import { useData } from '@/data/store';
 import type { Item } from '@/data/types';
-import { SECRET_ITEMS, itemKey } from '@/data/spoilers';
+import { ITEM_FLAGS, SECRET_ITEMS, itemKey } from '@/data/spoilers';
+import { ITEM_UNLOCKS } from '@/data/unlocks';
 import { useSpoilers } from '@/store/progress';
 import { DiscoveryBar } from '@/features/progress/DiscoveryBar';
 import { Page } from '@/ui/Page';
 import { SearchInput, useSearchFocus } from '@/ui/controls';
 import { AtlasIcon } from '@/ui/GameIcon';
 import { MasterDetail } from '@/ui/MasterDetail';
-import { HiddenNotice } from '@/ui/Spoiler';
-import { HiddenMechanics, itemNotes } from '@/ui/HiddenMechanics';
+import { HiddenNotice, SecretCallout } from '@/ui/Spoiler';
+import { HiddenMechanics, HowToUnlock, itemNotes } from '@/ui/HiddenMechanics';
 import { useDebounced } from '@/ui/hooks';
 import { ItemDescription, LootTable } from '@/ui/ItemDescription';
 import { itemInfo } from '@/data/itemInfo';
@@ -76,15 +77,7 @@ export function ItemsPage() {
                     <code className="text-xs text-faint">{selected.id}</code>
                   </div>
                 </header>
-                {SECRET_ITEMS.has(selected.id) && (
-                  <p className="secret-callout mt-4 flex items-start gap-2.5 px-3 py-2.5 text-[14px] leading-snug">
-                    <Sparkles size={16} className="mt-0.5 shrink-0" />
-                    <span>
-                      <span className="font-game text-[16px]">Secret item.</span> One of the game’s hidden or late-game finds. Until it’s revealed it
-                      shows as “???” in this list, so it won’t spoil anyone browsing.
-                    </span>
-                  </p>
-                )}
+                {SECRET_ITEMS.has(selected.id) && <SecretCallout what="item" />}
                 <ItemDescription key={selected.id} item={selected} />
                 <HiddenMechanics
                   kind="item"
@@ -92,6 +85,7 @@ export function ItemsPage() {
                   auto={itemNotes(selected)}
                   extra={loot && <LootTable loot={loot} />}
                 />
+                <HowToUnlock flag={ITEM_FLAGS[selected.id]} notes={ITEM_UNLOCKS[selected.id] ?? []} />
               </article>
             ) : (
               <HiddenNotice what="item" onReveal={() => reveal(itemKey(selected.id))} />

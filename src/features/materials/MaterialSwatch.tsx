@@ -1,16 +1,19 @@
 import type { Material } from '@/data/types';
 import { gameUrl } from '@/data/store';
 
-/** Material tile: its in-game texture when it has one, otherwise its colour. */
-export function MaterialSwatch({ material, size = 32, hidden }: { material: Material; size?: number; hidden?: boolean }) {
+/** Material tile: its in-game texture when it has one, otherwise its colour. Secret materials glow purple. */
+export function MaterialSwatch({ material, size = 32, hidden, secret }: { material: Material; size?: number; hidden?: boolean; secret?: boolean }) {
   if (hidden) {
     return (
-      <span className="grid shrink-0 place-items-center rounded-md border border-dashed border-line-strong bg-raised font-display text-faint" style={{ width: size, height: size, fontSize: size * 0.45 }}>
+      <span
+        className={`grid shrink-0 place-items-center rounded-md border border-dashed bg-raised font-display ${secret ? 'secret-name border-arcane/70' : 'border-line-strong text-faint'}`}
+        style={{ width: size, height: size, fontSize: size * 0.45 }}
+      >
         ?
       </span>
     );
   }
-  return (
+  const swatch = (
     <span
       aria-hidden
       className="pixelated inline-block shrink-0 rounded-md border border-white/10"
@@ -24,4 +27,5 @@ export function MaterialSwatch({ material, size = 32, hidden }: { material: Mate
       }}
     />
   );
+  return secret ? <span className="secret-icon inline-flex shrink-0">{swatch}</span> : swatch;
 }

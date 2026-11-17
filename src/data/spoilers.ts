@@ -42,7 +42,7 @@ export const SECRET_ITEMS = new Set([
  * Items the save's own flags unlock. The Chaos die only spawns once Ylialkemisti has been beaten, which
  * sets card_unlocked_duplicate (boss_alchemist/death.lua; item_spawnlists.lua spawn_requires_flag).
  */
-const ITEM_FLAGS: Record<string, string> = { physics_die: 'card_unlocked_duplicate' };
+export const ITEM_FLAGS: Record<string, string> = { physics_die: 'card_unlocked_duplicate' };
 
 export const itemKey = (id: string) => ITEM_FLAGS[id] ?? (id.startsWith('essence_') ? id : `item:${id}`);
 

@@ -10,7 +10,7 @@ import { DiscoveryBar } from '@/features/progress/DiscoveryBar';
 import { Page } from '@/ui/Page';
 import { Chip, ChipRow, SearchInput, Section, StatTable, useSearchFocus } from '@/ui/controls';
 import { MasterDetail } from '@/ui/MasterDetail';
-import { HiddenNotice } from '@/ui/Spoiler';
+import { HiddenNotice, SecretCallout } from '@/ui/Spoiler';
 import { HiddenMechanics } from '@/ui/HiddenMechanics';
 import { useDebounced } from '@/ui/hooks';
 import { MaterialSwatch } from './MaterialSwatch';
@@ -98,16 +98,19 @@ export function MaterialsPage() {
           <ul className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-2">
             {shown.map((m) => {
               const hidden = !isVisible(m.id);
+              const secret = SECRET_MATERIALS.has(m.id);
               return (
                 <li key={m.id}>
                   <button
                     onClick={() => navigate(`/materials/${m.id}`)}
                     data-active={m.id === id || undefined}
-                    className="slot slot-hover flex w-full items-center gap-3 p-2.5 text-left"
+                    className={`slot slot-hover flex w-full items-center gap-3 p-2.5 text-left ${secret ? 'secret' : ''}`}
                   >
-                    <MaterialSwatch material={m} hidden={hidden} />
+                    <MaterialSwatch material={m} hidden={hidden} secret={secret} />
                     <span className="min-w-0">
-                      <span className={`block truncate text-[13px] font-medium ${hidden ? 'text-faint' : ''}`}>{hidden ? '???' : titleCase(m.name)}</span>
+                      <span className={`block truncate text-[13px] font-medium ${secret ? 'secret-name' : hidden ? 'text-faint' : ''}`}>
+                        {hidden ? '???' : titleCase(m.name)}
+                      </span>
                       {!hidden && (
                         <span className="block truncate text-[11px] text-faint">
                           {titleCase(m.state)}
@@ -149,15 +152,17 @@ function MaterialDetail({ material: m }: { material: Material }) {
     ...(m.ingestion.length ? [{ label: 'When ingested', value: m.ingestion.map(effectName).join(', ') }] : []),
   ];
 
+  const secret = SECRET_MATERIALS.has(m.id);
   return (
     <article>
       <header className="flex items-center gap-4 pr-10 lg:pr-0">
-        <MaterialSwatch material={m} size={64} />
+        <MaterialSwatch material={m} size={64} secret={secret} />
         <div className="min-w-0">
-          <h2 className="font-game text-[24px] leading-tight">{titleCase(m.name)}</h2>
+          <h2 className={`font-game text-[24px] leading-tight ${secret ? 'secret-name' : ''}`}>{titleCase(m.name)}</h2>
           <code className="text-xs text-faint">{m.id}</code>
         </div>
       </header>
+      {secret && <SecretCallout what="material" />}
 
       <Section title="Properties">
         <StatTable rows={rows} />
@@ -224,10 +229,11 @@ function MatChip({ id }: { id: string }) {
   let hints = hintCache.get(materials);
   if (!hints) hintCache.set(materials, (hints = nameHints(materials)));
   const hint = hints.get(id);
+  const secret = SECRET_MATERIALS.has(id);
   return (
     <Link to={`/materials/${id}`} title={id} className="inline-flex items-center gap-1.5 rounded bg-surface-2 py-0.5 pr-1.5 pl-0.5 text-xs hover:bg-surface-3">
       <MaterialSwatch material={m} size={16} />
-      {titleCase(m.name)}
+      <span className={secret ? 'secret-name' : undefined}>{titleCase(m.name)}</span>
       {hint && <span className="text-[10px] text-faint">· {hint}</span>}
     </Link>
   );

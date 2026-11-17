@@ -210,30 +210,47 @@ body {
   inset: calc(var(--px) * 2);
   z-index: -1;
   pointer-events: none;
-  background: linear-gradient(135deg, #9b7bff2e, #9b7bff0d 60%);
-  box-shadow: inset 0 0 0 var(--px) #9b7bff59;
+  background: linear-gradient(135deg, #a17dff4d, #8a5cff1f 60%, #9b7bff14);
+  box-shadow: inset 0 0 0 var(--px) #a98bff99;
 }
 .secret-name {
-  color: #c4b0ff;
+  color: #d6c6ff;
 }
 .secret-callout {
-  border: var(--px) solid #9b7bff66;
-  background: linear-gradient(90deg, #9b7bff26, #9b7bff08);
-  color: #d9ccff;
+  border: var(--px) solid #a98bff99;
+  background: linear-gradient(90deg, #9b7bff3a, #9b7bff0d);
+  color: #e2d8ff;
 }
 :root:not([data-lite]) .secret-name {
   text-shadow:
-    0 0 6px #9b7bffcc,
-    0 0 14px #9b7bff66;
+    0 0 4px #b49bff,
+    0 0 12px #9b7bffaa,
+    0 0 22px #9b7bff55;
 }
 :root:not([data-lite]) .secret-icon {
-  filter: drop-shadow(0 0 3px #9b7bff) drop-shadow(0 0 8px #9b7bff88);
+  filter: drop-shadow(0 0 3px #b49bff) drop-shadow(0 0 10px #9b7bffaa);
 }
-:root:not([data-lite]) .slot.secret::after,
 :root:not([data-lite]) .secret-callout {
   box-shadow:
-    inset 0 0 0 var(--px) #9b7bff59,
-    0 0 12px #9b7bff40;
+    inset 0 0 0 var(--px) #a98bff59,
+    0 0 16px #9b7bff59;
+}
+/* A slow breathing glow around secret tiles; off in performance mode and with reduced motion. */
+:root:not([data-lite]) .slot.secret::after {
+  animation: secret-pulse 3s ease-in-out infinite;
+}
+@keyframes secret-pulse {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 var(--px) #a98bff99,
+      0 0 10px #9b7bff4d;
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 var(--px) #c4b0ffcc,
+      0 0 20px #9b7bff8c;
+  }
 }
 
 /* The orange important-message box (ui_gfx/decorations/3piece_important_msg), one line tall. */
@@ -352,6 +369,9 @@ body {
   .splash-kicker {
     opacity: 1;
     filter: none;
+  }
+  .slot.secret::after {
+    animation: none !important;
   }
   *,
   *::before,

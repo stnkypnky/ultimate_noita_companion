@@ -6,8 +6,9 @@ import { fmtNum, prettyEntity, seconds, spellStatLines } from '@/data/format';
 import { useSpoilers } from '@/store/progress';
 import { Section, StatTable } from '@/ui/controls';
 import { SpellIcon, TYPE_COLOR, TYPE_LABEL } from '@/ui/GameIcon';
-import { HiddenNotice, InlineSpoiler } from '@/ui/Spoiler';
-import { HiddenMechanics, projectileNotes } from '@/ui/HiddenMechanics';
+import { HiddenNotice } from '@/ui/Spoiler';
+import { HiddenMechanics, HowToUnlock, projectileNotes } from '@/ui/HiddenMechanics';
+import { FLAG_UNLOCKS } from '@/data/unlocks';
 import { StatIcon, type StatIconName } from '@/ui/game';
 
 const DAMAGE_LABEL: Record<DamageType, string> = {
@@ -18,7 +19,7 @@ const DAMAGE_LABEL: Record<DamageType, string> = {
 
 export function SpellDetail({ spell }: { spell: Spell }) {
   const { projectiles } = useData();
-  const { visible, reveal, hasFlag, mode } = useSpoilers();
+  const { visible, reveal } = useSpoilers();
 
   if (!visible(spell.discoverFlag)) return <HiddenNotice what="spell" onReveal={() => reveal(spell.discoverFlag)} />;
 
@@ -108,14 +109,15 @@ export function SpellDetail({ spell }: { spell: Spell }) {
       </Section>
 
       {spell.requiresFlag && (
-        <Section title="Secret unlock">
-          <InlineSpoiler label="Show unlock requirement">
-            <p className="text-sm text-muted">
-              Only appears after unlocking <code className="text-gold">{spell.requiresFlag.replace('card_unlocked_', '')}</code>
-              {mode !== 'all' && <> — {hasFlag(spell.requiresFlag) ? 'you have unlocked it.' : 'not unlocked on your save yet.'}</>}
-            </p>
-          </InlineSpoiler>
-        </Section>
+        <HowToUnlock
+          flag={spell.requiresFlag}
+          notes={[
+            FLAG_UNLOCKS[spell.requiresFlag] ?? {
+              text: 'Only appears in wands and shops once it’s been unlocked on your save.',
+              source: 'data/scripts/gun/gun_actions.lua',
+            },
+          ]}
+        />
       )}
     </article>
   );
