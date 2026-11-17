@@ -14,6 +14,7 @@ import type { ShotState, SimCast, SimShot } from '@/sim/types';
 import { DEFAULT_FLIGHT, DEFAULT_MOVE, newPlayerState, stepPlayer, wandPose, type Controls, type PlayerState } from './player';
 import type { WandRuntime } from './wand';
 import { LIGHTNING, crackle, type Crackle } from './lightning';
+import { Musician, NOTE_REACH, noteOf, songMessage, type Instrument } from './melody';
 
 /** The game's internal screen size, so distances and speeds read 1:1. */
 export const W = 427;
@@ -122,6 +123,8 @@ export type Proj = {
   /** No sprite and only a few frames long: drawn as a short beam from where it started. */
   beamLike: boolean;
   hit: number;
+  /** Health given back on a hit: the Healing damage type is negative (Healing bolt), net of any other damage. */
+  heal: number;
   critChance: number;
   explosion: { damage: number; radius: number; onDeath: boolean; onTimeout: boolean; digs: boolean; digDurability: number; color?: string } | null;
   spareShooter: boolean;
@@ -212,7 +215,29 @@ const SHOCK_EVERY = 15;
 /** Biggest body a shock floods, and how many can be live (each keeps a cell mask). */
 const SHOCK_MAX_CELLS = 12000;
 const MAX_SHOCKS = 6;
-export type Floater = { x: number; y: number; text: string; age: number; crit: boolean; self: boolean };
+export type Floater = { x: number; y: number; text: string; age: number; crit: boolean; self: boolean; heal?: boolean };
+
+/**
+ * Where the i-th of n projectiles points, in degrees off the aim, for a shot with pattern_degrees p: spread
+ * evenly from -p to +p. When the arc is a full circle (p ≥ 180) the two ends would coincide, so the game spaces
+ * them as if there were one more (wiki: Formation spells). Iplicate (180°, 2 shots) fires forwards and back;
+ * Quplicate (180°, 4) in four directions; Tiplicate (90°, 3) straight, up and down.
+ */
+export function patternOffset(p: number, i: number, n: number) {
+  if (n < 2) return 0;
+  return -p + (2 * p * i) / (p >= 180 ? n : n - 1);
+}
+
+/**
+ * A hit's damage split into harm and healing. Damage types add up, and Healing is negative, so a Healing bolt
+ * heals 8.75 but one with Damage Plus (+10 projectile) hurts for 1.25 (wiki: Healing Bolt).
+ */
+export function hitAndHeal(damage: Partial<Record<string, number>>, hit: number) {
+  const healing = damage.healing ?? 0;
+  if (healing >= 0) return { hit, heal: 0 };
+  const net = hit + healing;
+  return { hit: Math.max(0, net), heal: Math.max(0, -net) };
+}
 /** A fading line (luminous drill beams, chain-bolt hops). */
 export type Segment = { x0: number; y0: number; x1: number; y1: number; age: number; life: number; color: string; width: number };
 /** Lightning (strikes, electric arcs): re-crackled between its two ends every frame it lives. */
@@ -312,6 +337,11 @@ export class RangeWorld {
   damageEvents: { frame: number; amount: number }[] = [];
   totalDamage = 0;
   selfDamage = 0;
+  /** Health your own spells gave back (Healing bolt). */
+  healed = 0;
+  /** Note spells' song progress, and the last message a finished song gave (shown for a few seconds). */
+  musician = new Musician();
+  songMessage: { text: string; frame: number } | null = null;
   castsFired = 0;
 
   /** The wand in hand; it fires through fire() while the trigger is held. */
@@ -740,7 +770,7 @@ export class RangeWorld {
       const vis = this.data.visuals[sp.file];
       const spread = Math.max(0, num(s, 'spread_degrees') + (base?.spread ?? 0));
       let a = angle + (rand(-spread, spread) * Math.PI) / 180;
-      if (pattern > 0 && n > 1) a += ((-pattern + (2 * pattern * i) / (n - 1)) * Math.PI) / 180;
+      if (pattern > 0 && n > 1) a += (patternOffset(pattern, i, n) * Math.PI) / 180;
       const speedMul = (typeof s.speed_multiplier === 'number' ? s.speed_multiplier : 1) * speedScale;
       let speed = rand(base?.speed[0] ?? 60, base?.speed[1] ?? 60) * speedMul;
       if (vis?.physicsBody) speed = throwSpeed(speed, vis.physicsBody.throwCoeff);
@@ -751,9 +781,12 @@ export class RangeWorld {
   /** Create any entity the range knows about (spell projectile, payload, bounce effect, script spawn). */
   spawn(file: string, x: number, y: number, vx: number, vy: number, s: ShotState = {}, trigger?: Proj['trigger'], rot?: number): Proj | null {
     if (this.projectiles.length >= MAX_PROJECTILES) return null;
+    const note = noteOf(file);
+    if (note && Math.hypot(x - this.player.x, y - this.player.y) <= NOTE_REACH) this.hearNote(note.instrument, note.note, x, y);
     const base = this.data.projectiles[file];
     const vis = this.data.visuals[file];
     const dmg = projectileDamage(base, s);
+    const { hit, heal } = hitAndHeal(dmg.damage, dmg.hit);
     const life = !base || base.lifetime < 0 ? -1 : Math.max(1, base.lifetime + num(s, 'lifetime_add') + randInt(-base.lifetimeRandom, base.lifetimeRandom));
     const extras = String(s.extra_entities ?? '')
       .split(',')
@@ -797,7 +830,8 @@ export class RangeWorld {
       rotate: vis?.physics?.rotate ?? true,
       streak: vis?.physics?.streak ?? false,
       beamLike: !vis?.sprites?.length && life > 0 && life <= 4 && speedOf({ vx, vy }) > 300,
-      hit: dmg.hit,
+      hit,
+      heal,
       critChance: dmg.critChance,
       explosion:
         base?.explosion && dmg.explosion
@@ -1259,6 +1293,7 @@ export class RangeWorld {
       if (p.hitActors.has(a.id)) continue;
       p.hitActors.add(a.id);
       this.hurt(a, hitDamage(p), p.critChance, p);
+      if (p.heal > 0) this.heal(a, p.heal);
       this.applyEffects(a, p.effects);
       // ProjectileComponent: final_knockback = knockback_force × velocity × mass / who_we_hit.mass.
       if (a.id === 'player' && p.knockback > 0) {
@@ -1394,6 +1429,29 @@ export class RangeWorld {
     } else {
       this.floater(a, dealt, crit);
     }
+  }
+
+  /**
+   * A note spell played near the player moves the song along (melody.ts). A finished song shows the game's
+   * message; the one whose result the range can show (a Holy Bomb) appears where the note was played.
+   */
+  private hearNote(instrument: Instrument, note: string, x: number, y: number) {
+    const r = this.musician.hear(instrument, note);
+    if (!r) return;
+    this.songMessage = { text: songMessage(r), frame: this.frame };
+    if (r.first && r.song === 'bomb') this.spawn('data/entities/projectiles/bomb_holy.xml', x, y, 0, 0);
+  }
+
+  /** Healing from a hit (Healing bolt): the player gets health back up to the maximum; the dummy just shows it. */
+  private heal(a: Actor, amount: number) {
+    if (a.id === 'player') {
+      const b = this.body;
+      if (b.dead > 0) return;
+      b.hp = Math.min(this.maxHp, b.hp + amount);
+      this.healed += amount;
+    }
+    this.floaters.push({ x: a.x + rand(-8, 8), y: a.y - a.h - 4, text: String(Number(amount.toFixed(2))), age: 0, crit: false, self: false, heal: true });
+    if (this.floaters.length > 40) this.floaters.shift();
   }
 
   /** Continuous damage (lasers, arcs) that isn't tied to one projectile hit. */

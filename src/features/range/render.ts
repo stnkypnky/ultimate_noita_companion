@@ -528,8 +528,8 @@ export class RangeRenderer {
       ctx.globalAlpha = Math.min(1, 2 - f.age / 30);
       ctx.strokeStyle = '#000';
       ctx.strokeText(f.text, f.x, f.y);
-      ctx.fillStyle = f.self ? '#ff5a5a' : f.crit ? '#ffd23f' : '#ffffff';
-      ctx.fillText(f.self ? `-${f.text}` : f.text, f.x, f.y);
+      ctx.fillStyle = f.heal ? '#7be35a' : f.self ? '#ff5a5a' : f.crit ? '#ffd23f' : '#ffffff';
+      ctx.fillText(f.heal ? `+${f.text}` : f.self ? `-${f.text}` : f.text, f.x, f.y);
     }
     ctx.globalAlpha = 1;
     // HUD and text stay put while the scene shakes.

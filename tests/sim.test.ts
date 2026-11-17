@@ -143,6 +143,111 @@ describe('wand simulation (real gun.lua)', () => {
     expect(r.casts.flatMap((c) => c.played).sort()).toEqual(['BOMB', 'BULLET', 'GRENADE', 'LIGHT_BULLET']);
   });
 
+  describe('Plicate spells (copy the next projectile)', () => {
+    const shot = (deck: string[], o: Opts = {}) => sim(deck, o).casts[0]!;
+
+    it('adds copies of the next projectile and sets the formation angle', () => {
+      const cases: [string, number, number][] = [
+        ['I_SHOT', 2, 180],
+        ['Y_SHOT', 2, 45],
+        ['T_SHOT', 3, 90],
+        ['W_SHOT', 3, 20],
+        ['QUAD_SHOT', 4, 180],
+        ['PENTA_SHOT', 5, 180],
+        ['HEXA_SHOT', 6, 180],
+      ];
+      for (const [id, total, pattern] of cases) {
+        const c = shot([id, 'LIGHT_BULLET']);
+        expect(files(c.shot), id).toEqual(Array(total).fill(SPARK));
+        expect(c.shot.state.pattern_degrees, id).toBe(pattern);
+      }
+    });
+
+    it('charges the copied spell\'s mana for every copy', () => {
+      // Iplicate 40 + Spark bolt 5 for the copy + 5 for the original.
+      expect(shot(['I_SHOT', 'LIGHT_BULLET'], { mana: 1000 }).mana_after).toBe(1000 - 50);
+      // Heplicate 130 + 6 × Bomb 25.
+      expect(shot(['HEXA_SHOT', 'BOMB'], { mana: 1000 }).mana_after).toBe(1000 - 130 - 150);
+    });
+
+    it('stops copying when mana runs out', () => {
+      // 40 for Heplicate leaves 30: one Bomb copy (25), then not enough for more or for the original.
+      const c = shot(['HEXA_SHOT', 'BOMB'], { mana: 70, casts: 1 });
+      expect(files(c.shot)).toEqual(['bomb.xml']);
+    });
+
+    it('copies only the bare projectile: a trigger\'s copy carries no payload', () => {
+      const ps = shot(['I_SHOT', 'LIGHT_BULLET_TRIGGER', 'BOMB']).shot.projectiles;
+      expect(ps).toHaveLength(2);
+      expect(ps.filter((p) => p.trigger)).toHaveLength(1);
+    });
+
+    it('copies nothing when the next spell is not a projectile', () => {
+      const c = shot(['I_SHOT', 'DAMAGE', 'LIGHT_BULLET']);
+      expect(files(c.shot)).toEqual([SPARK]);
+    });
+
+    it('copies every projectile of a multi-projectile spell (Triplicate bolt: 3 per copy)', () => {
+      expect(shot(['I_SHOT', 'BUCKSHOT']).shot.projectiles).toHaveLength(6);
+    });
+
+    it('copies Matosade as a real Giant Worm (its related projectile), not as worm rain', () => {
+      const ps = files(shot(['I_SHOT', 'WORM_RAIN']).shot);
+      expect(ps).toEqual(expect.arrayContaining(['worm_big.xml', 'worm_rain.xml']));
+    });
+  });
+
+  describe('Greek letter spells', () => {
+    const greek = (deck: string[], id: string, o: Opts = {}) => sim(deck, { casts: 6, stop: false, ...o }).casts.find((c) => c.played.includes(id))!;
+
+    it('Gamma copies the last spell in the wand', () => {
+      expect(files(greek(['GAMMA', 'LIGHT_BULLET', 'BOMB'], 'GAMMA').shot)).toEqual(['bomb.xml']);
+    });
+
+    it('Tau copies the next two spells', () => {
+      // Tau's copies come first, then the wand carries on drawing as normal.
+      const c = greek(['TAU', 'BOMB', 'LIGHT_BULLET'], 'TAU');
+      expect(files(c.shot)).toEqual(expect.arrayContaining(['bomb.xml', SPARK]));
+    });
+
+    it('Mu copies every modifier in the wand onto the shot', () => {
+      // Mu leads the cast, so the Damage Plus on the shot can only be Mu's copy of the one later in the wand.
+      const c = greek(['MU', 'BULLET', 'DAMAGE', 'LIGHT_BULLET'], 'MU');
+      expect(c.played[0]).toBe('MU');
+      expect(c.shot.state.damage_projectile_add).toBeCloseTo(0.4);
+    });
+
+    it('Phi copies every projectile in the wand', () => {
+      const c = greek(['LIGHT_BULLET', 'BOMB', 'PHI', 'BULLET'], 'PHI');
+      expect(files(c.shot)).toEqual(expect.arrayContaining([SPARK, 'bomb.xml']));
+    });
+
+    it('Sigma copies every static projectile in the wand', () => {
+      const c = greek(['FREEZE_FIELD', 'LIGHT_BULLET', 'SIGMA', 'BULLET'], 'SIGMA');
+      expect(c.shot.projectiles.length).toBeGreaterThan(1);
+    });
+
+    it('Omega and Alpha do not copy themselves or each other into infinity', () => {
+      const r = sim(['OMEGA', 'ALPHA', 'LIGHT_BULLET'], { casts: 4, stop: false });
+      for (const c of r.casts) expect(c.shot.projectiles.length).toBeLessThan(50);
+    });
+
+    it('Zeta copies nothing without other wands in the inventory', () => {
+      // Zeta picks a random spell from the player's other wands; the sim has only the one wand.
+      const c = greek(['ZETA', 'LIGHT_BULLET'], 'ZETA');
+      expect(files(c.shot)).toEqual([SPARK]);
+    });
+  });
+
+  it('casts music notes as plain short-lived projectiles', () => {
+    const c = sim(['BURST_4', 'KANTELE_G', 'KANTELE_D', 'KANTELE_E', 'KANTELE_D']).casts[0]!;
+    expect(files(c.shot)).toEqual(['kantele_g.xml', 'kantele_d.xml', 'kantele_e.xml', 'kantele_d.xml']);
+  });
+
+  it('heals with Healing bolt copied by Divide By', () => {
+    expect(files(sim(['DIVIDE_2', 'HEAL_BULLET']).casts[0]!.shot)).toEqual(['heal_bullet.xml', 'heal_bullet.xml']);
+  });
+
   it('does not call unimplemented engine functions for common spells', () => {
     const r = sim(['BURST_3', 'LIGHT_BULLET', 'DAMAGE', 'BOMB', 'LIGHT_BULLET_TRIGGER', 'BULLET']);
     expect(r.missing).toEqual([]);

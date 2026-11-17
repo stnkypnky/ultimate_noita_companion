@@ -14,7 +14,72 @@ export type MechanicNote = {
 
 const WIKI = 'https://noita.wiki.gg/wiki/';
 
-export const MECHANICS: Record<`${MechanicKind}:${string}`, MechanicNote[]> = {
+type Entries = Record<`${MechanicKind}:${string}`, MechanicNote[]>;
+
+/** Iplicate … Heplicate share their rules (game files: gun_actions.lua I_SHOT … HEXA_SHOT). */
+function plicates(): Entries {
+  const src = `${WIKI}Iplicate_Spell`;
+  const shared: MechanicNote[] = [
+    { text: 'It only copies when the next spell is a projectile or static projectile with charges left. A modifier in between means no copies at all.', source: src },
+    {
+      text: 'Copies are the bare projectile (the spell’s related projectile), not a re-cast. A trigger’s copies carry no payload, and Matosade’s copy is a real Jättimato.',
+      source: src,
+    },
+    { text: 'Each copy costs the copied spell’s mana again, and copying stops when mana runs out. Copies never use up charges.', source: src },
+    { text: 'Multi-shot spells are copied whole: each copy of Triplicate Bolt is three more bolts.', source: src },
+    { text: 'The formation angle applies to every projectile in the same cast, not just the copies.', source: src },
+  ];
+  const ids = ['I_SHOT', 'Y_SHOT', 'T_SHOT', 'W_SHOT', 'QUAD_SHOT', 'PENTA_SHOT', 'HEXA_SHOT'];
+  const out: Entries = {};
+  for (const id of ids) out[`spell:${id}`] = [...shared];
+  out['spell:PENTA_SHOT']!.unshift({ text: 'The in-game description is off by one: it makes 4 copies (5 projectiles with the original).', source: src });
+  out['spell:HEXA_SHOT']!.unshift({ text: 'The in-game description is off by one: it makes 5 copies (6 projectiles with the original).', source: src });
+  return out;
+}
+
+/** Alpha, Gamma, Tau, Omega, Mu, Phi, Sigma, Zeta. */
+function greekLetters(): Entries {
+  const src = `${WIKI}Greek_Letter_Spells`;
+  const free: MechanicNote = { text: 'Its copies ignore the copied spells’ mana and charges, which makes limited spells like Healing Bolt effectively unlimited.', source: src };
+  return {
+    'spell:ALPHA': [free],
+    'spell:GAMMA': [free],
+    'spell:TAU': [free],
+    'spell:OMEGA': [free],
+    'spell:MU': [free, { text: 'It applies every modifier in the wand to the shot, including ones far from it.', source: src }],
+    'spell:PHI': [free],
+    'spell:SIGMA': [free],
+    'spell:ZETA': [
+      free,
+      { text: 'It copies a random spell from another wand you carry, so it does nothing in a one-wand setup (including this app’s wand builder).', source: src },
+    ],
+  };
+}
+
+/** Kantele and Ocarina (Huilu) notes (game files: data/scripts/magic/kantele.lua, ocarina.lua). */
+function noteSpells(): Entries {
+  const src = `${WIKI}Note_spells`;
+  const shared: MechanicNote[] = [
+    { text: 'Notes deal no damage alone and last 2 frames, so they barely leave the wand. Add damage and lifetime modifiers to make them hit.', source: src },
+    {
+      text: 'Played in the right order, within 24 px of your feet, they perform a song. Any wand works; the instrument isn’t needed. Each song works once per run for each instrument.',
+      source: src,
+    },
+  ];
+  const kantele: MechanicNote[] = [
+    { text: 'Kantele songs: G D E D summons a live Holy Bomb at your feet; A D# E G opens a portal to the mountain top; D E A E D# summons a Jättimato.', source: src, secret: true },
+    { text: 'The kantele bomb song is unreliable: its first note also opens another song in the game’s code, and the game may follow that one instead.', source: src },
+  ];
+  const ocarina: MechanicNote[] = [
+    { text: 'Ocarina songs: F C D C summons a live Holy Bomb; A F D E A2 opens a portal to the mountain top; G# F E B D summons a Jättimato.', source: src, secret: true },
+  ];
+  const out: Entries = {};
+  for (const n of ['A', 'D', 'DIS', 'E', 'G']) out[`spell:KANTELE_${n}`] = [...shared, ...kantele];
+  for (const n of ['A', 'B', 'C', 'D', 'E', 'F', 'GSHARP', 'A2']) out[`spell:OCARINA_${n}`] = [...shared, ...ocarina];
+  return out;
+}
+
+export const MECHANICS: Entries = {
   // ── Spells ──────────────────────────────────────────────────────────────────────────────
   'spell:RUBBER_BALL': [
     {
@@ -81,6 +146,34 @@ export const MECHANICS: Record<`${MechanicKind}:${string}`, MechanicNote[]> = {
   'spell:LIGHTNING': [
     { text: 'It electrifies water and other conductive liquids. Anything standing in them gets shocked and stunned, which can kill you if you’re in the pool.', source: `${WIKI}Lightning_Bolt` },
     { text: 'Fired at your feet, its blast hurts you too.', source: `${WIKI}Lightning_Bolt` },
+  ],
+  ...plicates(),
+  ...greekLetters(),
+  ...noteSpells(),
+  'spell:DUPLICATE': [
+    { text: 'It copies spells already cast earlier in the same cast, never one after it. Put it after what you want doubled.', source: `${WIKI}Spell_Duplication` },
+    {
+      text: 'Copied draws still draw, so it acts as a multicast as big as the draws it copies: +1 for each modifier, +2 for Double Spell, and so on.',
+      source: `${WIKI}Spell_Duplication`,
+    },
+    { text: 'It never copies another Spell Duplication, and each copy counts toward the recursion limit, which stops Greek letters being copied forever.', source: `${WIKI}Spell_Duplication` },
+  ],
+  'spell:WORM_RAIN': [
+    {
+      text: 'Its own worms can’t drop Extra Max Health. A Plicate or Add Trigger copying it summons its related projectile instead: a real Jättimato, which drops one with a 50% chance (game files: worm_death.lua).',
+      source: `${WIKI}J%C3%A4ttimato`,
+    },
+  ],
+  'spell:FREEZE': [
+    {
+      text: 'A frozen Jättimato can be kicked to death in one go. It thaws fast, so be quick. Killed this way it doesn’t bleed, but it still has its 50% chance to drop Extra Max Health.',
+      source: `${WIKI}J%C3%A4ttimato`,
+    },
+  ],
+  'spell:HEAL_BULLET': [
+    { text: 'It heals only by hitting you (8.75 HP, doubled with Berserkium), and it has friendly fire on. Aim it at the ground and walk into it, or bring it back with Boomerang, Bounce or Orbiting Arc.', source: `${WIKI}Healing_Bolt` },
+    { text: 'Healing is negative damage. Damage Plus and the Concentrated Spells or Boomerang perks add positive damage, so a boosted bolt can hurt instead.', source: `${WIKI}Healing_Bolt` },
+    { text: 'Divide By multiplies the healing. It only has 20 charges and Unlimited Spells doesn’t help, so copy it with Alpha or Gamma instead.', source: `${WIKI}Healing_Bolt` },
   ],
   'spell:SPELLS_TO_POWER': [
     {

@@ -51,6 +51,9 @@ type Hud = {
   dps: number;
   total: number;
   self: number;
+  healed: number;
+  /** A finished note-spell song's message, while it shows. */
+  song: string | null;
   casts: number;
   live: number;
   unsupported: string[];
@@ -77,7 +80,7 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
   const [look, setLook] = useState(0);
   // Performance mode and the frame-rate readout come from the Settings page.
   const [settings] = useState(rangeSettings);
-  const [hud, setHud] = useState<Hud>({ dps: 0, total: 0, self: 0, casts: 0, live: 0, unsupported: [], wandError: null, deck: null, played: [] });
+  const [hud, setHud] = useState<Hud>({ dps: 0, total: 0, self: 0, healed: 0, song: null, casts: 0, live: 0, unsupported: [], wandError: null, deck: null, played: [] });
   const [fps, setFps] = useState<{ fps: number; step: number; draw: number } | null>(null);
   const req = useMemo(() => toSimRequest(wand, options, spellById).req, [wand, options, spellById]);
   const empty = req.deck.length === 0 && req.alwaysCasts.length === 0;
@@ -218,6 +221,8 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
             dps: world.dps,
             total: world.totalDamage,
             self: world.selfDamage,
+            healed: world.healed,
+            song: world.songMessage && world.frame - world.songMessage.frame < 240 ? world.songMessage.text : null,
             casts: world.castsFired,
             live: world.projectiles.length,
             unsupported: [...world.unsupported],
@@ -364,6 +369,11 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
             {touch ? 'Touch to aim and cast · buttons to move' : 'Click to cast · hold to keep casting · A/D walk · W or Space levitates'}
           </div>
         )}
+        {hud.song && (
+          <div role="status" className="font-game pointer-events-none absolute inset-x-0 top-9 px-4 text-center text-[16px] text-gold [text-shadow:0_1px_2px_#000]">
+            {hud.song}
+          </div>
+        )}
         {hud.wandError && <div className="pointer-events-none absolute inset-x-0 bottom-3 text-center text-xs text-blood">The wand misfired: {hud.wandError}</div>}
         <div className="pointer-events-none absolute top-2 left-2 flex gap-1.5 text-[11px] tabular-nums">
           <span className="rounded bg-black/60 px-1.5 py-0.5 text-ember">{fmtNum(hud.dps, 0)} DPS</span>
@@ -376,6 +386,11 @@ export function RangePreview({ wand, options, active }: { wand: Wand; options: S
           {hud.self > 0 && (
             <span className="rounded bg-black/60 px-1.5 py-0.5 text-blood" title="Damage your own spells did to you">
               {fmtNum(hud.self, 0)} to you
+            </span>
+          )}
+          {hud.healed > 0 && (
+            <span className="rounded bg-black/60 px-1.5 py-0.5 text-[#7be35a]" title="Health your own spells gave back">
+              +{fmtNum(hud.healed, 0)} healed
             </span>
           )}
         </div>

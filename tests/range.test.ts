@@ -3,7 +3,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createLuaHost, loadGun, type LuaHost } from '../tools/extract/lua.ts';
-import { AIR, H, RangeWorld, W, type Proj, type RangeData } from '../src/features/range/world.ts';
+import { AIR, H, RangeWorld, W, hitAndHeal, patternOffset, type Proj, type RangeData } from '../src/features/range/world.ts';
+import { Musician, SongState, noteOf } from '../src/features/range/melody.ts';
 import { WandRuntime } from '../src/features/range/wand.ts';
 import { castWand, resetWand } from '../src/sim/protocol.ts';
 import type { EntityVisual, Material, Projectile, RangeKit, Reaction } from '../src/data/types.ts';
@@ -536,5 +537,114 @@ describe('spells with their own scripts', () => {
   it('Matosade drops giant worms that swim through the rock', () => {
     const w = fly(['WORM_RAIN'], 90);
     expect(live(w, 'worm_big_worm_rain').length).toBeGreaterThan(0);
+  });
+});
+
+describe('advanced wand mechanics', () => {
+  const dirs = (w: RangeWorld, name: string) => live(w, name).map((p) => (Math.atan2(p.vy, p.vx) * 180) / Math.PI);
+  const apart = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180);
+
+  it('spreads a formation evenly, wrapping a full circle without doubling up the ends', () => {
+    expect([0, 1].map((i) => patternOffset(180, i, 2))).toEqual([-180, 0]);
+    expect([0, 1, 2].map((i) => patternOffset(90, i, 3))).toEqual([-90, 0, 90]);
+    expect([0, 1, 2, 3].map((i) => patternOffset(180, i, 4))).toEqual([-180, -90, 0, 90]);
+    expect([0, 1].map((i) => patternOffset(45, i, 2))).toEqual([-45, 45]);
+  });
+
+  it('Iplicate fires the copy straight back the other way', () => {
+    const [a, b] = dirs(fly(['I_SHOT', 'LIGHT_BULLET'], 2), 'light_bullet');
+    expect(apart(a!, b!)).toBeGreaterThan(170);
+  });
+
+  it('Quplicate fires four ways, a quarter turn apart', () => {
+    // Read the launch directions (the one fired into the floor dies at once).
+    const w = new RangeWorld(data);
+    const d: number[] = [];
+    const spawn = w.spawn.bind(w);
+    w.spawn = (file, x, y, vx, vy, ...rest) => (file.endsWith('light_bullet.xml') && d.push((Math.atan2(vy, vx) * 180) / Math.PI), spawn(file, x, y, vx, vy, ...rest));
+    equip(w, ['QUAD_SHOT', 'LIGHT_BULLET']);
+    w.step();
+    d.sort((x, y) => x - y);
+    expect(d).toHaveLength(4);
+    for (let i = 1; i < 4; i++) expect(apart(d[i]!, d[i - 1]!)).toBeGreaterThan(80);
+  });
+
+  it('Iplicate on Matosade spawns a real Giant Worm (the copy uses the related projectile)', () => {
+    const w = new RangeWorld(data);
+    const spawned: string[] = [];
+    const spawn = w.spawn.bind(w);
+    w.spawn = (file, ...rest) => (spawned.push(file.split('/').pop()!), spawn(file, ...rest));
+    equip(w, ['I_SHOT', 'WORM_RAIN']);
+    w.step();
+    expect(spawned).toContain('worm_big.xml');
+  });
+
+  it('a Healing bolt that lands on the caster heals them, up to their maximum', () => {
+    const w = new RangeWorld(data);
+    w.body.hp = 50;
+    w.body.invincible = 0;
+    const p = w.player;
+    w.spawn('data/entities/projectiles/deck/heal_bullet.xml', p.x, p.y - p.h - 24, 0, 10);
+    for (let i = 0; i < 60; i++) w.step();
+    expect(w.body.hp).toBeCloseTo(58.75, 5);
+    expect(w.healed).toBeCloseTo(8.75, 5);
+    expect(w.floaters.some((f) => f.heal)).toBe(true);
+  });
+
+  it('Healing is negative damage: Damage Plus turns a Healing bolt harmful', () => {
+    const heal = data.projectiles['data/entities/projectiles/deck/heal_bullet.xml'];
+    const plain = projectileDamage(heal, {});
+    expect(hitAndHeal(plain.damage, plain.hit)).toEqual({ hit: 0, heal: 8.75 });
+    const plus = projectileDamage(heal, { damage_projectile_add: 0.4 });
+    const r = hitAndHeal(plus.damage, plus.hit);
+    expect(r.heal).toBe(0);
+    expect(r.hit).toBeCloseTo(1.25, 5);
+  });
+});
+
+describe('note spell songs (kantele.lua / ocarina.lua)', () => {
+  const play = (instrument: 'kantele' | 'ocarina', notes: string[]) => {
+    const s = new SongState(instrument);
+    return notes.map((n) => s.play(n)).filter(Boolean);
+  };
+
+  it('recognises each song from the game files', () => {
+    expect(play('kantele', ['g', 'd', 'e', 'd'])).toEqual(['bomb']);
+    expect(play('kantele', ['a', 'dis', 'e', 'g'])).toEqual(['portal']);
+    expect(play('kantele', ['d', 'e', 'a', 'e', 'dis'])).toEqual(['worm']);
+    expect(play('ocarina', ['f', 'c', 'd', 'c'])).toEqual(['bomb']);
+    expect(play('ocarina', ['a', 'f', 'd', 'e', 'a2'])).toEqual(['portal']);
+    expect(play('ocarina', ['gsharp', 'f', 'e', 'b', 'd'])).toEqual(['worm']);
+  });
+
+  it('plays the alchemy songs in their translated key (alt_notes)', () => {
+    expect(play('kantele', ['g', 'dis', 'g', 'e', 'a'])).toEqual(['alchemy']);
+    expect(play('ocarina', ['e', 'c', 'b', 'gsharp', 'f'])).toEqual(['alchemy']);
+  });
+
+  it('a wrong note breaks the song, but may start another', () => {
+    expect(play('kantele', ['g', 'd', 'a', 'd'])).toEqual([]);
+    // The stray A starts the portal song, which then completes.
+    expect(play('kantele', ['g', 'd', 'a', 'dis', 'e', 'g'])).toEqual(['portal']);
+  });
+
+  it('each song works once per instrument; after that the energy is gone', () => {
+    const m = new Musician();
+    const run = (inst: 'kantele' | 'ocarina', notes: string[]) => notes.map((n) => m.hear(inst, n)).find(Boolean);
+    expect(run('kantele', ['g', 'd', 'e', 'd'])).toEqual({ song: 'bomb', first: true });
+    expect(run('kantele', ['g', 'd', 'e', 'd'])).toEqual({ song: 'bomb', first: false });
+    expect(run('ocarina', ['f', 'c', 'd', 'c'])).toEqual({ song: 'bomb', first: true });
+    expect(noteOf('data/entities/projectiles/deck/kantele/kantele_dis.xml')).toEqual({ instrument: 'kantele', note: 'dis' });
+  });
+
+  it('casting the notes in the range plays the song: Holy Bomb appears and the game message shows', () => {
+    const w = new RangeWorld(data);
+    const spawned: string[] = [];
+    const spawn = w.spawn.bind(w);
+    w.spawn = (file, ...rest) => (spawned.push(file.split('/').pop()!), spawn(file, ...rest));
+    equip(w, ['BURST_4', 'KANTELE_G', 'KANTELE_D', 'KANTELE_E', 'KANTELE_D']);
+    w.step();
+    expect(spawned).toContain('bomb_holy.xml');
+    expect(w.songMessage?.text).toMatch(/world around you changes/);
   });
 });
