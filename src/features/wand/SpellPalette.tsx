@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import MiniSearch from 'minisearch';
 import { useData } from '@/data/store';
@@ -10,8 +10,23 @@ import { useDebounced } from '@/ui/hooks';
 import type { DragData } from './WandSlots';
 
 /** Searchable spell list. Drag a spell onto the wand, or tap to drop it in the selected / first empty slot. */
-export function SpellPalette({ onPick, scale = 2, compact }: { onPick: (id: string) => void; scale?: number; compact?: boolean }) {
+export function SpellPalette({
+  onPick,
+  scale = 2,
+  compact,
+  focusSearch = 0,
+}: {
+  onPick: (id: string) => void;
+  scale?: number;
+  compact?: boolean;
+  /** Bump to put the cursor in the search box (an empty wand slot was picked). */
+  focusSearch?: number;
+}) {
   const { spells, spellById } = useData();
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (focusSearch) root.current?.querySelector('input')?.focus({ preventScroll: true });
+  }, [focusSearch]);
   const { visible, mode } = useSpoilers();
   const [query, setQuery] = useState('');
   const [type, setType] = useState<SpellType | null>(null);
@@ -31,7 +46,7 @@ export function SpellPalette({ onPick, scale = 2, compact }: { onPick: (id: stri
   }, [q, search, spellById, available, type, visible]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div ref={root} className="flex h-full min-h-0 flex-col">
       <div className="space-y-2 pb-2">
         <SearchInput value={query} onChange={setQuery} placeholder="Find a spell…" />
         <ChipRow>

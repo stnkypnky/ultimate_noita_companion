@@ -187,6 +187,18 @@ export function WandPage() {
     [selected, store, flash],
   );
 
+  // Picking an empty slot brings up the spell list: the sheet on phones, the search box on a laptop.
+  const [focusSearch, setFocusSearch] = useState(0);
+  const selectSlot = useCallback(
+    (slot: number | null) => {
+      setSelected(slot);
+      if (slot === null || store().wand.spells[slot] !== null) return;
+      if (desktop) setFocusSearch((n) => n + 1);
+      else setPaletteOpen(true);
+    },
+    [desktop, store],
+  );
+
   const highlight = useMemo(() => {
     const set = new Set<number>();
     if (hoverCast) for (const card of hoverCast.cast.slots) if (card > 0) set.add(sim.slotOfCard[card - 1] ?? -1);
@@ -218,7 +230,7 @@ export function WandPage() {
     <>
       <WandStats collapsible={!desktop} />
       <Section title={`Spells (${wand.spells.filter(Boolean).length}/${wand.capacity})`} aside={<SimToggles />}>
-        <WandSlots scale={scale} highlight={highlight} selected={selected} onSelect={setSelected} />
+        <WandSlots scale={scale} highlight={highlight} selected={selected} onSelect={selectSlot} />
         <AnimatePresence>
           {selected !== null && (
             <motion.div
@@ -323,7 +335,7 @@ export function WandPage() {
         {desktop ? (
           <div className="grid grid-cols-[260px_minmax(0,1fr)_minmax(340px,420px)] gap-6">
             <aside className="panel sticky top-[calc(var(--page-header-h,88px)+4px)] h-[calc(100vh-var(--page-header-h,88px)-24px)] p-3">
-              <SpellPalette onPick={pick} scale={2} compact />
+              <SpellPalette onPick={pick} scale={2} compact focusSearch={focusSearch} />
             </aside>
             <div className="min-w-0">{builder}</div>
             <div className="min-w-0">{results}</div>
