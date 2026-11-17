@@ -85,6 +85,38 @@ function noteSpells(): Entries {
   return out;
 }
 
+/** The seven runestones share a switch (runestone_activate.lua); five of them act on projectiles. */
+function runestones(): Entries {
+  const wiki = `${WIKI}Runestones`;
+  const activate = 'data/scripts/items/runestones/runestone_activate.lua';
+  const shared = (radius: number): MechanicNote[] => [
+    { text: 'It does nothing until switched on. Kick it to switch it on, and kick it again to switch it off.', source: activate },
+    { text: 'Throwing it always switches it on, and picking it up always switches it off, so pick it up to make it safe.', source: activate },
+    { text: `While it’s on, a pulse of glowing particles marks its reach: ${radius} px around the stone, through walls.`, source: 'data/scripts/items/runestones/' },
+    {
+      text: 'One on an item pedestal starts switched on 1 time in 10. Enemies inside its reach can then be far more dangerous than usual.',
+      source: 'data/scripts/item_spawnlists.lua',
+    },
+  ];
+  const yours: MechanicNote = { text: 'It changes your own projectiles as well as enemies’, so fighting inside its reach can backfire.', source: wiki };
+  const swap: MechanicNote = {
+    text: 'The new projectile keeps the old one’s speed and direction, and the old one never explodes. Fast spells turn into very fast replacements.',
+    source: wiki,
+  };
+  return {
+    'item:runestone_slow': [...shared(192), yours, { text: 'Every 10 frames it cuts each projectile’s speed to a quarter, so anything inside barely moves.', source: 'data/scripts/items/runestones/runestone_slow.lua' }],
+    'item:runestone_disc': [...shared(192), yours, swap],
+    'item:runestone_fireball': [...shared(192), yours, swap],
+    'item:runestone_laser': [...shared(192), yours, swap],
+    'item:runestone_null': [...shared(192), yours, { text: 'Erased projectiles don’t explode, so explosive spells that fly into it just vanish.', source: 'data/scripts/items/runestones/runestone_null.lua' }],
+    'item:runestone_lava': [
+      ...shared(192),
+      { text: 'Every 40 frames it turns every liquid in reach into lava, which then reacts with the liquids around it.', source: wiki },
+    ],
+    'item:runestone_metal': [...shared(160), { text: 'It turns meltable metals, such as copper and metal dust, into poison.', source: wiki }],
+  };
+}
+
 export const MECHANICS: Entries = {
   // ── Spells ──────────────────────────────────────────────────────────────────────────────
   'spell:RUBBER_BALL': [
@@ -156,6 +188,7 @@ export const MECHANICS: Entries = {
   ...plicates(),
   ...greekLetters(),
   ...noteSpells(),
+  ...runestones(),
   'spell:DUPLICATE': [
     { text: 'It copies spells already cast earlier in the same cast, never one after it. Put it after what you want doubled.', source: `${WIKI}Spell_Duplication` },
     {
@@ -250,6 +283,32 @@ export const MECHANICS: Entries = {
     { text: 'It replaces your stains with Wet, like a stack of Repelling Capes, and turns lava near you into volcanic rock.', source: `${WIKI}Vuoksikivi` },
     { text: 'It soaks nearby enemies too, which quickly kills water-weak ones like Stendari.', source: `${WIKI}Vuoksikivi` },
     { text: 'Together with the other elemental stones, it completes Uusi Aurinko.', source: `${WIKI}Vuoksikivi`, secret: true },
+  ],
+
+  'item:physics_gold_orb': [
+    { text: 'Kick it for gold. The first kick always gives 30 gold.', source: `${WIKI}Shiny_Orb` },
+    {
+      text: 'Kicks 2–4 can’t explode. Each rolls a 22-sided die: 20 gold (9 in 22), 30 gold (11 in 22), 100 gold (1 in 22) or 200 gold (1 in 22).',
+      source: 'data/scripts/items/gold_orb.lua',
+    },
+    {
+      text: 'From the 5th kick it can explode, destroying the orb: 4 in 22 on kick 5, and 1 more in 22 with every kick after. The 200-gold result is gone from kick 5, and the 100-gold one from kick 10. With low health, stop at 4 kicks.',
+      source: 'data/scripts/items/gold_orb.lua',
+    },
+    { text: 'Telekinetic Kick counts as a kick, so you can work it from outside the blast.', source: `${WIKI}Shiny_Orb` },
+    { text: 'Explosion Immunity or an Ambrosia stain stops the blast damage, but the blast can still set you on fire.', source: `${WIKI}Shiny_Orb` },
+    { text: 'It’s a heavy metal ball: pick it up and throw it to hurt enemies.', source: `${WIKI}Shiny_Orb` },
+  ],
+  'item:physics_gold_orb_greed': [
+    { text: 'Kick it for blood money. The first kick always gives 40 gold (four 10s).', source: 'data/scripts/items/gold_orb_greed.lua' },
+    {
+      text: 'Later kicks roll a 21-sided die: one 50 nugget (8 in 21), four 10s (10 in 21), two 200s (1 in 21) or a 1000 (1 in 21). Blood money heals you as you pick it up.',
+      source: 'data/scripts/items/gold_orb_greed.lua',
+    },
+    {
+      text: 'Unlike the Shiny orb it can explode from the 2nd kick (1 in 21). From the 4th kick it’s 3 in 21, then 1 more in 21 with every kick. Its blast is a giga explosion, far bigger than the Shiny orb’s.',
+      source: 'data/scripts/items/gold_orb_greed.lua',
+    },
   ],
 
   // ── Materials ───────────────────────────────────────────────────────────────────────────

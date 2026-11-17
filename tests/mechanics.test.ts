@@ -22,12 +22,12 @@ const ids: Record<string, Set<string>> = {
 const projs = (id: string) => spells.find((s) => s.id === id)!.projectiles.map((f) => projectiles[f]!);
 
 describe('hidden mechanics', () => {
-  it('every curated note belongs to a real spell, item, material or perk and cites the wiki', () => {
+  it('every curated note belongs to a real spell, item, material or perk and cites the wiki or a game script', () => {
     for (const [key, notes] of Object.entries(MECHANICS)) {
       const [kind, id] = key.split(':') as [string, string];
       expect(ids[kind]?.has(id), key).toBe(true);
       expect(notes.length, key).toBeGreaterThan(0);
-      for (const n of notes) expect(n.source, key).toMatch(/^https:\/\/noita\.wiki\.gg\/wiki\//);
+      for (const n of notes) expect(n.source, key).toMatch(/^(https:\/\/noita\.wiki\.gg\/wiki\/|data\/scripts\/)/);
     }
   });
 

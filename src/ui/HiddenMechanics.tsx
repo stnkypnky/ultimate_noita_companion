@@ -112,14 +112,18 @@ export function HiddenMechanics({ kind, id, auto = [] }: { kind: MechanicKind; i
 }
 
 function Note({ note }: { note: MechanicNote }) {
-  const fromFiles = note.source === DOCS;
+  // Curated notes may cite the script they were read from (data/…) instead of a wiki page.
+  const script = note.source.startsWith('data/');
+  const fromFiles = note.source === DOCS || script;
   return (
     <li className="flex gap-2 text-[14px] leading-relaxed text-muted">
       <span aria-hidden className="mt-[9px] h-1.5 w-1.5 shrink-0 bg-gold/70" />
       <span>
         {note.text}{' '}
         {fromFiles ? (
-          <span className="text-[11px] whitespace-nowrap text-faint">(game files)</span>
+          <span className="text-[11px] whitespace-nowrap text-faint" title={script ? note.source : undefined}>
+            (game files)
+          </span>
         ) : (
           <a href={note.source} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-[11px] whitespace-nowrap text-faint hover:text-gold">
             wiki <ExternalLink size={10} />

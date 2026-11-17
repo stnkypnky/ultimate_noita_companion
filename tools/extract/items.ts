@@ -90,10 +90,15 @@ export async function collectItems(wak: Wak, loader: EntityLoader, t: Translatio
     // book.png), so show it as it lies in the world: its physics image in its material.
     const tags = [...new Set((e?.attrs.tags ?? '').split(',').filter(Boolean))];
     const shape = comp(e, 'PhysicsImageShapeComponent');
+    // Eggs too: their inventory icon is a big upright egg, but in the world (and in hand) they're a
+    // small 9×8 egg lying on its side.
     const img =
       tags.includes('gold_nugget') && shape?.attrs.image_file
         ? await goldImage(wak, shape.attrs.image_file, shape.attrs.material === 'bloodgold_box2d')
-        : await spriteImage(wak, ic?.attrs.ui_sprite || comp(e, 'SpriteComponent')?.attrs.image_file || shape?.attrs.image_file || '');
+        : await spriteImage(
+            wak,
+            (id.startsWith('egg_') && shape?.attrs.image_file) || ic?.attrs.ui_sprite || comp(e, 'SpriteComponent')?.attrs.image_file || shape?.attrs.image_file || '',
+          );
     if (img) images.push({ key: id, png: await fitIcon(img) });
     // base_item_projectile.xml: a thrown stone or egg hurts what it hits, damage × speed / max speed.
     const pc = comp(e, 'ProjectileComponent');
