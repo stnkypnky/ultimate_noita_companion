@@ -9,7 +9,36 @@ import type { Wak } from './wak.ts';
 const PICKUPS = 'data/entities/items/pickup/';
 
 /** Items whose game name is shared with a different item. */
-const RENAME: Record<string, string> = { chest_leggy: 'Treasure chest (mimic)' };
+const RENAME: Record<string, string> = { chest_leggy: 'Treasure chest (mimic)', bloodmoney_x: 'Bloody golden statue' };
+
+/** materials.xml: gold_box2d and bloodgold_box2d are flat colours (no texture), lit by the game's normal mapping. */
+const GOLD = [0xff, 0xc7, 0x4e];
+const BLOOD_GOLD = [0xff, 0x4e, 0x4e];
+
+/**
+ * A gold pickup as it looks in the world. Nuggets are UV maps (blue 0): each facet's red/green picks its
+ * lighting, so brighter coordinates read as the lit faces (c0c000 top, 404000 shadow). The idols and the
+ * statue are drawn art: kept as painted, and recoloured red (by brightness) for blood money.
+ */
+async function goldImage(wak: Wak, file: string, blood: boolean): Promise<Buffer | null> {
+  if (!wak.has(file)) return null;
+  const { data, info } = await sharp(wak.bytes(file)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  // golden_idol_big.png is a UV map with 10 faintly blue pixels out of 608, so allow a few.
+  let opaque = 0;
+  let blue = 0;
+  for (let i = 0; i < data.length; i += 4) if (data[i + 3]) (opaque++, data[i + 2]! > 48 && blue++);
+  const uvMap = blue <= opaque * 0.05;
+  const base = blood ? BLOOD_GOLD : GOLD;
+  for (let i = 0; i < data.length; i += 4) {
+    if (!data[i + 3]) continue;
+    let k: number;
+    if (uvMap) k = 0.4 + 0.85 * ((data[i]! + data[i + 1]!) / 384);
+    else if (blood) k = (0.3 * data[i]! + 0.59 * data[i + 1]! + 0.11 * data[i + 2]!) / 200;
+    else continue;
+    for (let c = 0; c < 3; c++) data[i + c] = Math.min(255, Math.round(base[c]! * k));
+  }
+  return sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer();
+}
 
 /** First frame of a sprite: a .png (maybe a strip) or a <Sprite> .xml with a RectAnimation. */
 async function spriteImage(wak: Wak, file: string): Promise<Buffer | null> {
@@ -57,18 +86,14 @@ export async function collectItems(wak: Wak, loader: EntityLoader, t: Translatio
     if (seenNames.has(name)) continue;
     seenNames.add(name);
 
-    // Auto-pickup gold never reaches the inventory, so a placeholder ui_sprite never shows in-game
-    // (goldnugget_10.xml, the base of the 10-gold nuggets, points at book.png). Its physics image is a
-    // material map, not art, so use the gold nugget icon every other nugget has.
+    // Gold is picked up on touch and never shows its ui_sprite (all share one icon, some point at
+    // book.png), so show it as it lies in the world: its physics image in its material.
     const tags = [...new Set((e?.attrs.tags ?? '').split(',').filter(Boolean))];
-    const placeholder = ic?.attrs.auto_pickup === '1' && ic.attrs.ui_sprite === 'data/ui_gfx/items/book.png' && tags.includes('gold_nugget');
-    const spriteFile =
-      (placeholder && 'data/ui_gfx/items/goldnugget.png') ||
-      ic?.attrs.ui_sprite ||
-      comp(e, 'SpriteComponent')?.attrs.image_file ||
-      comp(e, 'PhysicsImageShapeComponent')?.attrs.image_file ||
-      '';
-    const img = await spriteImage(wak, spriteFile);
+    const shape = comp(e, 'PhysicsImageShapeComponent');
+    const img =
+      tags.includes('gold_nugget') && shape?.attrs.image_file
+        ? await goldImage(wak, shape.attrs.image_file, shape.attrs.material === 'bloodgold_box2d')
+        : await spriteImage(wak, ic?.attrs.ui_sprite || comp(e, 'SpriteComponent')?.attrs.image_file || shape?.attrs.image_file || '');
     if (img) images.push({ key: id, png: await fitIcon(img) });
     // base_item_projectile.xml: a thrown stone or egg hurts what it hits, damage × speed / max speed.
     const pc = comp(e, 'ProjectileComponent');

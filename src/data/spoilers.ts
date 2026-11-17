@@ -35,7 +35,7 @@ export const SECRET_ITEMS = new Set([
   'evil_eye', 'greed_curse', 'physics_gold_orb_greed', 'physics_greed_die', 'moon', 'safe_haven', 'summon_portal_broken',
   'beamstone', 'brimstone', 'musicstone', 'poopstone', 'stonestone', 'thunderstone', 'wandstone', 'waterstone',
   'newsun', 'newsun_dark', 'sunbaby', 'sunegg', 'sunseed', 'sunstone', 'broken_wand', 'potion_mimic', 'bloodmoney_x',
-  'chest_leggy',
+  'chest_leggy', 'goldnugget_x',
 ]);
 
 export const itemKey = (id: string) => (id.startsWith('essence_') ? id : `item:${id}`);

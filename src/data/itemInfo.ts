@@ -175,9 +175,13 @@ export const ITEM_INFO: Record<string, ItemInfo> = {
   bloodmoney_1000: blood('1000', '7.5 HP'),
   bloodmoney_10000: blood('10,000', '7.5 HP'),
   bloodmoney_200000: blood('200,000', '20 HP'),
-  bloodmoney_x: {
+  goldnugget_x: {
     text:
-      'A statue that holds the gold above 2,000,000 when a kill drops more than 2.2 million at once. This bloody one also heals 1250 HP. ' + BLOOD,
+      'When a single kill drops more than 2.2 million gold, everything above 2,000,000 comes as one golden statue instead of a pile of idols. ' + GOLD_TIMER,
+    source: 'data/scripts/items/drop_money.lua',
+  },
+  bloodmoney_x: {
+    text: 'The blood-money statue: it holds everything above 2,000,000 gold from one huge kill, and heals 1250 HP when picked up. ' + BLOOD,
     source: 'data/scripts/items/drop_money.lua',
   },
 
