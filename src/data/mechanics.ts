@@ -180,6 +180,36 @@ export const MECHANICS: Entries = {
       source: `${WIKI}Status_Effects`,
     },
   ],
+  'spell:POLLEN': [
+    {
+      text: 'Pollen is a living thing your own friendly-fire spells can hit. A trigger projectile that hits it releases its payload, and a piercing one (Holy Lance) releases a copy for every Pollen it passes through.',
+      source: `${WIKI}Pollen`,
+    },
+    {
+      text: 'Put another Pollen in that payload and you get a trigger loop: each released Pollen is hit at once and releases the next, a payload copy every frame until the carrier expires. This is the engine behind “projection” art wands.',
+      source: `${WIKI}Pollen`,
+    },
+    { text: 'Your blasts don’t hurt it (explosion damage ×0), so a cloud of Pollen also blocks enemy shots like a shield.', source: `${WIKI}Pollen` },
+  ],
+  'spell:LANCE_HOLY': [
+    {
+      text: 'It has friendly fire and passes through what it hits, so an attached trigger fires once for each thing it touches, Pollen included. That makes it the usual carrier for Pollen trigger loops.',
+      source: `${WIKI}Holy_Lance`,
+    },
+  ],
+  'spell:SPIRALING_SHOT': [
+    {
+      text: 'It sets the projectile’s velocity every frame, curving it out from where it started at a fixed speed, so gravity never builds up. Slowed with Heavy Shot and Deceleration, a Holy Lance glides in a smooth line, which projection wands rely on.',
+      source: `${WIKI}Spiral_Arc`,
+    },
+    { text: 'Projectiles circle their point of origin, so a Trigger, Timer or Long-Distance Cast moves that origin out to where you want the pattern.', source: `${WIKI}Spiral_Arc` },
+  ],
+  'spell:ADD_TRIGGER': [
+    {
+      text: 'Useful failure: if the spell it targets can’t take a trigger (a Black Hole with 0 charges, Blood Magic, a Plicate…), the modifiers it skipped still apply, and they stay in the wand to be used again. With Divide By, that copies modifiers many times for one mana cost (Divide By 10 → 11 copies).',
+      source: `${WIKI}Add_Trigger#Useful_Failure`,
+    },
+  ],
   'spell:TENTACLE_RAY': [
     {
       text: 'Its tentacles deal Melee damage, and Melee damage kills any frozen creature instantly. Pair it with Freeze charge to one-shot a Jättimato (50% Extra Max Health).',

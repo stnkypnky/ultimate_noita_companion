@@ -127,6 +127,10 @@ export type Proj = {
   heal: number;
   /** Deals Melee damage (Tentacle): on a frozen creature that is fatal (frozenMeleeHit). */
   melee: boolean;
+  /** Its hit damage by type, for targets with damage multipliers (Pollen ignores explosions). */
+  damageTypes: Partial<Record<string, number>>;
+  /** Other projectiles can hit and kill it (`hittable` with HP: Pollen, mines, summoned flies). */
+  target?: { hp: number; box: [number, number, number, number]; multipliers: Partial<Record<string, number>> };
   critChance: number;
   explosion: { damage: number; radius: number; onDeath: boolean; onTimeout: boolean; digs: boolean; digDurability: number; color?: string } | null;
   spareShooter: boolean;
@@ -234,6 +238,18 @@ export function patternOffset(p: number, i: number, n: number) {
  * A hit's damage split into harm and healing. Damage types add up, and Healing is negative, so a Healing bolt
  * heals 8.75 but one with Damage Plus (+10 projectile) hurts for 1.25 (wiki: Healing Bolt).
  */
+/** A hit on a hittable projectile, after its damage multipliers by type (Pollen takes no explosion damage). */
+export function targetDamage(types: Partial<Record<string, number>>, multipliers: Partial<Record<string, number>>, total: number) {
+  let raw = 0;
+  let scaled = 0;
+  for (const [t, v] of Object.entries(types)) {
+    if (!v) continue;
+    raw += v;
+    scaled += v * (multipliers[t] ?? 1);
+  }
+  return raw > 0 ? total * (scaled / raw) : total;
+}
+
 export function hitAndHeal(damage: Partial<Record<string, number>>, hit: number) {
   const healing = damage.healing ?? 0;
   if (healing >= 0) return { hit, heal: 0 };
@@ -310,6 +326,8 @@ export class RangeWorld {
   /** Bumped when terrain is carved or rebuilt. */
   terrainVersion = 0;
   projectiles: Proj[] = [];
+  /** The live projectiles other projectiles can hit (Proj.target). */
+  private targets: Proj[] = [];
   particles: Particle[] = [];
   flashes: Flash[] = [];
   effects: Effect[] = [];
@@ -714,6 +732,7 @@ export class RangeWorld {
   /** A different wand: projectiles in flight go away, terrain stays. */
   clearShots() {
     this.projectiles = [];
+    this.targets = [];
     this.lastArc = null;
     this.unsupported.clear();
   }
@@ -837,6 +856,8 @@ export class RangeWorld {
       hit,
       heal,
       melee: (dmg.damage.melee ?? 0) !== 0,
+      damageTypes: dmg.damage,
+      ...(base?.target ? { target: { hp: base.target.hp, box: base.target.box, multipliers: base.target.multipliers ?? {} } } : {}),
       critChance: dmg.critChance,
       explosion:
         base?.explosion && dmg.explosion
@@ -917,6 +938,7 @@ export class RangeWorld {
       return null;
     }
     this.projectiles.push(p);
+    if (p.target) this.targets.push(p);
     // Scripts that adjust or spawn things as the entity is created take effect immediately.
     for (const sc of p.scripts) if (ONCE.has(sc.script) || sc.onAdded) this.runScript(p, sc);
     return p;
@@ -933,6 +955,7 @@ export class RangeWorld {
     // Copy: updates may spawn new projectiles (they start moving next frame).
     for (const p of [...this.projectiles]) if (!p.dead && p.age >= 0 && !p.held) this.update(p);
     this.projectiles = this.projectiles.filter((p) => !p.dead);
+    if (this.targets.length) this.targets = this.targets.filter((p) => !p.dead);
     this.updatePlayer();
     this.updateActor(this.dummy);
 
@@ -1308,19 +1331,59 @@ export class RangeWorld {
         this.push(Math.atan2(p.vy, p.vx), (p.knockback * speedOf(p) * mass) / (this.data.kit?.player.mass ?? 1));
       }
       this.applyHitEffect(p, a);
-      // A timer that hits something before it runs out acts like a trigger; a piercing one keeps
-      // releasing copies into each enemy it passes through until its time is up.
-      if (p.trigger?.kind === 'hit' || p.trigger?.kind === 'timer') {
-        const t = p.trigger;
-        if (t.kind === 'hit' || !p.penetrateEntities) delete p.trigger;
-        this.payload(p, t.shot);
-      }
-      if (!p.penetrateEntities && p.dieOnCollision) {
-        this.die(p, 'hit');
-        return true;
-      }
+      if (this.hitRelease(p)) return true;
+    }
+    return this.touchTargets(p);
+  }
+
+  /**
+   * After a hit: a trigger (or a timer that hits something before it runs out) releases its payload. A
+   * piercing projectile keeps it and releases a copy into everything it passes through (wiki: Piercing Shot,
+   * Pollen). Returns true if the projectile died.
+   */
+  private hitRelease(p: Proj): boolean {
+    if (p.trigger?.kind === 'hit' || p.trigger?.kind === 'timer') {
+      const t = p.trigger;
+      if (!p.penetrateEntities) delete p.trigger;
+      this.payload(p, t.shot);
+    }
+    if (!p.penetrateEntities && p.dieOnCollision) {
+      this.die(p, 'hit');
+      return true;
     }
     return false;
+  }
+
+  /**
+   * Projectiles that can be hit (Pollen, mines, summoned flies) are entities on the player's side, so only a
+   * friendly-fire projectile collides with them (ProjectileComponent friendly_fire / collide_with_tag). This is
+   * what drives Pollen trigger loops: a piercing trigger that hits Pollen releases a payload, and a Pollen in
+   * that payload is hit next, and so on (wiki: Pollen). Hittable projectiles don't hit each other here, so a
+   * cloud of Pollen stays a cloud.
+   */
+  private touchTargets(p: Proj): boolean {
+    if (!this.targets.length || p.target || !(p.friendlyFire || p.state.friendly_fire === true)) return false;
+    // Only the targets that exist now: a payload released by this hit is hit next frame, not in a loop now.
+    const n = this.targets.length;
+    for (let i = 0; i < n; i++) {
+      const q = this.targets[i]!;
+      if (q === p || q.dead || !q.target) continue;
+      const [x0, x1, y0, y1] = q.target.box;
+      if (p.x < q.x + x0 || p.x > q.x + x1 || p.y < q.y + y0 || p.y > q.y + y1) continue;
+      const key = `proj${q.id}`;
+      if (p.hitActors.has(key)) continue;
+      p.hitActors.add(key);
+      this.damageTarget(q, targetDamage(p.damageTypes, q.target.multipliers, hitDamage(p)));
+      if (this.hitRelease(p)) return true;
+    }
+    return false;
+  }
+
+  /** A hittable projectile loses HP; at none it dies as if it hit something (its blast, its death trigger). */
+  private damageTarget(q: Proj, amount: number) {
+    if (!q.target || q.dead || amount <= 0) return;
+    q.target.hp -= amount;
+    if (q.target.hp <= 0) this.die(q, 'hit');
   }
 
   /** Swapper and Homebringer move whatever they hit. */
@@ -1416,6 +1479,10 @@ export class RangeWorld {
       if (a.id === 'player' && spareShooter) continue;
       const ac = this.center(a);
       if (Math.hypot(ac.x - x, ac.y - y) <= r + a.w / 2) this.hurt(a, damage, crit);
+    }
+    // Hittable projectiles in the blast take its damage too (bombs set each other off; Pollen ignores blasts).
+    for (const q of [...this.targets]) {
+      if (!q.dead && Math.hypot(q.x - x, q.y - y) <= r) this.damageTarget(q, damage * (q.target?.multipliers.explosion ?? 1));
     }
   }
 

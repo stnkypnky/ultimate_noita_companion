@@ -238,6 +238,20 @@ describe('wand simulation (real gun.lua)', () => {
       expect(files(c.shot)).toEqual([SPARK]);
     });
 
+    it('the stationary Pollen engine: Add Trigger fails on a spent Black Hole, so Divide By 10 makes 11 copies of the modifiers', () => {
+      // reddit "A vanilla guide to 2D/3D projection wands"; wiki: Add Trigger, Useful Failure.
+      const deck = ['BURST_3', 'POLLEN', 'DIVIDE_10', 'ADD_TRIGGER', 'HEAVY_SHOT', 'DECELERATING_SHOT', 'BLACK_HOLE', 'ADD_TRIGGER', 'LANCE_HOLY', 'POLLEN'];
+      host.call('sim_reset', 1, false, 20, deck.length, 10, 0, 1, 10000, 1000, 10000, 100, 100, 0, 0);
+      for (const id of deck) host.call('sim_add_card', id, id === 'BLACK_HOLE' ? 0 : -1);
+      const shot = (JSON.parse(host.call<string>('sim_run', 1, false)) as SimResult).casts[0]!.shot;
+      const extras = String(shot.state.extra_entities).split(',').filter(Boolean);
+      expect(extras.filter((e) => e.endsWith('heavy_shot.xml'))).toHaveLength(11);
+      expect(extras.filter((e) => e.endsWith('decelerating_shot.xml'))).toHaveLength(11);
+      expect(files(shot)).toEqual(['pollen.xml', 'lance_holy.xml']);
+      expect(shot.projectiles[1]!.trigger?.kind).toBe('hit');
+      expect(files(shot.projectiles[1]!.trigger!.shot)).toEqual(['pollen.xml']);
+    });
+
     it('Zeta copies a spell from another carried wand (saved builds stand in for them)', () => {
       const run = (others: string) => {
         host.call('sim_reset', 1, false, 20, 2, 10, 0, 1, 1000, 100, 1000, 100, 100, 0, 0);

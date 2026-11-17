@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createLuaHost, loadGun, type LuaHost } from '../tools/extract/lua.ts';
-import { AIR, H, RangeWorld, W, hitAndHeal, patternOffset, type Proj, type RangeData } from '../src/features/range/world.ts';
+import { AIR, H, RangeWorld, W, hitAndHeal, patternOffset, targetDamage, type Proj, type RangeData } from '../src/features/range/world.ts';
 import { Musician, SongState, noteOf } from '../src/features/range/melody.ts';
 import { WandRuntime } from '../src/features/range/wand.ts';
 import { castWand, resetWand } from '../src/sim/protocol.ts';
@@ -670,6 +670,36 @@ describe('note spell songs (kantele.lua / ocarina.lua)', () => {
     w.step();
     expect(spawned).not.toContain('bomb_holy.xml');
     expect(w.songMessage).toBeNull();
+  });
+});
+
+describe('projection wands: Pollen trigger loops (wiki: Pollen; reddit "A vanilla guide to 2D/3D projection wands")', () => {
+  const POLLEN = 'data/entities/projectiles/deck/pollen.xml';
+  const SPARK = 'data/entities/projectiles/deck/light_bullet.xml';
+  const LANCE = 'data/entities/projectiles/deck/lance_holy.xml';
+
+  it('Pollen can be hit, but only by friendly-fire projectiles (Holy Lance), and blasts leave it alone', () => {
+    expect(data.projectiles[POLLEN]!.target).toMatchObject({ hp: 5, box: [-5, 5, -5, 5], multipliers: { explosion: 0 } });
+    const w = new RangeWorld(data);
+    const pollen = w.spawn(POLLEN, 200, 80, 0, 0)!;
+    w.spawn(SPARK, 185, 80, 600, 0);
+    for (let i = 0; i < 4; i++) w.step();
+    expect(pollen.dead).toBe(false);
+    w.spawn(LANCE, 185, pollen.y, 600, 0);
+    for (let i = 0; i < 4; i++) w.step();
+    expect(pollen.dead).toBe(true);
+    expect(targetDamage({ explosion: 5 }, { explosion: 0 }, 5)).toBe(0);
+    expect(targetDamage({ holy: 43.75 }, { explosion: 0 }, 43.75)).toBe(43.75);
+  });
+
+  it('the spiral engine runs: a piercing Holy Lance trigger hits each Pollen it releases, releasing the next', () => {
+    const spiral = ['ADD_TIMER', 'POLLEN', 'ADD_TRIGGER', 'LIFETIME', 'SPIRALING_SHOT', 'HEAVY_SHOT', 'HEAVY_SHOT', 'HEAVY_SHOT', 'DECELERATING_SHOT', 'LANCE_HOLY', 'ADD_DEATH_TRIGGER', 'COLOUR_INVIS', 'POLLEN', 'LIGHT_BULLET'];
+    const { spawned } = world(spiral, 240);
+    const count = (f: string) => spawned.filter((s) => s === f).length;
+    // One lance per cast, but a stream of Pollen, each one's death casting the Spark Bolt payload.
+    expect(count('lance_holy.xml')).toBeLessThan(10);
+    expect(count('pollen.xml')).toBeGreaterThan(20 * count('lance_holy.xml'));
+    expect(count('light_bullet.xml')).toBeGreaterThan(20 * count('lance_holy.xml'));
   });
 });
 

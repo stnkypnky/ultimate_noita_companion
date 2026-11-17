@@ -64,6 +64,11 @@ export type Projectile = {
   effects: string[];
   /** Real material the projectile emits, if any. */
   material?: string;
+  /**
+   * Tagged `hittable` with a DamageModelComponent (Pollen, mines, pipe bombs, summoned flies): other
+   * projectiles collide with it and can kill it. HP, hitbox (min x, max x, min y, max y) and damage multipliers.
+   */
+  target?: { hp: number; box: [number, number, number, number]; multipliers?: Partial<Record<DamageType, number>> };
 };
 
 export type Spell = {

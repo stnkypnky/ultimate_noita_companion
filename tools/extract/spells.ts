@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import type { DamageType, Projectile, Spell, SpellType } from '../../src/data/types.ts';
 import { DAMAGE_TYPES, SPELL_TYPES } from '../../src/data/types.ts';
-import { comp, comps, num, type EntityLoader } from './entity.ts';
+import { comp, comps, num, type El, type EntityLoader } from './entity.ts';
 import { tr, type Translations } from './translations.ts';
 
 /** Shape returned by reflect_actions() in driver.lua. */
@@ -151,5 +151,24 @@ export function buildProjectile(file: string, loader: EntityLoader): Projectile 
     ...(explosion && explosion.radius > 0 && pc?.attrs.explosion_dont_damage_shooter !== '1' ? { hurtsCaster: true } : {}),
     ...(comp(e, 'PhysicsThrowableComponent') && comp(e, 'PhysicsBodyComponent') ? { throwCoeff: num(comp(e, 'PhysicsThrowableComponent')!.attrs.throw_force_coeff, 1) } : {}),
     ...(emitter ? { material: emitter.attrs.emitted_material_name } : {}),
+    ...hittable(e),
+  };
+}
+
+/** Other projectiles collide with entities tagged `hittable` (ProjectileComponent collide_with_tag), and a damage model gives it HP. */
+function hittable(e: El): Pick<Projectile, 'target'> {
+  const dm = comp(e, 'DamageModelComponent');
+  if (!dm || !list(e.attrs.tags).includes('hittable')) return {};
+  const hb = comp(e, 'HitboxComponent');
+  const multipliers: Partial<Record<DamageType, number>> = {};
+  for (const [k, v] of Object.entries(comp(dm, 'damage_multipliers')?.attrs ?? {})) {
+    if ((DAMAGE_TYPES as readonly string[]).includes(k)) multipliers[k as DamageType] = num(v, 1);
+  }
+  return {
+    target: {
+      hp: round(num(dm.attrs.hp, 1) * HP),
+      box: hb ? [num(hb.attrs.aabb_min_x, -3), num(hb.attrs.aabb_max_x, 3), num(hb.attrs.aabb_min_y, -3), num(hb.attrs.aabb_max_y, 3)] : [-3, 3, -3, 3],
+      ...(Object.keys(multipliers).length ? { multipliers } : {}),
+    },
   };
 }
