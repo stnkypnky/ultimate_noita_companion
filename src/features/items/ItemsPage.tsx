@@ -13,6 +13,8 @@ import { MasterDetail } from '@/ui/MasterDetail';
 import { HiddenNotice } from '@/ui/Spoiler';
 import { HiddenMechanics, itemNotes } from '@/ui/HiddenMechanics';
 import { useDebounced } from '@/ui/hooks';
+import { ItemDescription } from '@/ui/ItemDescription';
+import { itemInfo } from '@/data/itemInfo';
 
 function ItemIcon({ item, scale, hidden }: { item: Item; scale: number; hidden?: boolean }) {
   const size = 24 * scale;
@@ -42,7 +44,14 @@ export function ItemsPage() {
 
   const isVisible = useCallback((it: Item) => !SECRET_ITEMS.has(it.id) || visible(itemKey(it.id)), [visible]);
   const shown = useMemo(
-    () => (q ? items.filter((it) => isVisible(it) && (it.name.toLowerCase().includes(q) || it.description.toLowerCase().includes(q))) : items),
+    () =>
+      q
+        ? items.filter(
+            (it) =>
+              isVisible(it) &&
+              (it.name.toLowerCase().includes(q) || it.description.toLowerCase().includes(q) || (itemInfo(it.id)?.text.toLowerCase().includes(q) ?? false)),
+          )
+        : items,
     [items, q, isVisible],
   );
   const selected = id ? items.find((it) => it.id === id) : undefined;
@@ -64,7 +73,7 @@ export function ItemsPage() {
                     <code className="text-xs text-faint">{selected.id}</code>
                   </div>
                 </header>
-                <p className="mt-4 text-[15px] leading-relaxed whitespace-pre-line text-muted">{selected.description || 'No in-game description.'}</p>
+                <ItemDescription key={selected.id} item={selected} />
                 <HiddenMechanics kind="item" id={selected.id} auto={itemNotes(selected)} />
               </article>
             ) : (

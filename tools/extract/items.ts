@@ -8,6 +8,9 @@ import type { Wak } from './wak.ts';
 
 const PICKUPS = 'data/entities/items/pickup/';
 
+/** Items whose game name is shared with a different item. */
+const RENAME: Record<string, string> = { chest_leggy: 'Treasure chest (mimic)' };
+
 /** First frame of a sprite: a .png (maybe a strip) or a <Sprite> .xml with a RectAnimation. */
 async function spriteImage(wak: Wak, file: string): Promise<Buffer | null> {
   if (!file || !wak.has(file)) return null;
@@ -39,14 +42,18 @@ export async function collectItems(wak: Wak, loader: EntityLoader, t: Translatio
   const images: { key: string; png: Buffer }[] = [];
   const seenNames = new Set<string>();
 
-  for (const file of wak.list(PICKUPS).filter((f) => f.endsWith('.xml')).sort()) {
+  // runestone_base.xml is the template every runestone builds on (the "weight" one is runestone_slow).
+  for (const file of wak.list(PICKUPS).filter((f) => f.endsWith('.xml') && !f.endsWith('_base.xml')).sort()) {
     const e = loader.load(file);
     const ic = comp(e, 'ItemComponent');
-    const rawName = ic?.attrs.item_name || comp(e, 'UIInfoComponent')?.attrs.name;
+    const uiName = comp(e, 'UIInfoComponent')?.attrs.name;
+    const rawName = ic?.attrs.item_name || uiName;
     if (!rawName) continue;
     const id = basename(file, '.xml');
-    const name = tr(t, rawName, humanize(id));
-    // Gold nugget / blood money variants share a name; keep the first.
+    // All three chests say "$item_chest_treasure" on their ItemComponent. The great one's UIInfo
+    // name tells it apart, and the mimic (chest_leggy.lua) needs its own name or it hides the real chest.
+    const name = RENAME[id] ?? tr(t, uiName && uiName !== rawName && id.endsWith('_super') ? uiName : rawName, humanize(id));
+    // Gold nugget / blood money / potion variants share a name; keep the first.
     if (seenNames.has(name)) continue;
     seenNames.add(name);
 
