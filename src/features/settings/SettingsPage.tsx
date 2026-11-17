@@ -44,7 +44,7 @@ export function SettingsPage() {
           <RangeToggle
             setting="performance"
             title="Performance mode"
-            text="For slower tablets and phones: no glow, fewer particles, and the picture redrawn 30 times a second. Spells behave the same."
+            text="For slower tablets and phones: no glow (here and on secret items), fewer particles, and the picture redrawn 30 times a second. Spells behave the same."
           />
           <RangeToggle setting="showFps" title="Show frame rate" text="Frame rate and timings in the corner of the range, to see how your device keeps up." />
         </div>

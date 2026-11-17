@@ -120,11 +120,6 @@ export const ITEM_INFO: Record<string, ItemInfo> = {
     text: 'Refills the charges of every spell in every wand you carry. One sits in each Holy Mountain; chests and utility boxes also drop them.',
     source: 'data/scripts/items/spell_refresh.lua',
   },
-  perk_reroll: {
-    text:
-      'Swaps the perks on offer in a Holy Mountain for new ones. It costs 200 gold, doubling with every reroll you’ve bought this run (400, 800…), and it comes back after each use.',
-    source: 'data/scripts/perks/perk_reroll_init.lua',
-  },
 
   // ── Containers ──────────────────────────────────────────────────────────────────────────
   potion: {

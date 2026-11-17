@@ -26,4 +26,16 @@ export function setRangeSetting(key: keyof RangeSettings, on: boolean) {
   } catch {
     // Private browsing without storage: the setting lasts until the page closes.
   }
+  if (key === 'performance') applyGlow(on);
+}
+
+/**
+ * UI bloom (the glow on secret items) is for capable devices: off in performance mode, and on devices that
+ * report 4 or fewer CPU cores or 4 GB or less of memory. Sets <html data-lite> for the CSS.
+ */
+export function applyGlow(performance = rangeSettings().performance) {
+  const nav = navigator as Navigator & { deviceMemory?: number };
+  const weak = (nav.hardwareConcurrency ?? 8) <= 4 || (nav.deviceMemory ?? 8) <= 4;
+  if (performance || weak) document.documentElement.dataset.lite = '';
+  else delete document.documentElement.dataset.lite;
 }

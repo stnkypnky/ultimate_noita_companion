@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import '@fontsource-variable/inter';
 import './styles/index.css';
 import { App } from './app/App';
+import { applyGlow } from './features/range/settings';
+
+applyGlow();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

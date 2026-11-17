@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { Package } from 'lucide-react';
+import { Package, Sparkles } from 'lucide-react';
 import { useData } from '@/data/store';
 import type { Item } from '@/data/types';
 import { SECRET_ITEMS, itemKey } from '@/data/spoilers';
@@ -16,16 +16,18 @@ import { useDebounced } from '@/ui/hooks';
 import { ItemDescription, LootTable } from '@/ui/ItemDescription';
 import { itemInfo } from '@/data/itemInfo';
 
-function ItemIcon({ item, scale, hidden }: { item: Item; scale: number; hidden?: boolean }) {
+function ItemIcon({ item, scale, hidden, secret }: { item: Item; scale: number; hidden?: boolean; secret?: boolean }) {
   const size = 24 * scale;
   return (
     <span className="grid shrink-0 place-items-center rounded-lg bg-raised" style={{ width: size, height: size }}>
       {hidden ? (
-        <span className="font-game text-faint" style={{ fontSize: 8 * scale }}>
+        <span className={`font-game ${secret ? 'secret-name' : 'text-faint'}`} style={{ fontSize: 8 * scale }}>
           ?
         </span>
       ) : item.icon.w ? (
-        <AtlasIcon atlas="items" icon={item.icon} scale={scale} />
+        <span className={secret ? 'secret-icon' : undefined}>
+          <AtlasIcon atlas="items" icon={item.icon} scale={scale} />
+        </span>
       ) : (
         <Package size={10 * scale} className="text-faint" />
       )}
@@ -68,12 +70,21 @@ export function ItemsPage() {
             isVisible(selected) ? (
               <article>
                 <header className="flex items-center gap-4 pr-10 lg:pr-0">
-                  <ItemIcon item={selected} scale={3} />
+                  <ItemIcon item={selected} scale={3} secret={SECRET_ITEMS.has(selected.id)} />
                   <div className="min-w-0">
-                    <h2 className="font-game text-[24px] leading-tight">{selected.name}</h2>
+                    <h2 className={`font-game text-[24px] leading-tight ${SECRET_ITEMS.has(selected.id) ? 'secret-name' : ''}`}>{selected.name}</h2>
                     <code className="text-xs text-faint">{selected.id}</code>
                   </div>
                 </header>
+                {SECRET_ITEMS.has(selected.id) && (
+                  <p className="secret-callout mt-4 flex items-start gap-2.5 px-3 py-2.5 text-[14px] leading-snug">
+                    <Sparkles size={16} className="mt-0.5 shrink-0" />
+                    <span>
+                      <span className="font-game text-[16px]">Secret item.</span> One of the game’s hidden or late-game finds. Until it’s revealed it
+                      shows as “???” in this list, so it won’t spoil anyone browsing.
+                    </span>
+                  </p>
+                )}
                 <ItemDescription key={selected.id} item={selected} />
                 <HiddenMechanics
                   kind="item"
@@ -92,15 +103,16 @@ export function ItemsPage() {
           <ul className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2">
             {shown.map((it) => {
               const hidden = !isVisible(it);
+              const secret = SECRET_ITEMS.has(it.id);
               return (
                 <li key={it.id}>
                   <button
                     onClick={() => navigate(`/items/${it.id}`)}
                     data-active={it.id === id || undefined}
-                    className="slot slot-hover flex w-full items-center gap-3 p-2 text-left"
+                    className={`slot slot-hover flex w-full items-center gap-3 p-2 text-left ${secret ? 'secret' : ''}`}
                   >
-                    <ItemIcon item={it} scale={2} hidden={hidden} />
-                    <span className={`truncate text-[13px] font-medium ${hidden ? 'text-faint' : ''}`}>{hidden ? '???' : it.name}</span>
+                    <ItemIcon item={it} scale={2} hidden={hidden} secret={secret} />
+                    <span className={`truncate text-[13px] font-medium ${secret ? 'secret-name' : ''}`}>{hidden ? '???' : it.name}</span>
                   </button>
                 </li>
               );

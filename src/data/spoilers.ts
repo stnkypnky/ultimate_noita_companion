@@ -35,10 +35,16 @@ export const SECRET_ITEMS = new Set([
   'evil_eye', 'greed_curse', 'physics_gold_orb_greed', 'physics_greed_die', 'moon', 'safe_haven', 'summon_portal_broken',
   'beamstone', 'brimstone', 'musicstone', 'poopstone', 'stonestone', 'thunderstone', 'wandstone', 'waterstone',
   'newsun', 'newsun_dark', 'sunbaby', 'sunegg', 'sunseed', 'sunstone', 'broken_wand', 'potion_mimic', 'bloodmoney_x',
-  'chest_leggy', 'goldnugget_x',
+  'chest_leggy', 'goldnugget_x', 'physics_die',
 ]);
 
-export const itemKey = (id: string) => (id.startsWith('essence_') ? id : `item:${id}`);
+/**
+ * Items the save's own flags unlock. The Chaos die only spawns once Ylialkemisti has been beaten, which
+ * sets card_unlocked_duplicate (boss_alchemist/death.lua; item_spawnlists.lua spawn_requires_flag).
+ */
+const ITEM_FLAGS: Record<string, string> = { physics_die: 'card_unlocked_duplicate' };
+
+export const itemKey = (id: string) => ITEM_FLAGS[id] ?? (id.startsWith('essence_') ? id : `item:${id}`);
 
 /** Lively Concoction & Alchemic Precursor recipes are seed secrets. */
 export const ALCHEMY_KEY = 'secret:alchemy';

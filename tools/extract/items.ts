@@ -8,6 +8,9 @@ import type { Wak } from './wak.ts';
 
 const PICKUPS = 'data/entities/items/pickup/';
 
+/** Pickups that are really game mechanics, not items: the Holy Mountain perk reroll machine. */
+const NOT_ITEMS = new Set(['perk_reroll']);
+
 /** Items whose game name is shared with a different item. */
 const RENAME: Record<string, string> = { chest_leggy: 'Treasure chest (mimic)', bloodmoney_x: 'Bloody golden statue' };
 
@@ -84,6 +87,7 @@ export async function collectItems(wak: Wak, loader: EntityLoader, t: Translatio
     const rawName = ic?.attrs.item_name || uiName;
     if (!rawName) continue;
     const id = basename(file, '.xml');
+    if (NOT_ITEMS.has(id)) continue;
     // All three chests say "$item_chest_treasure" on their ItemComponent. The great one's UIInfo
     // name tells it apart, and the mimic (chest_leggy.lua) needs its own name or it hides the real chest.
     const name = RENAME[id] ?? tr(t, uiName && uiName !== rawName && id.endsWith('_super') ? uiName : rawName, humanize(id));
