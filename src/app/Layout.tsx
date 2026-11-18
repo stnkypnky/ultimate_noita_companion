@@ -1,13 +1,29 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { NavLink, useLocation, useOutlet } from 'react-router';
 import { Lock } from 'lucide-react';
-import { NAV, isOpenPath, type NavItem } from './nav';
+import { RUN_ITEM, bottomItems, isOpenPath, railItems, type NavItem } from './nav';
 import { UpdateToast } from './UpdateToast';
 import { Onboarding } from './Onboarding';
 import { SaveGate } from './SaveGate';
 import { Embers } from '@/ui/game';
+import { LiveCrystal } from '@/ui/LiveCrystal';
 import { SyncChip } from '@/features/sync/SyncChip';
+import { RunToast } from '@/features/live/RunToast';
+import { useRunActive } from '@/features/live/state';
 import { useHasSave, useProgressHydrated } from '@/store/progress';
+
+/** Run shows in the nav while a game is running, and stays while you're on it after the game closes. */
+function useShowRun() {
+  const active = useRunActive();
+  const { pathname } = useLocation();
+  return { show: active || pathname === RUN_ITEM.to, active };
+}
+
+function NavIcon({ item, size, className, active }: { item: NavItem; size: number; className: string; active: boolean }) {
+  if (item === RUN_ITEM) return <LiveCrystal size={size + 3} off={!active} />;
+  const Icon = item.icon;
+  return <Icon size={size} className={className} />;
+}
 
 /** Sections that wait for a synced save show a small lock in the nav until there is one. */
 function useLocked() {
@@ -44,6 +60,7 @@ export function Layout() {
         <BottomNav />
       </div>
       <SyncChip />
+      <RunToast />
       <UpdateToast />
       <Onboarding />
     </div>
@@ -52,6 +69,7 @@ export function Layout() {
 
 function Rail() {
   const locked = useLocked();
+  const run = useShowRun();
   return (
     <nav
       aria-label="Main"
@@ -65,9 +83,9 @@ function Rail() {
         </div>
       </div>
       <ul className="flex flex-col gap-1 px-2 lg:px-3">
-        {NAV.map((item) => (
+        {railItems(run.show).map((item) => (
           <li key={item.to}>
-            <RailLink item={item} locked={locked(item.to)} />
+            <RailLink item={item} locked={locked(item.to)} live={run.active} />
           </li>
         ))}
       </ul>
@@ -78,8 +96,7 @@ function Rail() {
   );
 }
 
-function RailLink({ item, locked }: { item: NavItem; locked: boolean }) {
-  const Icon = item.icon;
+function RailLink({ item, locked, live }: { item: NavItem; locked: boolean; live: boolean }) {
   return (
     <NavLink
       to={item.to}
@@ -100,7 +117,7 @@ function RailLink({ item, locked }: { item: NavItem; locked: boolean }) {
               transition={{ type: 'spring', stiffness: 500, damping: 35 }}
             />
           )}
-          <Icon size={19} className={isActive ? 'text-ember' : locked ? 'opacity-50' : ''} />
+          <NavIcon item={item} size={19} active={live} className={isActive ? 'text-ember' : locked ? 'opacity-50' : ''} />
           <span className={`font-game hidden text-[16px] lg:inline ${locked ? 'opacity-50' : ''}`}>{item.label}</span>
           {locked && <Lock size={12} aria-label="locked" className="ml-auto hidden text-faint lg:block" />}
         </>
@@ -110,7 +127,8 @@ function RailLink({ item, locked }: { item: NavItem; locked: boolean }) {
 }
 
 function BottomNav() {
-  const items = NAV.filter((n) => n.mobile);
+  const run = useShowRun();
+  const items = bottomItems(run.show);
   const locked = useLocked();
   return (
     <nav
@@ -119,7 +137,6 @@ function BottomNav() {
     >
       <ul className="flex h-[var(--nav-h)] items-stretch">
         {items.map((item) => {
-          const Icon = item.icon;
           return (
             <li key={item.to} className="flex-1">
               <NavLink
@@ -141,7 +158,7 @@ function BottomNav() {
                       />
                     )}
                     <span className="relative">
-                      <Icon size={21} className={isActive ? 'text-ember' : locked(item.to) ? 'opacity-50' : ''} />
+                      <NavIcon item={item} size={21} active={run.active} className={isActive ? 'text-ember' : locked(item.to) ? 'opacity-50' : ''} />
                       {locked(item.to) && <Lock size={10} aria-label="locked" className="absolute -top-1 -right-2.5 text-faint" />}
                     </span>
                     <span>{item.label === 'Wand Builder' ? 'Wand' : item.label}</span>

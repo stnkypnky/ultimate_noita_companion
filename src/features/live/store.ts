@@ -3,8 +3,7 @@
 import { onLiveFile } from '@/features/progress/liveSave';
 import { liveChanged, registerLive } from '@/features/sync/sync';
 import { parseLiveRun } from './parse';
-import { useLiveRun } from './state';
-
+import { setLiveRun, useLiveRun } from './state';
 
 let started = false;
 export function startLiveRun() {
@@ -13,7 +12,7 @@ export function startLiveRun() {
   onLiveFile((text, at) => {
     const run = parseLiveRun(text);
     if (!run || at <= useLiveRun.getState().at) return;
-    useLiveRun.setState({ run, at, from: null });
+    setLiveRun(run, at, null);
     liveChanged();
   });
   registerLive(
@@ -25,7 +24,7 @@ export function startLiveRun() {
     (raw, at, from) => {
       const run = parseLiveRun(raw);
       if (!run || at <= useLiveRun.getState().at) return;
-      useLiveRun.setState({ run, at, from });
+      setLiveRun(run, at, from);
     },
   );
 }

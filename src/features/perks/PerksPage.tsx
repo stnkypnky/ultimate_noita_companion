@@ -102,7 +102,7 @@ export function PerksPage() {
   );
 }
 
-function PerkDetail({ perk }: { perk: Perk }) {
+export function PerkDetail({ perk }: { perk: Perk }) {
   const { visible, reveal } = useSpoilers();
   if (!visible(perk.discoverFlag)) return <HiddenNotice what="perk" onReveal={() => reveal(perk.discoverFlag)} />;
 

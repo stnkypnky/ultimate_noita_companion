@@ -97,14 +97,20 @@ console.log('PC: live sync on');
 
 await pc.goto(BASE);
 try {
-  await pc.getByText('Current run').waitFor({ timeout: 15000 });
-  console.log('PC: current run shown');
+  await pc.getByText('Run in progress').first().waitFor({ timeout: 15000 });
+  console.log('PC: run banner on Home');
 } catch {
   console.log('PC home:', (await pc.locator('main').innerText()).slice(0, 500));
 }
+await pc.getByRole('link', { name: 'Run', exact: true }).waitFor({ timeout: 5000 });
+console.log('PC: Run in the nav');
+await pc.goto(`${BASE}run`);
+await pc.getByRole('heading', { name: 'Current run' }).waitFor({ timeout: 15000 });
+await pc.getByText('Damage / sec').first().waitFor({ timeout: 15000 });
+console.log('PC: Run page with a simulated wand');
 await phone.goto(BASE);
 try {
-  await phone.getByText('Current run').waitFor({ timeout: 30000 });
+  await phone.getByText('Run in progress').first().waitFor({ timeout: 30000 });
 } catch (e) {
   console.log('phone home:', (await phone.locator('main').innerText()).slice(0, 400));
   await phone.goto(`${BASE}progress`);
@@ -114,6 +120,9 @@ try {
 }
 await phone.getByText(/from Gaming PC/).first().waitFor({ timeout: 30000 });
 console.log('phone: current run relayed from the PC');
+await phone.locator('nav[aria-label="Main"]:visible').getByRole('link', { name: 'Run' }).click();
+await phone.getByRole('heading', { name: 'Current run' }).waitFor({ timeout: 15000 });
+console.log('phone: Run page from the bottom bar');
 
 // Play on: a new spell found and some damage taken. The phone should follow without a reload.
 const t0 = Date.now();
@@ -126,12 +135,19 @@ console.log('phone: new spell discovery arrived (3 spells)');
 
 if (shots) {
   await pc.goto(BASE);
-  await pc.getByText('Current run').waitFor();
+  await pc.getByText('Run in progress').first().waitFor();
   await pc.screenshot({ path: join(shots, 'pc-home-live.png') });
-  await phone.goto(BASE);
-  await phone.getByText('Current run').waitFor();
-  await phone.getByText('Current run').scrollIntoViewIfNeeded();
-  await phone.screenshot({ path: join(shots, 'phone-home-live.png') });
+  await pc.goto(`${BASE}run`);
+  await pc.getByText('Damage / sec').first().waitFor();
+  await pc.waitForTimeout(800);
+  await pc.screenshot({ path: join(shots, 'pc-run.png'), fullPage: true });
+  await phone.goto(`${BASE}run`);
+  await phone.getByText('Damage / sec').first().waitFor({ timeout: 30000 });
+  await phone.waitForTimeout(800);
+  await phone.screenshot({ path: join(shots, 'phone-run.png') });
+  await phone.locator('main').evaluate((m) => m.scrollTo(0, 99999));
+  await phone.waitForTimeout(400);
+  await phone.screenshot({ path: join(shots, 'phone-run-bottom.png') });
   await pc.goto(`${BASE}progress`);
   await pc.getByText('Live sync on').waitFor();
   await pc.screenshot({ path: join(shots, 'pc-progress-live.png') });

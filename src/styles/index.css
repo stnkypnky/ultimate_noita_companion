@@ -253,6 +253,26 @@ body {
   }
 }
 
+/* The live crystal (ui/LiveCrystal.tsx): a breathing green glow while a game runs; grey and dark when it doesn't. */
+.live-crystal {
+  overflow: visible;
+}
+:root:not([data-lite]) .live-crystal:not([data-off]) {
+  animation: live-crystal-pulse 2.4s ease-in-out infinite;
+}
+.live-crystal[data-off] {
+  filter: grayscale(1) brightness(0.55);
+}
+@keyframes live-crystal-pulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 1px #8fe86acc) drop-shadow(0 0 3px #7bd65c66);
+  }
+  50% {
+    filter: drop-shadow(0 0 2px #b9f79a) drop-shadow(0 0 7px #7bd65cb3);
+  }
+}
+
 /* The orange important-message box (ui_gfx/decorations/3piece_important_msg), one line tall. */
 .msg-box {
   display: inline-flex;
@@ -372,6 +392,10 @@ body {
   }
   .slot.secret::after {
     animation: none !important;
+  }
+  :root:not([data-lite]) .live-crystal:not([data-off]) {
+    animation: none !important;
+    filter: drop-shadow(0 0 2px #b9f79a) drop-shadow(0 0 5px #7bd65c99);
   }
   *,
   *::before,

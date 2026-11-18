@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { parseLiveRun } from '../src/features/live/parse.ts';
-import { liveFlags } from '../src/features/live/state.ts';
-import { toBuilderWand } from '../src/features/live/CurrentRun.tsx';
+import { STALE_MS, liveFlags, setLiveRun, useLiveRun } from '../src/features/live/state.ts';
+import { toBuilderWand } from '../src/features/live/toBuilder.ts';
+import { bottomItems, railItems } from '../src/app/nav.ts';
 
 const wand = {
   name: 'Wand',
@@ -65,5 +66,30 @@ describe('live run file (companion mod)', () => {
     expect(w).toMatchObject({ name: 'Wand from my run', castDelay: 10, manaMax: 300, spread: -1.3, capacity: 4, alwaysCasts: ['BURST_2'] });
     expect(w.spells).toEqual(['LIGHT_BULLET', null, 'BOMB', null]);
     expect(w.charges).toEqual([null, null, 1, null]);
+    expect(w.sprite).toBeUndefined();
+    const numbered = toBuilderWand(parseLiveRun({ v: 1, wands: [{ ...wand, sprite: 'data/items_gfx/wands/wand_0042.png' }] })!.wands[0]!);
+    expect(numbered.sprite).toBe('data/items_gfx/wands/wand_0042.png');
+  });
+});
+
+describe('a game is running', () => {
+  it('is active while snapshots are fresh, and turns itself off when they stop', () => {
+    vi.useFakeTimers();
+    const run = parseLiveRun({ v: 1, seed: 1 })!;
+    const now = Date.now();
+    setLiveRun(run, now - STALE_MS - 1, 'Old PC', now);
+    expect(useLiveRun.getState().active).toBe(false);
+    setLiveRun(run, now, null, now);
+    expect(useLiveRun.getState().active).toBe(true);
+    vi.advanceTimersByTime(STALE_MS + 1);
+    expect(useLiveRun.getState().active).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it('puts Run in the nav only then: after Home on the rail, in Materials’ slot on the phone', () => {
+    expect(railItems(false).some((n) => n.to === '/run')).toBe(false);
+    expect(railItems(true).map((n) => n.to).slice(0, 2)).toEqual(['/', '/run']);
+    expect(bottomItems(false).map((n) => n.to)).toEqual(['/', '/wand', '/spells', '/materials']);
+    expect(bottomItems(true).map((n) => n.to)).toEqual(['/', '/wand', '/spells', '/run']);
   });
 });

@@ -129,7 +129,7 @@ export function MaterialsPage() {
   );
 }
 
-function MaterialDetail({ material: m }: { material: Material }) {
+export function MaterialDetail({ material: m }: { material: Material }) {
   const { reactionsByMaterial } = useData();
   const { isVisible, reveal } = useMaterialVisibility();
   if (!isVisible(m.id)) return <HiddenNotice what="material" onReveal={() => reveal(m.id)} />;

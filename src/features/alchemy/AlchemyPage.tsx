@@ -104,7 +104,7 @@ function SeedRecipes() {
   );
 }
 
-function RecipeCard({ title, recipe }: { title: string; recipe: Recipe }) {
+export function RecipeCard({ title, recipe }: { title: string; recipe: Recipe }) {
   const { materialById } = useData();
   const result = materialById.get(recipe.result);
   return (

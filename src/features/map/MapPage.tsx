@@ -39,7 +39,19 @@ const parsePlace = (p: string | undefined) => {
 
 const humanize = (s: string) => s.replace(/[_-]+/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 
+/** /map?seed=123 (from the Run page) opens that seed: SeedPanel starts from the remembered seed. */
+const adoptSeedFromUrl = () => {
+  const s = new URLSearchParams(location.search).get('seed');
+  if (!s || !/^\d{1,10}$/.test(s)) return;
+  try {
+    localStorage.setItem('map-seed', s);
+  } catch {
+    /* not remembered */
+  }
+};
+
 export function MapPage() {
+  useState(adoptSeedFromUrl);
   const { materialById } = useData();
   const [map, setMap] = useState<WorldMap | null>(null);
   const [error, setError] = useState<string | null>(null);
