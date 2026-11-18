@@ -120,7 +120,7 @@ export function parseLiveRun(input: unknown): LiveRun | null {
     status: (STATUSES as readonly unknown[]).includes(o.status) ? (o.status as LiveRun['status']) : 'alive',
     seed: num(o.seed),
     ngPlus: num(o.ngPlus),
-    biome: biomeId ? { id: biomeId, name: str(biome.name, 80) ?? biomeId } : undefined,
+    biome: biome && biomeId ? { id: biomeId, name: str(biome.name, 80) ?? biomeId } : undefined,
     hp: optNum(o.hp),
     maxHp: optNum(o.maxHp),
     gold: optNum(o.gold),
