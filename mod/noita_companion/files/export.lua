@@ -96,7 +96,18 @@ local function read_wand(e, active)
       else spells[#spells + 1] = { id = s.id, slot = s.slot, uses = s.uses } end
     end
   end
-  table.sort(spells, function(a, b) return a.slot < b.slot end)
+  -- The slot read can come back the same for every spell; then the children's own order is the wand's order
+  -- (and sorting equal keys would shuffle it: Lua's sort isn't stable).
+  local seen, distinct = {}, true
+  for _, s in ipairs(spells) do
+    if seen[s.slot] then distinct = false end
+    seen[s.slot] = true
+  end
+  if distinct then
+    table.sort(spells, function(a, b) return a.slot < b.slot end)
+  else
+    for i, s in ipairs(spells) do s.slot = i - 1 end
+  end
   local deck = ComponentObjectGetValue2(ab, "gun_config", "deck_capacity") or 0
   return {
     name = translated(ComponentGetValue2(ab, "ui_name")),

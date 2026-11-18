@@ -36,6 +36,21 @@ describe('wand simulation (real gun.lua)', () => {
     expect(files(r.casts[0]!.shot)).toEqual([SPARK]);
   });
 
+  it('recharges when a cast wants more spells than are left (spells/cast above the cards)', () => {
+    // A wand casting 8 with 3 spells: one cast of all 3, then the recharge (it used to cast nothing forever).
+    const r = sim(['LIGHT_BULLET', 'LIGHT_BULLET', 'LIGHT_BULLET'], { spc: 8, reload: 233, casts: 70 });
+    expect(r.casts).toHaveLength(1);
+    expect(r.casts[0]!.played).toHaveLength(3);
+    expect(r.casts[0]!.reload).toBe(233);
+    // Casts 2 with 3 spells: 2, then the last one and the recharge.
+    const two = sim(['LIGHT_BULLET', 'LIGHT_BULLET', 'LIGHT_BULLET'], { spc: 2, casts: 10 });
+    expect(two.casts.map((c) => c.played.length)).toEqual([2, 1]);
+    expect(two.casts[1]!.reload).toBe(20);
+    // And it keeps going round after the recharge.
+    const more = sim(['LIGHT_BULLET', 'LIGHT_BULLET', 'LIGHT_BULLET'], { spc: 8, casts: 3, stop: false });
+    expect(more.casts.map((c) => c.played.length)).toEqual([3, 3, 3]);
+  });
+
   it('casts both spells together with Double Spell', () => {
     const r = sim(['BURST_2', 'LIGHT_BULLET', 'LIGHT_BULLET']);
     expect(r.casts).toHaveLength(1);

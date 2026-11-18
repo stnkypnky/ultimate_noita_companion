@@ -159,6 +159,16 @@ function sim_cast(frame, wand_mana)
   _start_shot(wand_mana)
   for _, id in ipairs(sim.always) do _play_permanent_card(id) end
   _draw_actions_for_shot(true)
+  -- More spells per cast than cards left: the draw that finds the deck empty sets `reloading`, which makes
+  -- gun.lua's own _handle_reload skip the recharge (and every later cast would come up empty). The game's engine
+  -- recharges the wand then: every card is spent, so it reloads as _handle_reload would.
+  if not cast.reload and #deck == 0 and #discarded > 0 then
+    move_discarded_to_deck()
+    order_deck()
+    StartReload(current_reload_time)
+    current_reload_time = gun.reload_time
+    start_reload = false
+  end
 
   cast.mana_after = mana
   cast.shot = rec.stack[1]

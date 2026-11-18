@@ -127,6 +127,12 @@ describe('live run file (companion mod)', () => {
     const numbered = toBuilderWand(parseLiveRun({ v: 1, wands: [{ ...wand, sprite: 'data/items_gfx/wands/wand_0042.png' }] })!.wands[0]!);
     expect(numbered.sprite).toBe('data/items_gfx/wands/wand_0042.png');
   });
+
+  it('keeps every spell, in order, when the mod reports the same slot for all of them', () => {
+    const same = { ...wand, capacity: 10, spells: ['FIRE_TRAIL', 'BOMB', 'SUMMON_HOLLOW_EGG', 'SPREAD_REDUCE'].map((id) => ({ id, slot: 0 })) };
+    const w = toBuilderWand(parseLiveRun({ v: 1, wands: [same] })!.wands[0]!);
+    expect(w.spells.slice(0, 5)).toEqual(['FIRE_TRAIL', 'BOMB', 'SUMMON_HOLLOW_EGG', 'SPREAD_REDUCE', null]);
+  });
 });
 
 describe('a game is running', () => {

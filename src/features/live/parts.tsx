@@ -10,7 +10,7 @@ import { useSpoilers } from '@/store/progress';
 import { AtlasIcon, SpellIcon } from '@/ui/GameIcon';
 import { HudBar, StatIcon, type StatIconName } from '@/ui/game';
 import { Sheet } from '@/ui/Sheet';
-import { DEFAULT_OPTIONS, encodeWand, resize, type SimOptions } from '@/features/wand/model';
+import { DEFAULT_OPTIONS, encodeWand, resize, type SimOptions, type Wand } from '@/features/wand/model';
 import { useSimulation } from '@/features/wand/useSimulation';
 import { WandPortrait } from '@/features/wand/WandPortrait';
 import { SpellDetail } from '@/features/spells/SpellDetail';
@@ -71,17 +71,19 @@ function WandCard({ wand, all, options, onOpen, past }: { wand: LiveWand; all: L
 
   return (
     <section className={`panel p-4 ${wand.active ? 'ring-1 ring-toxic/40' : ''}`}>
-      <header className="flex flex-wrap items-center gap-3">
-        <span className="grid h-12 w-16 shrink-0 place-items-center">
-          <WandPortrait wand={built} scale={3} />
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="grid h-12 min-w-12 shrink-0 place-items-center">
+          <WandPortrait wand={built} scale={desktop ? 3 : 2} />
         </span>
-        <div className="min-w-0 flex-1">
-          <h3 className="font-game truncate text-[16px]">{wand.name || 'Wand'}</h3>
+        <div className="min-w-0 flex-1 basis-32">
+          <h3 className="font-game line-clamp-2 text-[16px] leading-tight break-words" title={wand.name || 'Wand'}>
+            {wand.name || 'Wand'}
+          </h3>
           {wand.active && <span className="font-game-caps text-[8px] text-toxic">{past ? 'Last held' : 'In hand'}</span>}
         </div>
         <button
           onClick={() => void encodeWand(built).then((code) => navigate(`/wand#w=${code}`))}
-          className="inline-flex items-center gap-1.5 btn-game quiet font-game text-[16px] px-2.5 py-1"
+          className="inline-flex items-center justify-center gap-1.5 btn-game quiet font-game text-[16px] px-2.5 py-1 max-sm:w-full"
         >
           <Wand2 size={14} /> Open in builder
         </button>
@@ -97,7 +99,7 @@ function WandCard({ wand, all, options, onOpen, past }: { wand: LiveWand; all: L
         </div>
       )}
 
-      <WandSlotsRow wand={wand} onOpen={onOpen} />
+      <WandSlotsRow wand={wand} built={built} onOpen={onOpen} />
 
       {/* Phones: the wand's stats fold away so the slots and the simulation stay in view. */}
       {(desktop || showStats) && (
@@ -148,9 +150,10 @@ function Tile({ label, value, accent, warn, icon }: { label: string; value: stri
   );
 }
 
-function WandSlotsRow({ wand, onOpen }: { wand: LiveWand; onOpen: OpenDetail }) {
-  const slots = resize(
-    Array.from({ length: wand.capacity }, (_, i) => wand.spells.find((s) => s.slot === i) ?? null),
+/** The wand's slots, placed exactly as the builder places them (toBuilderWand), so both always agree. */
+function WandSlotsRow({ wand, built, onOpen }: { wand: LiveWand; built: Wand; onOpen: OpenDetail }) {
+  const slots: (LiveSpell | null)[] = resize(
+    built.spells.map((id, i) => (id ? { id, ...(built.charges?.[i] != null ? { uses: built.charges[i]! } : {}) } : null)),
     Math.max(wand.capacity, 1),
   );
   return (
