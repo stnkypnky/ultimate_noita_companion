@@ -1,6 +1,6 @@
-import { forwardRef, useCallback, useRef, type ReactNode } from 'react';
-import { Search, X } from 'lucide-react';
-import { useHotkey } from './hooks';
+import { forwardRef, useCallback, useId, useRef, useState, type ReactNode } from 'react';
+import { ChevronRight, Search, X } from 'lucide-react';
+import { useHotkey, useIsDesktop } from './hooks';
 import { StatIcon, statIconFor, type StatIconName } from './game';
 
 export const SearchInput = forwardRef<HTMLInputElement, { value: string; onChange: (v: string) => void; placeholder?: string }>(
@@ -99,6 +99,65 @@ export function StatTable({ rows }: { rows: { label: string; value: ReactNode; g
         );
       })}
     </dl>
+  );
+}
+
+const OPEN_KEY = 'open-sections';
+function readOpen(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(OPEN_KEY) ?? '{}') as Record<string, boolean>;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * A Section that folds to its title and a one-line summary below desktop width (phones, tablets). Each one is
+ * remembered on this device by `id`. On desktop it is a plain Section.
+ */
+export function CollapsibleSection({
+  id,
+  title,
+  summary,
+  aside,
+  defaultOpen = false,
+  children,
+}: {
+  id: string;
+  title: string;
+  summary?: ReactNode;
+  aside?: ReactNode;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const desktop = useIsDesktop();
+  const [open, setOpenState] = useState(() => readOpen()[id] ?? defaultOpen);
+  const bodyId = useId();
+  if (desktop) return <Section title={title} aside={aside}>{children}</Section>;
+  const toggle = () => {
+    const next = !open;
+    setOpenState(next);
+    try {
+      localStorage.setItem(OPEN_KEY, JSON.stringify({ ...readOpen(), [id]: next }));
+    } catch {
+      /* not remembered */
+    }
+  };
+  return (
+    <section className="mt-3 border-b border-line/60 pb-2">
+      <div className="flex items-center gap-2">
+        <button onClick={toggle} aria-expanded={open} aria-controls={bodyId} className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left">
+          <ChevronRight size={16} className={`shrink-0 text-faint transition-transform motion-reduce:transition-none ${open ? 'rotate-90' : ''}`} />
+          <h3 className="font-game-caps shrink-0 text-[16px] text-gold/80">{title}</h3>
+          {!open && summary && <span className="flex min-w-0 flex-1 items-center justify-end gap-1 truncate text-xs text-muted">{summary}</span>}
+        </button>
+        {open && aside}
+      </div>
+      {/* Folded sections aren't rendered at all: a closed map or wand simulation costs nothing. */}
+      <div id={bodyId} hidden={!open} className="pt-1 pb-2">
+        {open && children}
+      </div>
+    </section>
   );
 }
 

@@ -21,6 +21,9 @@ export function picksBefore(run: Pick<LiveRun, 'perks'>, next: number): string[]
   return [...Array.from({ length: next - 2 }, () => [] as string[]), taken];
 }
 
+/** "$animal_zombie_weak" → "zombie weak". */
+export const killedByText = (s: string) => s.replace(/^\$animal_/, '').replace(/_/g, ' ');
+
 /** "4:05", "1:02:09". */
 export function clock(totalSeconds: number) {
   const s = Math.max(0, Math.floor(totalSeconds));

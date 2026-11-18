@@ -5,7 +5,7 @@ import { useProgress } from '@/store/progress';
 import { deviceName } from '@/features/sync/device';
 import { registerRuns, runsChanged } from '@/features/sync/sync';
 import { MAX_RUNS, addFound, foldSnapshot, foundKeys, mergeRuns, parseRunRecord, type Known, type RunRecord } from './history';
-import { parseLiveWand, type LiveRun } from './parse';
+import { parseLiveRun, parseLiveWand, type LiveRun } from './parse';
 import { useLiveRun } from './state';
 
 /** Paired devices hear about an ongoing run at most this often (and at once when it starts or ends). */
@@ -94,7 +94,7 @@ export async function startRunHistory() {
   registerRuns(
     async () => useRuns.getState().records.map((r) => r as RunRecord),
     async (raw) => {
-      const recs = raw.map((r) => parseRunRecord(r, parseLiveWand)).filter((r): r is RunRecord => !!r);
+      const recs = raw.map((r) => parseRunRecord(r, parseLiveWand, parseLiveRun)).filter((r): r is RunRecord => !!r);
       const mine = new Map(useRuns.getState().records.map((r) => [r.id, r.updatedAt]));
       const newer = recs.filter((r) => r.updatedAt > (mine.get(r.id) ?? -1));
       if (!newer.length) return;

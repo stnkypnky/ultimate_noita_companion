@@ -1,20 +1,18 @@
-// Run history on the Run page: what this run discovered, its timeline, and past runs.
+// Run history on the Run page: what this run discovered, its timeline, and the switcher between runs.
 import { useMemo, useState, type ReactNode } from 'react';
-import { Link, useNavigate } from 'react-router';
-import { Gem, HeartCrack, MapPin, Package, Play, Skull, Sparkles, Star, Wand2 } from 'lucide-react';
+import { Link } from 'react-router';
+import { Flag, Gem, HeartCrack, MapPin, Package, Play, Skull, Sparkles, Star, Wand2 } from 'lucide-react';
 import { useData } from '@/data/store';
-import { Section } from '@/ui/controls';
+import { CollapsibleSection } from '@/ui/controls';
 import { AtlasIcon, SpellIcon } from '@/ui/GameIcon';
-import { Sheet } from '@/ui/Sheet';
+import { LiveCrystal } from '@/ui/LiveCrystal';
 import { timeAgo, useNow } from '@/ui/time';
 import { MaterialSwatch } from '@/features/materials/MaterialSwatch';
 import { titleCase } from '@/features/materials/MaterialsPage';
-import { encodeWand } from '@/features/wand/model';
 import type { RunEvent, RunRecord } from './history';
-import type { LiveRun, LiveWand } from './parse';
+import type { LiveRun } from './parse';
 import type { OpenDetail } from './parts';
-import { clock } from './runMath';
-import { toBuilderWand } from './toBuilder';
+import { clock, killedByText } from './runMath';
 import { useRuns } from './runs';
 
 /** The history record of the run on screen (synced from the PC on other devices). */
@@ -81,8 +79,14 @@ const GROUPS: { label: string; test: (k: string) => boolean }[] = [
 
 /** Everything this run found for the first time: now unlocked across the app. */
 export function FoundThisRun({ rec, onOpen }: { rec: RunRecord | undefined; onOpen?: OpenDetail }) {
+  const summary = rec?.found.length
+    ? GROUPS.flatMap((g) => {
+        const n = rec.found.filter(g.test).length;
+        return n ? [`+${n} ${g.label.toLowerCase()}`] : [];
+      }).join(' · ')
+    : 'nothing new yet';
   return (
-    <Section title="Found this run">
+    <CollapsibleSection id="run-found" title="Found this run" summary={<span className={rec?.found.length ? 'text-toxic' : ''}>{summary}</span>}>
       {!rec?.found.length ? (
         <p className="text-sm text-muted">Nothing new yet. Spells, perks, creatures and secret items you find for the first time show up here, and open up across the companion.</p>
       ) : (
@@ -104,7 +108,7 @@ export function FoundThisRun({ rec, onOpen }: { rec: RunRecord | undefined; onOp
           })}
         </div>
       )}
-    </Section>
+    </CollapsibleSection>
   );
 }
 
@@ -135,7 +139,7 @@ function useEventText() {
   };
 }
 
-const killer = (s: string) => s.replace(/^\$animal_/, '').replace(/_/g, ' ');
+const killer = killedByText;
 
 /** Health over the run, as a thin line. */
 function HpLine({ hp }: { hp: RunRecord['hp'] }) {
@@ -157,7 +161,7 @@ export function Timeline({ rec, limit = 40 }: { rec: RunRecord | undefined; limi
   const events = [...rec.events].reverse();
   const shown = all ? events : events.slice(0, limit);
   return (
-    <Section title="Timeline">
+    <CollapsibleSection id="run-timeline" title="Timeline" summary={`${events.length} event${events.length === 1 ? '' : 's'}`}>
       <HpLine hp={rec.hp} />
       <ol className="mt-2 space-y-1">
         {shown.map((e, i) => {
@@ -176,136 +180,38 @@ export function Timeline({ rec, limit = 40 }: { rec: RunRecord | undefined; limi
           Show all {events.length}
         </button>
       )}
-    </Section>
+    </CollapsibleSection>
   );
 }
 
-function Outcome({ rec }: { rec: RunRecord }) {
-  if (rec.outcome === 'died') return <span className="text-blood">Died{rec.killedBy ? ` · ${killer(rec.killedBy)}` : ''}</span>;
-  if (rec.outcome === 'ongoing') return <span className="text-toxic">In progress</span>;
-  return <span className="text-muted">Ended</span>;
-}
 
-/** Earlier runs, newest first; tap one for its wands, perks, finds and timeline. */
-export function PastRuns({ exclude }: { exclude?: string }) {
+/**
+ * Pick a run to look at: the live one (while a game runs) and the recent ones, newest first. Each opens in the
+ * same Run page, as it was when it ended.
+ */
+export function RunSwitcher({ selected, liveId, active }: { selected: string | 'live'; liveId?: string; active: boolean }) {
   const records = useRuns((s) => s.records);
-  const { perkById } = useData();
   const now = useNow(60_000);
-  const [open, setOpen] = useState<RunRecord | null>(null);
-  const list = records.filter((r) => r.id !== exclude);
-  if (!list.length) return null;
+  const past = records.filter((r) => !(active && r.id === liveId));
+  if (!past.length && !active) return null;
+  const chip = (on: boolean) =>
+    `slot slot-hover inline-flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 text-xs whitespace-nowrap ${on ? 'text-ink ring-1 ring-gold/60' : 'text-muted'}`;
   return (
-    <Section title="Past runs">
-      <ul className="space-y-1.5">
-        {list.map((r) => (
-          <li key={r.id}>
-            <button onClick={() => setOpen(r)} className="slot slot-hover w-full p-3 text-left">
-              <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
-                <Outcome rec={r} />
-                <span className="text-xs text-faint">
-                  {timeAgo(r.startedAt, now)} · seed {r.seed}
-                </span>
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-                {r.deepest && (
-                  <span>
-                    {r.deepest} · {Math.round(r.maxDepth)} m
-                  </span>
-                )}
-                {r.playtime !== undefined && <span>{clock(r.playtime)}</span>}
-                {r.found.length > 0 && <span className="text-toxic">{r.found.length} discovered</span>}
-                <span className="flex gap-0.5">
-                  {r.perks.slice(0, 10).map((p) => {
-                    const perk = perkById.get(p.id);
-                    return perk ? <AtlasIcon key={p.id} atlas="perks" icon={perk.icon} scale={1} /> : null;
-                  })}
-                </span>
-              </div>
-            </button>
-          </li>
-        ))}
-      </ul>
-      <Sheet open={!!open} onClose={() => setOpen(null)} title={open ? `Run on seed ${open.seed}` : ''}>
-        {open && <RunDetail rec={open} />}
-      </Sheet>
-    </Section>
+    <nav aria-label="Runs" className="scrollbar-thin -mx-1 mt-3 flex gap-1.5 overflow-x-auto px-1 pb-1">
+      {active && (
+        <Link to="/run" className={chip(selected === 'live')} aria-current={selected === 'live' ? 'page' : undefined}>
+          <LiveCrystal size={14} /> <span className="text-toxic">Live</span>
+        </Link>
+      )}
+      {past.map((r) => (
+        <Link key={r.id} to={`/run/${encodeURIComponent(r.id)}`} className={chip(selected === r.id)} aria-current={selected === r.id ? 'page' : undefined}>
+          {r.outcome === 'died' ? <Skull size={13} className="text-blood" /> : r.outcome === 'ongoing' ? <LiveCrystal size={14} off /> : <Flag size={13} className="text-faint" />}
+          <span>{r.deepest ?? `Seed ${r.seed}`}</span>
+          {r.playtime !== undefined && <span className="text-faint">{clock(r.playtime)}</span>}
+          <span className="text-faint">· {timeAgo(r.endedAt ?? r.updatedAt, now)}</span>
+        </Link>
+      ))}
+    </nav>
   );
 }
 
-function RunDetail({ rec }: { rec: RunRecord }) {
-  const { perkById } = useData();
-  return (
-    <div className="space-y-1">
-      <p className="text-sm">
-        <Outcome rec={rec} />
-        <span className="text-faint">
-          {' '}
-          · {new Date(rec.startedAt).toLocaleString()} · on {rec.device}
-        </span>
-      </p>
-      <p className="text-sm text-muted">
-        {[
-          rec.deepest && `${rec.deepest}, ${Math.round(rec.maxDepth)} m`,
-          rec.playtime !== undefined && clock(rec.playtime),
-          `${rec.gold} gold`,
-          rec.kills !== undefined && `${rec.kills} kills`,
-          rec.orbs ? `${rec.orbs} orb${rec.orbs > 1 ? 's' : ''}` : null,
-        ]
-          .filter(Boolean)
-          .join(' · ')}
-      </p>
-      {rec.wands.length > 0 && (
-        <Section title="Wands">
-          <div className="space-y-2">
-            {rec.wands.map((w, i) => (
-              <PastWand key={i} wand={w} />
-            ))}
-          </div>
-        </Section>
-      )}
-      {rec.perks.length > 0 && (
-        <Section title="Perks">
-          <div className="flex flex-wrap gap-1.5">
-            {rec.perks.map((p) => {
-              const perk = perkById.get(p.id);
-              return (
-                <Link key={p.id} to={`/perks/${p.id}`} title={perk?.name ?? p.id} className="slot slot-hover relative grid h-10 w-10 place-items-center">
-                  {perk ? <AtlasIcon atlas="perks" icon={perk.icon} scale={2} /> : <span className="text-[8px]">{p.id}</span>}
-                  {p.count > 1 && <span className="absolute right-0.5 bottom-0 font-game text-[8px] text-gold">×{p.count}</span>}
-                </Link>
-              );
-            })}
-          </div>
-        </Section>
-      )}
-      {rec.found.length > 0 && <FoundThisRun rec={rec} />}
-      <Timeline rec={rec} limit={25} />
-    </div>
-  );
-}
-
-function PastWand({ wand }: { wand: LiveWand }) {
-  const { spellById } = useData();
-  const navigate = useNavigate();
-  return (
-    <div className="slot flex flex-wrap items-center gap-2 p-2">
-      <div className="flex min-w-0 flex-1 flex-wrap gap-0.5">
-        {[...wand.alwaysCasts, ...wand.spells.map((s) => s.id)].map((id, i) => {
-          const s = spellById.get(id);
-          return s ? (
-            <span key={i} title={s.name} className="grid h-7 w-7 place-items-center bg-surface-2/60">
-              <SpellIcon type={s.type} icon={s.icon} scale={1.5} />
-            </span>
-          ) : null;
-        })}
-        {!wand.spells.length && !wand.alwaysCasts.length && <span className="text-xs text-faint">Empty</span>}
-      </div>
-      <button
-        onClick={() => void encodeWand(toBuilderWand(wand)).then((c) => navigate(`/wand#w=${c}`))}
-        className="inline-flex items-center gap-1.5 btn-game quiet font-game text-[16px] px-2.5 py-1"
-      >
-        <Wand2 size={14} /> Open in builder
-      </button>
-    </div>
-  );
-}

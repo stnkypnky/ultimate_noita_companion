@@ -25,6 +25,7 @@ export const router = createBrowserRouter(
         { path: 'materials/:id?', ...page(() => import('@/features/materials/MaterialsPage').then((m) => ({ default: m.MaterialsPage }))) },
         { path: 'alchemy', ...page(() => import('@/features/alchemy/AlchemyPage').then((m) => ({ default: m.AlchemyPage }))) },
         { path: 'run', ...page(() => import('@/features/live/RunPage').then((m) => ({ default: m.RunPage }))) },
+        { path: 'run/:id', ...page(() => import('@/features/live/RunPage').then((m) => ({ default: m.PastRunPage }))) },
         { path: 'progress', ...page(() => import('@/features/progress/ProgressPage').then((m) => ({ default: m.ProgressPage }))) },
         { path: 'import', ...page(() => import('@/features/progress/ImportPage').then((m) => ({ default: m.ImportPage }))) },
         { path: 'pair', ...page(() => import('@/features/sync/PairPage').then((m) => ({ default: m.PairPage }))) },

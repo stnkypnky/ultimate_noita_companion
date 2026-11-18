@@ -10,13 +10,19 @@ import { LiveCrystal } from '@/ui/LiveCrystal';
 import { SyncChip } from '@/features/sync/SyncChip';
 import { RunToast } from '@/features/live/RunToast';
 import { useRunActive } from '@/features/live/state';
+import { useRuns } from '@/features/live/runs';
 import { useHasSave, useProgressHydrated } from '@/store/progress';
 
-/** Run shows in the nav while a game is running, and stays while you're on it after the game closes. */
+/**
+ * Run shows in the nav while a game is running, and stays while you're on it after the game closes. The rail
+ * (with room to spare) also keeps it while there are recorded runs to look back on; the phone bar doesn't.
+ */
 function useShowRun() {
   const active = useRunActive();
+  const hasRuns = useRuns((s) => s.records.length > 0);
   const { pathname } = useLocation();
-  return { show: active || pathname === RUN_ITEM.to, active };
+  const onRun = pathname === RUN_ITEM.to || pathname.startsWith(`${RUN_ITEM.to}/`);
+  return { show: active || onRun, rail: active || onRun || hasRuns, active };
 }
 
 function NavIcon({ item, size, className, active }: { item: NavItem; size: number; className: string; active: boolean }) {
@@ -84,7 +90,7 @@ function Rail() {
       </div>
       {/* A landscape phone gets the rail too: its items scroll when they don't fit the height. */}
       <ul className="scrollbar-thin flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 pb-2 lg:px-3 short:gap-0.5">
-        {railItems(run.show).map((item) => (
+        {railItems(run.rail).map((item) => (
           <li key={item.to}>
             <RailLink item={item} locked={locked(item.to)} live={run.active} />
           </li>

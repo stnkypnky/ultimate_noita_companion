@@ -6,9 +6,10 @@ import { Clock, Crosshair, Hand, Loader2, Package, Skull } from 'lucide-react';
 import { useData } from '@/data/store';
 import type { WorldMap } from '@/data/types';
 import { useProgress, useSpoilers } from '@/store/progress';
-import { Section } from '@/ui/controls';
+import { CollapsibleSection } from '@/ui/controls';
+import { AtlasIcon } from '@/ui/GameIcon';
 import { useNow } from '@/ui/time';
-import { MapView } from '@/features/map/MapView';
+import { MapView, type MarkerKind } from '@/features/map/MapView';
 import { MaterialName, PerkChip, ShopView } from '@/features/map/SeedPanel';
 import { loadMap, makeVisibility } from '@/features/map/world';
 import { useSeedLayers } from '@/features/map/useSeedLayers';
@@ -63,20 +64,22 @@ function useRunReport(seed: number, picks: string[][], map: WorldMap | null) {
   return report;
 }
 
-/** The cards that know where you are. Shown only with the newer mod (it sends a position). */
-export function SeedCards({ run, at }: { run: LiveRun; at: number }) {
+/**
+ * The cards that know where you are. Shown only with the newer mod (it sends a position). A past run shows
+ * where it ended and what it went through instead of what's next.
+ */
+export function useSeedCards(run: LiveRun, at: number, past: boolean) {
   const map = useWorldMap();
   const next = map && run.y !== undefined ? nextMountain(map, run.y) : null;
   const picks = useMemo(() => (next ? picksBefore(run, next) : []), [run, next]);
   const report = useRunReport(run.seed, picks, map);
-  if (run.x === undefined || run.y === undefined) return null;
-  return (
-    <>
-      {map && <MiniMap map={map} x={run.x} y={run.y} seed={run.seed} />}
-      <NextMountain next={next} report={report} />
-      {run.fungal && <NextFungal fungal={run.fungal} at={at} report={report} />}
-    </>
-  );
+  if (run.x === undefined || run.y === undefined) return { map: null, mountain: null, fungal: null };
+  const marker = past ? (run.status === 'dead' ? 'died' : 'last') : 'here';
+  return {
+    map: map && <MiniMap map={map} x={run.x} y={run.y} seed={run.seed} kind={marker} biome={run.biome?.name} />,
+    mountain: past ? <MountainsReached next={next} seed={run.seed} /> : <NextMountain next={next} report={report} />,
+    fungal: run.fungal ? past ? <FungalsDone count={run.fungal.count} report={report} /> : <NextFungal fungal={run.fungal} at={at} report={report} /> : null,
+  };
 }
 
 const mapSpoilersShown = () => {
@@ -87,7 +90,9 @@ const mapSpoilersShown = () => {
   }
 };
 
-function MiniMap({ map, x, y, seed }: { map: WorldMap; x: number; y: number; seed: number }) {
+const MARKER_TITLE = { here: 'Where you are', died: 'Where you died', last: 'Where you left off' } as const;
+
+function MiniMap({ map, x, y, seed, kind, biome }: { map: WorldMap; x: number; y: number; seed: number; kind: MarkerKind; biome?: string }) {
   const { materialById } = useData();
   const { mode, visible } = useSpoilers();
   const orbs = useProgress((s) => s.progress?.orbs);
@@ -101,7 +106,7 @@ function MiniMap({ map, x, y, seed }: { map: WorldMap; x: number; y: number; see
   }, [map, mode, visible, orbs, x, y]);
   const { layouts, wangColors } = useSeedLayers(seed > 0 ? seed : null);
   return (
-    <Section title="Where you are">
+    <CollapsibleSection id="run-map" title={MARKER_TITLE[kind]} summary={biome}>
       <div className="h-[300px]">
         <MapView
           map={map}
@@ -110,21 +115,68 @@ function MiniMap({ map, x, y, seed }: { map: WorldMap; x: number; y: number; see
           selected={null}
           onSelect={(cx, cy) => navigate(`/map/${cx}-${cy}?seed=${seed}`)}
           marker={{ x, y }}
+          markerKind={kind}
           follow
           layouts={layouts}
           wangColors={wangColors}
         />
       </div>
-    </Section>
+    </CollapsibleSection>
+  );
+}
+
+/** A past run: how far down it got, with this seed's mountains a tap away. */
+function MountainsReached({ next, seed }: { next: number | null; seed: number }) {
+  const reached = next === null ? 7 : next - 1;
+  return (
+    <CollapsibleSection id="run-mountains" title="Holy Mountains" summary={`${reached} reached`}>
+      <p className="text-sm text-muted">
+        {reached ? `Reached ${reached} of the 7 Holy Mountains.` : 'Ended before the first Holy Mountain.'}{' '}
+        <Link to={`/map?seed=${seed}#seed`} className="text-gold hover:underline">
+          This seed's perks and shops
+        </Link>
+      </p>
+    </CollapsibleSection>
+  );
+}
+
+/** A past run: the fungal shifts it went through. */
+function FungalsDone({ count, report }: { count: number; report: SeedReport | null }) {
+  const done = report?.fungal.slice(0, count) ?? [];
+  return (
+    <CollapsibleSection id="run-fungal" title="Fungal shifts" summary={`${count} this run`}>
+      {!count ? (
+        <p className="text-sm text-muted">No fungal shifts this run.</p>
+      ) : (
+        <ol className="space-y-1.5">
+          {done.map((shift, i) => (
+            <li key={i} className="slot flex flex-wrap items-center gap-x-2 gap-y-1 p-2 text-sm">
+              <span className="w-6 text-faint">{i + 1}.</span>
+              {shift.from.map((m) => (
+                <MaterialName key={m} id={m} />
+              ))}
+              <span className="text-faint">→</span>
+              <MaterialName id={shift.to} />
+            </li>
+          ))}
+          {!report && <li className="text-faint">Reading this seed…</li>}
+        </ol>
+      )}
+    </CollapsibleSection>
   );
 }
 
 function NextMountain({ next, report }: { next: number | null; report: SeedReport | null }) {
+  const { perkById } = useData();
   if (next === null) return null;
   const offered = report?.perks.mountains[next - 1];
   const shop = report?.shops[next - 1];
+  const summary = offered?.slice(0, 6).map((p, i) => {
+    const perk = perkById.get(p);
+    return perk ? <AtlasIcon key={`${p}${i}`} atlas="perks" icon={perk.icon} scale={1} /> : null;
+  });
   return (
-    <Section title={`Next: Holy Mountain ${next}`}>
+    <CollapsibleSection id="run-next-mountain" title={`Next: Holy Mountain ${next}`} summary={summary}>
       {!report ? (
         <p className="flex items-center gap-2 text-sm text-faint">
           <Loader2 size={14} className="animate-spin" /> Reading this seed…
@@ -147,7 +199,7 @@ function NextMountain({ next, report }: { next: number | null; report: SeedRepor
           <p className="text-[11px] text-faint">From the game's own scripts for this seed. After Extra Perk or Gamble the perks may differ.</p>
         </div>
       )}
-    </Section>
+    </CollapsibleSection>
   );
 }
 
@@ -155,8 +207,9 @@ function NextFungal({ fungal, at, report }: { fungal: NonNullable<LiveRun['funga
   const now = useNow(1000);
   const left = Math.max(0, Math.round(fungal.readyIn - (now - at) / 1000));
   const shift = report?.fungal[fungal.count];
+  const summary = fungal.count >= MAX_SHIFTS ? 'all used' : left ? `ready in ${clock(left)}` : <span className="text-toxic">ready now</span>;
   return (
-    <Section title="Next fungal shift">
+    <CollapsibleSection id="run-fungal" title="Next fungal shift" summary={summary}>
       {fungal.count >= MAX_SHIFTS ? (
         <p className="text-sm text-muted">All {MAX_SHIFTS} shifts used this run.</p>
       ) : (
@@ -183,7 +236,7 @@ function NextFungal({ fungal, at, report }: { fungal: NonNullable<LiveRun['funga
           )}
         </div>
       )}
-    </Section>
+    </CollapsibleSection>
   );
 }
 
@@ -195,8 +248,9 @@ export function RunStats({ run, at, active }: { run: LiveRun; at: number; active
   if (run.playtime === undefined && run.kills === undefined && !run.items?.length) return null;
   const ticking = active && run.status === 'alive';
   const playtime = run.playtime !== undefined ? run.playtime + (ticking ? Math.max(0, (now - at) / 1000) : 0) : undefined;
+  const summary = [playtime !== undefined && clock(playtime), run.kills !== undefined && `${run.kills} kills`].filter(Boolean).join(' · ');
   return (
-    <Section title="This run">
+    <CollapsibleSection id="run-stats" title="This run" summary={summary}>
       <div className="grid grid-cols-3 gap-2">
         {playtime !== undefined && <Stat icon={<Clock size={13} />} label="Time" value={clock(playtime)} />}
         {run.kills !== undefined && <Stat icon={<Crosshair size={13} />} label="Kills" value={String(run.kills)} />}
@@ -223,7 +277,7 @@ export function RunStats({ run, at, active }: { run: LiveRun; at: number; active
           })}
         </ul>
       )}
-    </Section>
+    </CollapsibleSection>
   );
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addFound, foldSnapshot, foundKeys, mergeRuns, parseRunRecord, MAX_RUNS, type RunRecord } from '../src/features/live/history.ts';
+import { addFound, foldSnapshot, foundKeys, mergeRuns, parseRunRecord, snapshotOf, MAX_RUNS, type RunRecord } from '../src/features/live/history.ts';
 import { parseLiveRun, parseLiveWand } from '../src/features/live/parse.ts';
 
 const wand = (spells: string[]) => ({
@@ -90,8 +90,9 @@ describe('run history', () => {
 
   it('accepts records from other devices only when well-formed, and merges by newest', () => {
     const rec = foldSnapshot(null, snap({}), 1, ctx).current!;
-    const back = parseRunRecord(JSON.parse(JSON.stringify(rec)), parseLiveWand);
+    const back = parseRunRecord(JSON.parse(JSON.stringify(rec)), parseLiveWand, parseLiveRun);
     expect(back).toEqual(JSON.parse(JSON.stringify(rec)));
+    expect(back!.last!.wands).toHaveLength(1);
     expect(parseRunRecord({ ...rec, outcome: 'won' }, parseLiveWand)).toBeNull();
     expect(parseRunRecord({ ...rec, found: ['<script>', 'enemy:zombie'] }, parseLiveWand)!.found).toEqual(['enemy:zombie']);
 
@@ -100,7 +101,24 @@ describe('run history', () => {
     expect(mergeRuns([newer], [rec])[0]!.gold).toBe(5);
     const lots = Array.from({ length: 70 }, (_, i) => ({ ...rec, id: `r${i}`, startedAt: i }));
     const merged = mergeRuns([], lots);
+    expect(MAX_RUNS).toBe(10);
     expect(merged).toHaveLength(MAX_RUNS);
     expect(merged[0]!.id).toBe('r69');
+  });
+
+  it('keeps the run as it last was, the death screen for a death, to show it again later', () => {
+    const run = foldSnapshot(null, snap({ x: 10, y: 2000, flasks: [{ name: 'Flask', capacity: 1000, contents: [{ material: 'water', amount: 500 }] }], seen: ['zombie'] }), 1000, ctx).current!;
+    expect(run.last).toMatchObject({ x: 10, y: 2000, status: 'alive' });
+    expect(run.last!.seen).toBeUndefined();
+    const dead = foldSnapshot(run, snap({ status: 'dead', killedBy: 'zombie', hp: 0, x: 40, y: 2600 }), 2000, ctx).current!;
+    expect(snapshotOf(dead)).toMatchObject({ status: 'dead', killedBy: 'zombie', x: 40, y: 2600, hp: 0 });
+    expect(snapshotOf(dead).flasks).toEqual([]);
+    // Records from before snapshots were kept: rebuilt from the record, without position or flasks.
+    const { last: _last, ...old } = dead;
+    const rebuilt = snapshotOf(parseRunRecord(JSON.parse(JSON.stringify(old)), parseLiveWand, parseLiveRun)!);
+    expect(rebuilt).toMatchObject({ status: 'dead', seed: 42, hp: 0, wands: [{ name: 'Wand' }], flasks: [] });
+    expect(rebuilt.x).toBeUndefined();
+    // A snapshot from another device for a different seed is not trusted.
+    expect(parseRunRecord({ ...JSON.parse(JSON.stringify(dead)), last: { ...dead.last, seed: 9 } }, parseLiveWand, parseLiveRun)!.last).toBeUndefined();
   });
 });

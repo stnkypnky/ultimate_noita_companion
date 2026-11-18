@@ -149,27 +149,67 @@ await writeSave(pc, { 'persistent/flags/action_nuke': '', 'companion_live.json':
 await phone.getByText('55 / 100').waitFor({ timeout: 30000 });
 console.log(`phone: live HP update in ${Date.now() - t0} ms`);
 
+// Phones: sections start folded with a summary line; a tap opens one, and it stays open after a reload.
+const flasksToggle = phone.getByRole('button', { name: /^Flasks/ });
+if ((await flasksToggle.getAttribute('aria-expanded')) !== 'false') throw new Error('Flasks should start folded on a phone');
+await flasksToggle.click();
+await phone.getByText('700', { exact: true }).waitFor({ timeout: 5000 });
+await phone.reload();
+await phone.getByText('700', { exact: true }).waitFor({ timeout: 30000 });
+console.log('phone: folded sections open on tap and are remembered');
+
 // Run history: what the run found reaches the phone; a death and a new run turn it into a past run.
 try {
-  await phone.getByText(/^Creatures \+\d+$/).first().waitFor({ timeout: 40000 });
+  await phone.getByText(/\+\d+ creatures/).first().waitFor({ timeout: 40000 });
 } catch (e) {
   console.log('phone run page:', (await phone.locator('main').innerText()).slice(0, 2500));
   console.log('PC run page:', (await pc.locator('main').innerText()).slice(0, 2500));
   throw e;
 }
-console.log('phone: creatures met this run listed under Found this run');
+console.log('phone: creatures met this run counted in Found this run');
 const dead = JSON.parse(liveRun(0, 300));
-await writeSave(pc, { 'companion_live.json': JSON.stringify({ ...dead, status: 'dead', killedBy: 'zombie_weak' }) });
+await writeSave(pc, { 'companion_live.json': JSON.stringify({ ...dead, status: 'dead', killedBy: 'zombie_weak', x: 320, y: 2450 }) });
 await phone.getByText('You died').first().waitFor({ timeout: 30000 });
 await writeSave(pc, { 'companion_live.json': JSON.stringify({ ...JSON.parse(liveRun(100, 0)), seed: 777, playtime: 3 }) });
-await phone.getByText('Past runs', { exact: true }).waitFor({ timeout: 40000 });
-await phone.getByText(/^Died · zombie weak$/).first().waitFor({ timeout: 10000 });
-console.log('phone: the finished run is under Past runs');
+// The died run is in the switcher; it opens in the same Run page, as it was at the end.
+const pastChip = phone.locator('nav[aria-label="Runs"] a[href*="/run/1492787966-"]');
+await pastChip.waitFor({ timeout: 40000 });
+await pastChip.click();
+await phone.getByText(/^Died · killed by zombie weak$/).waitFor({ timeout: 15000 });
+await phone.getByText('Damage / sec').first().waitFor({ timeout: 30000 });
+await phone.getByRole('button', { name: 'Open in builder' }).first().waitFor();
+await phone.getByRole('button', { name: /^Where you died/ }).waitFor();
+console.log('phone: the died run reopens in the Run page with its wands and where you died');
+await phone.goto(BASE);
+await phone.getByText('Run in progress').first().waitFor({ timeout: 15000 });
 await phone.goto(`${BASE}progress`);
 await phone.getByText(/^3\s*\/\s*\d+/).first().waitFor({ timeout: 30000 });
 console.log('phone: new spell discovery arrived (3 spells)');
 
+// A phone turned sideways gets the side rail: its last item must still be reachable.
+{
+  const ctx = await browser.newContext({ viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true });
+  const land = await ctx.newPage();
+  await land.goto(BASE);
+  const settings = land.locator('nav[aria-label="Main"]:visible').getByRole('link', { name: 'Settings' });
+  await settings.scrollIntoViewIfNeeded();
+  const box = await settings.boundingBox();
+  if (!box || box.y < 0 || box.y + box.height > 390) throw new Error(`Settings is off screen in landscape: ${JSON.stringify(box)}`);
+  // The first-run welcome dialog covers the page in a fresh browser: dispatch the click.
+  await settings.dispatchEvent('click');
+  await land.waitForURL(/\/settings$/, { timeout: 5000 });
+  if (shots) await land.screenshot({ path: join(shots, 'phone-landscape.png') });
+  await ctx.close();
+  console.log('landscape phone: the rail scrolls to its last item');
+}
+
 if (shots) {
+  await phone.goto(`${BASE}run`);
+  await phone.locator('nav[aria-label="Runs"] a[href*="/run/1492787966-"]').click();
+  await phone.getByText('Damage / sec').first().waitFor({ timeout: 30000 });
+  await phone.getByRole('button', { name: /^Where you died/ }).click();
+  await phone.waitForTimeout(2500);
+  await phone.screenshot({ path: join(shots, 'phone-past-run.png'), fullPage: true });
   await pc.goto(BASE);
   await pc.getByText('Run in progress').first().waitFor();
   await pc.screenshot({ path: join(shots, 'pc-home-live.png') });

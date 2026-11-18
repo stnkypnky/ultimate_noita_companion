@@ -37,11 +37,20 @@ export type RunRecord = {
   found: string[];
   /** Every spell carried at some point this run (to tell new pickups apart). */
   carried: string[];
+  /** The run as it last was (the death screen, for a death): the Run page shows a past run from it. */
+  last?: LiveRun;
 };
 
 export const MAX_EVENTS = 200;
 export const MAX_HP_SAMPLES = 240;
-export const MAX_RUNS = 50;
+/** Runs kept and synced, the ongoing one included. */
+export const MAX_RUNS = 10;
+
+/** A snapshot as kept on a record: without the creatures-met list (the record's `found` has what matters). */
+const keepSnapshot = (run: LiveRun): LiveRun => {
+  const { seen: _seen, time: _time, ...rest } = run;
+  return structuredClone(rest);
+};
 const HP_SAMPLE_MS = 30_000;
 
 /** What the save (not the live run) already knew before: flags, creatures, and earlier runs' discoveries. */
@@ -160,6 +169,7 @@ export function foldSnapshot(
   if (run.playtime !== undefined) rec.playtime = run.playtime;
   rec.perks = run.perks.map((p) => ({ ...p }));
   rec.wands = run.wands.map((w) => ({ ...w, mana: undefined }));
+  rec.last = keepSnapshot(run);
   if (run.status === 'dead') {
     rec.outcome = 'died';
     rec.endedAt = at;
@@ -168,6 +178,29 @@ export function foldSnapshot(
   }
   rec.updatedAt = at;
   return { current: rec, closed, changed: true };
+}
+
+/** The run to show for a record: its last snapshot, or (records from before snapshots were kept) one rebuilt from it. */
+export function snapshotOf(rec: RunRecord): LiveRun {
+  if (rec.last) return rec.outcome === 'died' ? { ...rec.last, status: 'dead', killedBy: rec.last.killedBy ?? rec.killedBy } : rec.last;
+  const hp = rec.hp.at(-1);
+  return {
+    status: rec.outcome === 'died' ? 'dead' : 'alive',
+    seed: rec.seed,
+    ngPlus: rec.ngPlus,
+    ...(rec.deepest ? { biome: { id: '', name: rec.deepest } } : {}),
+    ...(hp ? { hp: rec.outcome === 'died' ? 0 : hp[1], maxHp: hp[2] } : {}),
+    gold: rec.gold,
+    depth: rec.maxDepth,
+    wands: rec.wands,
+    flasks: [],
+    spells: [],
+    perks: rec.perks,
+    ...(rec.kills !== undefined ? { kills: rec.kills } : {}),
+    ...(rec.orbs !== undefined ? { orbs: rec.orbs } : {}),
+    ...(rec.playtime !== undefined ? { playtime: rec.playtime } : {}),
+    ...(rec.killedBy ? { killedBy: rec.killedBy } : {}),
+  };
 }
 
 /** Every key discovered in any recorded run (they stay discovered after the run ends). */
@@ -181,14 +214,21 @@ const KEY = /^[A-Za-z0-9_:$.-]{1,120}$/;
 const EVENT_KINDS = new Set<RunEventKind>(['start', 'biome', 'perk', 'spell', 'wand', 'item', 'found', 'hp_low', 'died']);
 
 /** A run record from another device: checked field by field, capped, or null. */
-export function parseRunRecord(x: unknown, parseWand: (w: unknown) => LiveWand | null): RunRecord | null {
+export function parseRunRecord(
+  x: unknown,
+  parseWand: (w: unknown) => LiveWand | null,
+  parseRun?: (r: unknown) => LiveRun | null,
+): RunRecord | null {
   if (!x || typeof x !== 'object' || Array.isArray(x)) return null;
   const o = x as Record<string, unknown>;
   if (!isStr(o.id, 64) || !isNum(o.seed) || !isNum(o.startedAt) || !isNum(o.updatedAt)) return null;
   const outcome = o.outcome === 'died' || o.outcome === 'ended' || o.outcome === 'ongoing' ? o.outcome : null;
   if (!outcome) return null;
   const list = (v: unknown, max: number) => (Array.isArray(v) ? v.slice(0, max) : []);
+  const lastRaw = o.last && typeof o.last === 'object' && !Array.isArray(o.last) ? { ...(o.last as object), v: 1 } : null;
+  const last = lastRaw && parseRun ? parseRun(lastRaw) : null;
   return {
+    ...(last && last.seed === o.seed ? { last: keepSnapshot(last) } : {}),
     id: o.id,
     seed: o.seed,
     ngPlus: isNum(o.ngPlus) ? o.ngPlus : 0,

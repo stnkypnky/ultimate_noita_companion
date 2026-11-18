@@ -1,7 +1,8 @@
 // The Run page's building blocks: wands (with a simulated cast), flasks, perks and the detail sheet.
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { AlertTriangle, Wand2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Wand2 } from 'lucide-react';
+import { useIsDesktop } from '@/ui/hooks';
 import { useData } from '@/data/store';
 import { fmtNum, seconds } from '@/data/format';
 import { ALCHEMY_KEY } from '@/data/spoilers';
@@ -27,22 +28,24 @@ export type OpenDetail = (d: Detail) => void;
 const wandKey = (w: LiveWand) => JSON.stringify({ ...w, mana: undefined, active: undefined });
 
 /** Every carried wand, active first, each simulated with the run's other wands (for spells that copy them). */
-export function Wands({ run, onOpen }: { run: LiveRun; onOpen: OpenDetail }) {
+export function Wands({ run, onOpen, past }: { run: LiveRun; onOpen: OpenDetail; past?: boolean }) {
   const unlimited = run.perks.some((p) => p.id === 'UNLIMITED_SPELLS');
   const options = useMemo<SimOptions>(() => ({ ...DEFAULT_OPTIONS, unlimitedSpells: unlimited }), [unlimited]);
   const ordered = [...run.wands].sort((a, b) => Number(b.active) - Number(a.active));
-  if (!ordered.length) return <p className="panel p-4 text-sm text-muted">No wands in hand.</p>;
+  if (!ordered.length) return <p className="panel p-4 text-sm text-muted">{past ? 'No wands.' : 'No wands in hand.'}</p>;
   return (
     <div className="space-y-3">
       {ordered.map((w) => (
-        <WandCard key={run.wands.indexOf(w)} wand={w} all={run.wands} options={options} onOpen={onOpen} />
+        <WandCard key={run.wands.indexOf(w)} wand={w} all={run.wands} options={options} onOpen={onOpen} past={past} />
       ))}
     </div>
   );
 }
 
-function WandCard({ wand, all, options, onOpen }: { wand: LiveWand; all: LiveWand[]; options: SimOptions; onOpen: OpenDetail }) {
+function WandCard({ wand, all, options, onOpen, past }: { wand: LiveWand; all: LiveWand[]; options: SimOptions; onOpen: OpenDetail; past?: boolean }) {
   const navigate = useNavigate();
+  const desktop = useIsDesktop();
+  const [showStats, setShowStats] = useState(false);
   const key = wandKey(wand);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const built = useMemo(() => toBuilderWand(wand), [key]);
@@ -74,7 +77,7 @@ function WandCard({ wand, all, options, onOpen }: { wand: LiveWand; all: LiveWan
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="font-game truncate text-[16px]">{wand.name || 'Wand'}</h3>
-          {wand.active && <span className="font-game-caps text-[8px] text-toxic">In hand</span>}
+          {wand.active && <span className="font-game-caps text-[8px] text-toxic">{past ? 'Last held' : 'In hand'}</span>}
         </div>
         <button
           onClick={() => void encodeWand(built).then((code) => navigate(`/wand#w=${code}`))}
@@ -84,7 +87,7 @@ function WandCard({ wand, all, options, onOpen }: { wand: LiveWand; all: LiveWan
         </button>
       </header>
 
-      {wand.mana !== undefined && wand.manaMax > 0 && (
+      {!past && wand.mana !== undefined && wand.manaMax > 0 && (
         <div className="mt-3 flex items-center gap-2 text-xs text-muted">
           <HudBar value={Math.max(0, Math.min(1, wand.mana / wand.manaMax))} color="#42a8e2" className="flex-1" label="Mana" />
           <span className="font-game w-20 text-right text-[16px] text-ink">
@@ -96,15 +99,23 @@ function WandCard({ wand, all, options, onOpen }: { wand: LiveWand; all: LiveWan
 
       <WandSlotsRow wand={wand} onOpen={onOpen} />
 
-      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
-        {stats.map((st) => (
-          <div key={st.label} className="flex items-center gap-1.5">
-            <StatIcon name={st.icon} />
-            <dt className="text-faint">{st.label}</dt>
-            <dd className="ml-auto font-medium text-ink tabular-nums">{st.value}</dd>
-          </div>
-        ))}
-      </dl>
+      {/* Phones: the wand's stats fold away so the slots and the simulation stay in view. */}
+      {(desktop || showStats) && (
+        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
+          {stats.map((st) => (
+            <div key={st.label} className="flex items-center gap-1.5">
+              <StatIcon name={st.icon} />
+              <dt className="text-faint">{st.label}</dt>
+              <dd className="ml-auto font-medium text-ink tabular-nums">{st.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {!desktop && (
+        <button onClick={() => setShowStats(!showStats)} aria-expanded={showStats} className="mt-2 inline-flex min-h-9 items-center gap-1 text-xs text-muted hover:text-ink">
+          <ChevronDown size={14} className={showStats ? 'rotate-180' : ''} /> {showStats ? 'Hide wand stats' : `Wand stats · ${seconds(wand.castDelay)} delay · ${seconds(wand.rechargeTime)} recharge`}
+        </button>
+      )}
 
       {s ? (
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -241,6 +252,50 @@ function FlaskRow({ flask, secret, onOpen }: { flask: LiveFlask; secret: Map<str
         </ul>
       )}
     </div>
+  );
+}
+
+// ---------- one-line summaries for folded sections on phones ----------
+
+export function PerkSummary({ run }: { run: LiveRun }) {
+  const { perkById } = useData();
+  if (!run.perks.length) return <>none</>;
+  return (
+    <>
+      {run.perks.slice(0, 8).map((p) => {
+        const perk = perkById.get(p.id);
+        return perk ? <AtlasIcon key={p.id} atlas="perks" icon={perk.icon} scale={1} /> : null;
+      })}
+      {run.perks.length > 8 && <span>+{run.perks.length - 8}</span>}
+    </>
+  );
+}
+
+export function SpellSummary({ run }: { run: LiveRun }) {
+  const { spellById } = useData();
+  return (
+    <>
+      {run.spells.slice(0, 6).map((sp, i) => {
+        const s = spellById.get(sp.id);
+        return s ? <SpellIcon key={i} type={s.type} icon={s.icon} scale={1} /> : null;
+      })}
+      {run.spells.length > 6 && <span>+{run.spells.length - 6}</span>}
+    </>
+  );
+}
+
+export function FlaskSummary({ run }: { run: LiveRun }) {
+  const { materialById } = useData();
+  const { isVisible } = useMaterialVisibility();
+  if (!run.flasks.length) return <>none</>;
+  return (
+    <>
+      {run.flasks.map((f, i) => {
+        const main = [...f.contents].sort((a, b) => b.amount - a.amount)[0];
+        const m = main && materialById.get(main.material);
+        return m ? <MaterialSwatch key={i} material={m} size={14} hidden={!isVisible(main.material)} /> : <span key={i}>empty</span>;
+      })}
+    </>
   );
 }
 

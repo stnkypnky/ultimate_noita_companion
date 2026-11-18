@@ -1,77 +1,173 @@
 // The live companion for the run you're playing: everything in hand, simulated and explained, plus what
 // this seed holds. Data comes from the companion mod, read on the PC or relayed by a paired device.
-import { useState } from 'react';
-import { Link } from 'react-router';
+// A recent run opens in the same view, as it was when it ended (/run/:id).
+import { useState, type ReactNode } from 'react';
+import { Link, Navigate, useParams } from 'react-router';
 import { Check, ClipboardCopy, Coins, Eye, Heart, Map as MapIcon, MapPin, Skull } from 'lucide-react';
 import { ALCHEMY_KEY } from '@/data/spoilers';
 import { useSpoilers } from '@/store/progress';
 import { Page } from '@/ui/Page';
-import { Section } from '@/ui/controls';
+import { CollapsibleSection } from '@/ui/controls';
 import { HudBar } from '@/ui/game';
+import { useIsDesktop } from '@/ui/hooks';
 import { LiveCrystal } from '@/ui/LiveCrystal';
 import { timeAgo, useNow } from '@/ui/time';
 import { RecipeCard } from '@/features/alchemy/AlchemyPage';
 import { alchemyRecipes } from '@/features/alchemy/aplc';
 import { ModInstall } from './ModInstall';
-import { RunStats, SeedCards } from './seedCards';
-import { FoundThisRun, PastRuns, Timeline, useRunRecord } from './historyParts';
-import { DetailSheet, Flasks, Perks, SpellButton, Wands, type Detail } from './parts';
+import { RunStats, useSeedCards } from './seedCards';
+import { FoundThisRun, RunSwitcher, Timeline, useRunRecord } from './historyParts';
+import { DetailSheet, FlaskSummary, Flasks, PerkSummary, Perks, SpellButton, SpellSummary, Wands, type Detail } from './parts';
+import { MAX_RUNS, snapshotOf, type RunRecord } from './history';
+import { clock, killedByText } from './runMath';
 import type { LiveRun } from './parse';
+import { useRuns } from './runs';
 import { useLiveRun } from './state';
 
+/** /run: the game being played; with none, the latest recorded run. */
 export function RunPage() {
   const { run, at, from, active } = useLiveRun();
-  const [detail, setDetail] = useState<Detail | null>(null);
   const rec = useRunRecord(run);
-  if (!run) return <NoRun />;
+  const { records, loaded } = useRuns();
+  if (!run) {
+    if (!loaded) return null;
+    return records[0] ? <Navigate to={`/run/${encodeURIComponent(records[0].id)}`} replace /> : <NoRun />;
+  }
   return (
-    <Page title="Current run" subtitle={<RunStatus run={run} at={at} from={from} active={active} />} toolbar={run.status !== 'no_player' && <Hud run={run} />}>
-      {run.status === 'no_player' ? (
+    <RunView
+      run={run}
+      at={at}
+      rec={rec}
+      past={false}
+      status={<LiveStatus run={run} at={at} from={from} active={active} />}
+      switcher={<RunSwitcher selected="live" liveId={rec?.id} active={active} />}
+    />
+  );
+}
+
+/** /run/:id: a recorded run, as it was when it ended (or was last seen). */
+export function PastRunPage() {
+  const { id = '' } = useParams();
+  const { records, loaded } = useRuns();
+  const { active, run } = useLiveRun();
+  const liveRec = useRunRecord(run);
+  const rec = records.find((r) => r.id === id);
+  if (!loaded) return null;
+  // The run being played right now lives at /run.
+  if (rec && active && liveRec?.id === rec.id) return <Navigate to="/run" replace />;
+  if (!rec)
+    return (
+      <Page title="Run" subtitle="Not kept any more">
+        <p className="panel mt-2 p-6 text-center text-sm text-muted">
+          Only the {MAX_RUNS} most recent runs are kept.{' '}
+          <Link to="/run" className="text-gold hover:underline">
+            Back to runs
+          </Link>
+        </p>
+      </Page>
+    );
+  const snap = snapshotOf(rec);
+  return (
+    <RunView
+      run={snap}
+      at={rec.updatedAt}
+      rec={rec}
+      past
+      status={<PastStatus rec={rec} />}
+      switcher={<RunSwitcher selected={rec.id} liveId={liveRec?.id} active={active} />}
+    />
+  );
+}
+
+function RunView({ run, at, rec, past, status, switcher }: { run: LiveRun; at: number; rec?: RunRecord; past: boolean; status: ReactNode; switcher: ReactNode }) {
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const desktop = useIsDesktop();
+  const { active } = useLiveRun();
+  const seed = useSeedCards(run, at, past);
+  const waiting = !past && run.status === 'no_player';
+
+  const wands = (
+    <CollapsibleSection id="run-wands" title="Wands" defaultOpen summary={`${run.wands.length} wand${run.wands.length === 1 ? '' : 's'}`}>
+      <Wands run={run} onOpen={setDetail} past={past} />
+    </CollapsibleSection>
+  );
+  const bag = run.spells.length > 0 && (
+    <CollapsibleSection id="run-bag" title="Spells in your bag" summary={<SpellSummary run={run} />}>
+      <div className="flex flex-wrap gap-0.5">
+        {run.spells.map((s, i) => (
+          <SpellButton key={i} spell={s} onOpen={setDetail} />
+        ))}
+      </div>
+    </CollapsibleSection>
+  );
+  const stats = <RunStats run={run} at={at} active={!past && active} />;
+  const flasks = (
+    <CollapsibleSection id="run-flasks" title="Flasks" summary={<FlaskSummary run={run} />}>
+      <Flasks run={run} onOpen={setDetail} />
+    </CollapsibleSection>
+  );
+  const perks = (
+    <CollapsibleSection id="run-perks" title="Perks" summary={<PerkSummary run={run} />}>
+      <Perks run={run} onOpen={setDetail} />
+    </CollapsibleSection>
+  );
+  const found = <FoundThisRun rec={rec} onOpen={setDetail} />;
+  const timeline = <Timeline rec={rec} />;
+  const thisSeed = run.seed > 0 && <ThisSeed seed={run.seed} />;
+  const update = !run.mod && !past && (
+    <p className="mt-4 text-xs text-faint">
+      Update the companion mod (<Link to="/settings" className="text-muted underline hover:text-ink">Settings</Link>) for a live map, the next Holy
+      Mountain, the fungal shift timer, run stats and creatures met.
+    </p>
+  );
+
+  return (
+    <Page title={past ? 'Run' : 'Current run'} subtitle={status} toolbar={!waiting && <Hud run={run} past={past} />}>
+      {switcher}
+      {waiting ? (
         <p className="panel mt-2 p-6 text-center text-sm text-muted">Noita is open — waiting for a run to start.</p>
-      ) : (
+      ) : desktop ? (
         <div className="grid gap-x-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
           <div>
-            <Section title="Wands">
-              <Wands run={run} onOpen={setDetail} />
-            </Section>
-            {run.spells.length > 0 && (
-              <Section title="Spells in your bag">
-                <div className="flex flex-wrap gap-0.5">
-                  {run.spells.map((s, i) => (
-                    <SpellButton key={i} spell={s} onOpen={setDetail} />
-                  ))}
-                </div>
-              </Section>
-            )}
-            <FoundThisRun rec={rec} onOpen={setDetail} />
-            <Timeline rec={rec} />
+            {wands}
+            {bag}
+            {found}
+            {timeline}
           </div>
           <div>
-            <RunStats run={run} at={at} active={active} />
-            <Section title="Flasks">
-              <Flasks run={run} onOpen={setDetail} />
-            </Section>
-            <Section title="Perks">
-              <Perks run={run} onOpen={setDetail} />
-            </Section>
-            <SeedCards run={run} at={at} />
-            {run.seed > 0 && <ThisSeed seed={run.seed} />}
-            {!run.mod && (
-              <p className="mt-4 text-xs text-faint">
-                Update the companion mod (<Link to="/settings" className="text-muted underline hover:text-ink">Settings</Link>) for a live map, the next
-                Holy Mountain, the fungal shift timer, run stats and creatures met.
-              </p>
-            )}
+            {stats}
+            {flasks}
+            {perks}
+            {seed.map}
+            {seed.mountain}
+            {seed.fungal}
+            {thisSeed}
+            {update}
           </div>
         </div>
+      ) : (
+        // Phones and tablets: one column, what matters mid-fight first; everything but the wands starts folded.
+        <div>
+          {wands}
+          {stats}
+          {flasks}
+          {perks}
+          {bag}
+          {seed.mountain}
+          {seed.fungal}
+          {seed.map}
+          {found}
+          {timeline}
+          {thisSeed}
+          {update}
+        </div>
       )}
-      <PastRuns exclude={rec?.id} />
       <DetailSheet detail={detail} onClose={() => setDetail(null)} />
     </Page>
   );
 }
 
-function RunStatus({ run, at, from, active }: { run: LiveRun; at: number; from: string | null; active: boolean }) {
+function LiveStatus({ run, at, from, active }: { run: LiveRun; at: number; from: string | null; active: boolean }) {
   const now = useNow(10_000);
   const label = !active ? `Game closed? Last seen ${timeAgo(at, now)}` : run.status === 'dead' ? 'You died' : run.status === 'paused' ? 'Paused' : 'Live';
   return (
@@ -84,8 +180,29 @@ function RunStatus({ run, at, from, active }: { run: LiveRun; at: number; from: 
   );
 }
 
+function PastStatus({ rec }: { rec: RunRecord }) {
+  const now = useNow(60_000);
+  const label =
+    rec.outcome === 'died'
+      ? `Died${rec.killedBy ? ` · killed by ${killedByText(rec.killedBy)}` : ''}`
+      : rec.outcome === 'ended'
+        ? 'Ended'
+        : `Game closed · last seen ${timeAgo(rec.updatedAt, now)}`;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
+      {rec.outcome === 'died' ? <Skull size={15} className="text-blood" /> : <LiveCrystal size={16} off />}
+      <span className={rec.outcome === 'died' ? 'text-blood' : ''}>{label}</span>
+      <span className="text-faint">
+        · {new Date(rec.startedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+        {rec.playtime !== undefined && ` · ${clock(rec.playtime)}`}
+        {rec.ngPlus > 0 && ` · NG+${rec.ngPlus > 1 ? rec.ngPlus : ''}`}
+      </span>
+    </span>
+  );
+}
+
 /** Health, gold and where you are: sticks under the title while you scroll. */
-function Hud({ run }: { run: LiveRun }) {
+function Hud({ run, past }: { run: LiveRun; past: boolean }) {
   return (
     <div className="grid grid-cols-2 items-center gap-x-4 gap-y-2 sm:grid-cols-[minmax(0,2fr)_auto_minmax(0,1.5fr)]">
       {run.hp !== undefined && run.maxHp ? (
@@ -107,7 +224,7 @@ function Hud({ run }: { run: LiveRun }) {
       {run.biome && (
         <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted">
           <MapPin size={14} className="shrink-0 text-ember" /> <span className="truncate text-ink">{run.biome.name}</span>
-          {run.depth !== undefined && <span className="shrink-0 text-faint">· {Math.round(run.depth)} m</span>}
+          {run.depth !== undefined && <span className="shrink-0 text-faint">· {Math.round(run.depth)} m{past ? ' deep' : ''}</span>}
         </div>
       )}
     </div>
@@ -119,7 +236,7 @@ function ThisSeed({ seed }: { seed: number }) {
   const [copied, setCopied] = useState(false);
   const recipes = visible(ALCHEMY_KEY) ? alchemyRecipes(seed) : null;
   return (
-    <Section title="This seed">
+    <CollapsibleSection id="run-seed" title="This seed" summary={<span className="font-mono">{seed}</span>}>
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -148,7 +265,7 @@ function ThisSeed({ seed }: { seed: number }) {
           </button>
         )}
       </div>
-    </Section>
+    </CollapsibleSection>
   );
 }
 
@@ -160,13 +277,13 @@ function NoRun() {
         <h2 className="mt-3 font-game text-[24px]">No game running</h2>
         <p className="mx-auto mt-1 max-w-md text-sm text-muted">
           Start Noita with the companion mod and this page lights up: your health, wands with their damage simulated, flasks, perks and
-          this seed's secrets. Paired phones see it too.
+          this seed's secrets. Paired phones see it too, and your last {MAX_RUNS} runs stay here to look back on.
         </p>
       </div>
-      <PastRuns />
-      <Section title="Set up the companion mod">
+      <section className="mt-5">
+        <h3 className="font-game-caps mb-2 text-[16px] text-gold/80">Set up the companion mod</h3>
         <ModInstall />
-      </Section>
+      </section>
     </Page>
   );
 }

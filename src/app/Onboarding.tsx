@@ -36,7 +36,7 @@ export function Onboarding() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="onboard-title"
-            className="panel safe-bottom w-full max-w-md p-6"
+            className="panel safe-bottom max-h-dvh w-full max-w-md overflow-y-auto p-6 short:p-4"
             initial={{ y: 40, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 40, opacity: 0 }}

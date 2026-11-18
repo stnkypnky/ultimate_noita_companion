@@ -175,6 +175,15 @@ function layoutCanvas(map: WorldMap, l: AreaLayout, wangColors: Record<string, s
   return c;
 }
 
+export type MarkerKind = 'here' | 'died' | 'last';
+const MARKER_LOOK: Record<MarkerKind, { glow: string; edge: string; body: string; shine: string }> = {
+  here: { glow: 'rgba(185,247,154,0.9)', edge: '#173d14', body: '#8fe86a', shine: '#e2ffd2' },
+  died: { glow: 'rgba(226,68,92,0.85)', edge: '#1a0507', body: '#f2e6c9', shine: '#ffffff' },
+  last: { glow: 'rgba(200,190,180,0.6)', edge: '#2a2420', body: '#b9aa9c', shine: '#f3ede6' },
+};
+/** 7 × 7, centred on the marker. */
+const SKULL = [' ##### ', '#######', '#  #  #', '#######', ' ## ## ', ' # # # ', '       '];
+
 /** The world map: biomes in their own rock, the game's fixed rooms on top. Drag to pan, wheel or pinch to zoom. */
 export function MapView({
   map,
@@ -186,6 +195,7 @@ export function MapView({
   wangColors,
   marker,
   follow,
+  markerKind = 'here',
 }: {
   map: WorldMap;
   vis: Vis;
@@ -199,6 +209,8 @@ export function MapView({
   marker?: { x: number; y: number } | null;
   /** Start zoomed in on the marker and keep it centred as it moves. */
   follow?: boolean;
+  /** What the marker means: you, live; where a past run died; where it was last seen. */
+  markerKind?: MarkerKind;
 }) {
   const caves = useMemo(() => {
     const out = new Map<number, HTMLCanvasElement>();
@@ -461,21 +473,37 @@ export function MapView({
       ctx.strokeRect(Math.round(sx) + 1, Math.round(sy) + 1, Math.max(4, cs - 2), Math.max(4, cs - 2));
     }
     if (mx !== undefined && my !== undefined) {
-      // A green "you are here" light, like the live crystal.
-      const [sx, sy] = toScreen(mx, my);
+      const [fx, fy] = toScreen(mx, my);
+      const sx = Math.round(fx);
+      const sy = Math.round(fy);
+      const look = MARKER_LOOK[markerKind];
       const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, 16);
-      glow.addColorStop(0, 'rgba(185,247,154,0.9)');
-      glow.addColorStop(1, 'rgba(123,214,92,0)');
+      glow.addColorStop(0, look.glow);
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = glow;
       ctx.fillRect(sx - 16, sy - 16, 32, 32);
-      ctx.fillStyle = '#173d14';
-      ctx.fillRect(Math.round(sx) - 4, Math.round(sy) - 4, 8, 8);
-      ctx.fillStyle = '#8fe86a';
-      ctx.fillRect(Math.round(sx) - 3, Math.round(sy) - 3, 6, 6);
-      ctx.fillStyle = '#e2ffd2';
-      ctx.fillRect(Math.round(sx) - 2, Math.round(sy) - 2, 2, 2);
+      if (markerKind === 'died') {
+        // A pixel skull: where the run ended.
+        const px = 2;
+        ctx.fillStyle = '#1a0507';
+        ctx.fillRect(sx - 4 * px, sy - 4 * px, 8 * px, 8 * px);
+        ctx.fillStyle = look.body;
+        SKULL.forEach((row, r) =>
+          [...row].forEach((c, k) => {
+            if (c === '#') ctx.fillRect(sx + (k - 3) * px, sy + (r - 3) * px, px, px);
+          }),
+        );
+      } else {
+        // A "you are here" light like the live crystal; grey where a past run left off.
+        ctx.fillStyle = look.edge;
+        ctx.fillRect(sx - 4, sy - 4, 8, 8);
+        ctx.fillStyle = look.body;
+        ctx.fillRect(sx - 3, sy - 3, 6, 6);
+        ctx.fillStyle = look.shine;
+        ctx.fillRect(sx - 2, sy - 2, 2, 2);
+      }
     }
-  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, caveBiomes, wangColors, sceneColor, mx, my]);
+  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, caveBiomes, wangColors, sceneColor, mx, my, markerKind]);
 
   // Pointer: drag pans, two fingers pinch, a tap selects.
   const pointers = useRef(new Map<number, { x: number; y: number }>());
