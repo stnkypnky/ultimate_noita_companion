@@ -96,7 +96,7 @@ export const useProgress = create<ProgressState>()(
         modeAt: 0,
         setMode: (mode) => set({ mode, modeAt: Date.now() }),
         setOnboarded: () => set({ onboarded: true }),
-        importProgress: (progress) => set({ progress, onboarded: true, mode: 'progress' }),
+        importProgress: (progress) => set((s) => ({ progress, onboarded: true, mode: 'progress', modeAt: s.mode === 'progress' ? s.modeAt : Date.now() })),
         updateProgress: (progress) => set({ progress, onboarded: true }),
         clearProgress: () => set({ progress: null }),
         reveal: (key) => set((s) => (s.revealed.includes(key) ? s : logged(s, [key], true))),

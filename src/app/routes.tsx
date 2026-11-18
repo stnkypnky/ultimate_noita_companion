@@ -26,6 +26,7 @@ export const router = createBrowserRouter(
         { path: 'alchemy', ...page(() => import('@/features/alchemy/AlchemyPage').then((m) => ({ default: m.AlchemyPage }))) },
         { path: 'progress', ...page(() => import('@/features/progress/ProgressPage').then((m) => ({ default: m.ProgressPage }))) },
         { path: 'import', ...page(() => import('@/features/progress/ImportPage').then((m) => ({ default: m.ImportPage }))) },
+        { path: 'pair', ...page(() => import('@/features/sync/PairPage').then((m) => ({ default: m.PairPage }))) },
         { path: 'settings', ...page(() => import('@/features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage }))) },
         { path: '*', element: <NotFound /> },
       ],

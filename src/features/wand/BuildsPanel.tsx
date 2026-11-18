@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import QRCode from 'qrcode';
 import { Check, ClipboardCopy, Copy, Save, Trash2 } from 'lucide-react';
 import { useData } from '@/data/store';
-import { db } from '@/store/db';
+import { db, deleteBuild } from '@/store/db';
 import { SpellIcon } from '@/ui/GameIcon';
 import { decodeWand, encodeWand, type Wand } from './model';
 import { useWand } from './store';
@@ -96,7 +96,7 @@ export function BuildsPanel({ onLoaded }: { onLoaded?: () => void }) {
                   onLoaded?.();
                 }}
                 onDuplicate={() => void db.builds.put({ ...b, id: crypto.randomUUID(), name: `${b.name} (copy)`, createdAt: Date.now(), updatedAt: Date.now() })}
-                onDelete={() => void db.builds.delete(b.id)}
+                onDelete={() => void deleteBuild(b.id)}
               />
             ))}
           </ul>

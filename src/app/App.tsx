@@ -8,6 +8,7 @@ import { useProgress } from '@/store/progress';
 import { useWand } from '@/features/wand/store';
 import { initSaveWatch } from '@/features/progress/liveSave';
 import { startTabSync } from '@/features/sync/tabs';
+import { startDeviceSync } from '@/features/sync/sync';
 
 // Long enough for the splash wand to light the whole title.
 const MIN_SPLASH_MS = 1500;
@@ -41,6 +42,10 @@ export function App() {
     startTabSync();
     void initSaveWatch();
   }, [hydrated]);
+  // Device sync encodes progress against the game's spell lists, so it waits for game data too.
+  useEffect(() => {
+    if (hydrated && status === 'ready') startDeviceSync();
+  }, [hydrated, status]);
 
   return (
     <>

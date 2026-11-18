@@ -6,6 +6,7 @@ import { UpdateToast } from './UpdateToast';
 import { Onboarding } from './Onboarding';
 import { SaveGate } from './SaveGate';
 import { Embers } from '@/ui/game';
+import { SyncChip } from '@/features/sync/SyncChip';
 import { useHasSave, useProgressHydrated } from '@/store/progress';
 
 /** Sections that wait for a synced save show a small lock in the nav until there is one. */
@@ -42,6 +43,7 @@ export function Layout() {
         </main>
         <BottomNav />
       </div>
+      <SyncChip />
       <UpdateToast />
       <Onboarding />
     </div>

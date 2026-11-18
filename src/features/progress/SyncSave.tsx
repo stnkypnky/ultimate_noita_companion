@@ -8,6 +8,7 @@ import { useData } from '@/data/store';
 import { useProgress, type Progress } from '@/store/progress';
 import { useIsDesktop } from '@/ui/hooks';
 import { timeAgo, useNow } from '@/ui/time';
+import { deviceName } from '@/features/sync/device';
 import { SyncCodeError, decodeProgress } from './codec';
 import { chooseSaveFolder, resumeSaveWatch, stopSaveWatch, syncSaveNow, useSaveWatch } from './liveSave';
 import { SAVE_PATH, ScanError, canPickDirectory, filesFromDrop, filesFromInput, parseSave, type SaveFile } from './scan';
@@ -34,7 +35,8 @@ export function PhoneHowTo() {
         Choose your <code className="text-ink">save00</code> folder. Nothing is uploaded — it's read in your browser.
       </Step>
       <Step n={3} icon={<Smartphone size={16} />}>
-        Scan the QR code it shows with this phone's camera, or paste its link below.
+        Under <b className="text-ink">Your devices</b>, tap <b className="text-ink">Pair a device</b> and scan the code with this phone's camera. After that,
+        this phone keeps itself up to date.
       </Step>
     </ol>
   );
@@ -78,7 +80,7 @@ export function ScanSave({ onScanned, compact }: { onScanned: (p: Progress) => v
     }
   };
   /** One-off read (drop, or a browser without folder handles). */
-  const readOnce = (get: () => Promise<SaveFile[]>) => run(async () => onScanned(await parseSave(await get())));
+  const readOnce = (get: () => Promise<SaveFile[]>) => run(async () => onScanned({ ...(await parseSave(await get())), source: deviceName() }));
 
   const choose = () => {
     if (!canPickDirectory()) return input.current?.click();

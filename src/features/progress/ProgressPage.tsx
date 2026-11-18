@@ -10,12 +10,15 @@ import { useIsDesktop } from '@/ui/hooks';
 import { ProgressSummary } from './ProgressSummary';
 import { encodeProgress } from './codec';
 import { PasteCode, PhoneHowTo, ScanSave } from './SyncSave';
+import { DevicesPanel } from '@/features/sync/DevicesPanel';
+import { useSync } from '@/features/sync/sync';
 
 export function ProgressPage() {
   const progress = useProgress((s) => s.progress);
   const importProgress = useProgress((s) => s.importProgress);
   const clearProgress = useProgress((s) => s.clearProgress);
   const desktop = useIsDesktop();
+  const paired = useSync((s) => !!s.group);
 
   return (
     <Page title="Progress Sync" subtitle="Spoiler protection based on what you've actually discovered">
@@ -23,14 +26,21 @@ export function ProgressPage() {
         <Section
           title="Your progress"
           aside={
-            <span className="text-xs text-faint">Synced {new Date(progress.syncedAt).toLocaleString()}</span>
+            <span className="text-xs text-faint">
+              Save from {new Date(progress.savedAt ?? progress.syncedAt).toLocaleString()}
+              {progress.source ? ` · ${progress.source}` : ''}
+            </span>
           }
         >
           <ProgressSummary progress={progress} />
           <div className="mt-3 flex flex-wrap gap-2">
             <ShareToPhone progress={progress} />
-            <button onClick={clearProgress} className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-muted hover:text-blood">
-              <Trash2 size={15} /> Forget progress
+            <button
+              onClick={clearProgress}
+              title={paired ? 'Paired devices will send it back; unpair first to forget it everywhere' : undefined}
+              className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-muted hover:text-blood"
+            >
+              <Trash2 size={15} /> Forget progress{paired ? ' on this device' : ''}
             </button>
           </div>
         </Section>
@@ -40,11 +50,18 @@ export function ProgressPage() {
         </p>
       )}
 
-      <Section title={desktop ? 'Sync from this computer' : 'Sync from your PC'}>
-        {desktop ? <ScanSave onScanned={importProgress} /> : <PhoneHowTo />}
+      {(desktop || !paired) && (
+        <Section title={desktop ? 'Sync from this computer' : 'Sync from your PC'}>
+          {desktop ? <ScanSave onScanned={importProgress} /> : <PhoneHowTo />}
+        </Section>
+      )}
+
+      <Section title="Your devices">
+        <DevicesPanel />
       </Section>
 
       <Section title="Have a sync code?">
+        <p className="mb-2 text-sm text-muted">For a one-off copy without pairing, e.g. when the other device is offline.</p>
         <PasteCode />
       </Section>
     </Page>
@@ -72,7 +89,7 @@ function ShareToPhone({ progress }: { progress: Progress }) {
   return (
     <>
       <button onClick={() => setOpen(!open)} className="inline-flex items-center gap-2 btn-game font-game text-[16px] px-4 py-2">
-        <Smartphone size={16} /> {open ? 'Hide QR code' : 'Send to phone'}
+        <Smartphone size={16} /> {open ? 'Hide sync code' : 'One-off sync code'}
       </button>
       <AnimatePresence>
         {open && (

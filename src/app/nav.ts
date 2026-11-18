@@ -31,5 +31,5 @@ export const NAV: NavItem[] = [
 ];
 
 /** Sections that work before a save is synced: everything else waits for one (app/SaveGate.tsx). */
-const OPEN = ['/', '/progress', '/import', '/settings'];
+const OPEN = ['/', '/progress', '/import', '/pair', '/settings'];
 export const isOpenPath = (pathname: string) => OPEN.some((p) => (p === '/' ? pathname === '/' : pathname === p || pathname.startsWith(`${p}/`)));

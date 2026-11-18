@@ -13,8 +13,9 @@ export function Onboarding() {
   const setOnboarded = useProgress((s) => s.setOnboarded);
   const setMode = useProgress((s) => s.setMode);
   const navigate = useNavigate();
-  // Arriving from a sync QR code: the import page itself syncs.
-  const importing = useLocation().pathname.startsWith('/import');
+  // Arriving from a sync or pairing QR code: that page itself syncs.
+  const path = useLocation().pathname;
+  const importing = path.startsWith('/import') || path.startsWith('/pair');
 
   const go = (to: string) => {
     setMode('progress');
