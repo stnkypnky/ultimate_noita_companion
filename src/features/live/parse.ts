@@ -104,6 +104,9 @@ const wand = (x: unknown): LiveWand | null => {
   };
 };
 
+/** One wand, checked the same way (for run records from other devices). */
+export const parseLiveWand = wand;
+
 const flask = (x: unknown): LiveFlask | null => {
   const o = obj(x);
   if (!o) return null;

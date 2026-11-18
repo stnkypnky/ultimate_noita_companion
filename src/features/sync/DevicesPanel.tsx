@@ -8,7 +8,7 @@ import { syncSaveNow, useSaveWatch } from '@/features/progress/liveSave';
 import { deviceName } from './device';
 import { ensureGroup, pairLink, renameDeviceTo, setAutoSync, syncDevicesNow, unpair, useSync } from './sync';
 
-const KIND_LABEL = { progress: 'save progress', reveals: 'reveals', settings: 'settings', builds: 'saved builds', live: 'live run' } as const;
+const KIND_LABEL = { progress: 'save progress', reveals: 'reveals', settings: 'settings', builds: 'saved builds', live: 'live run', runs: 'run history' } as const;
 
 export function DevicesPanel() {
   const { group, auto, status, peers, last, mismatch, error } = useSync();

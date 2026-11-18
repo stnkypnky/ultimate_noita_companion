@@ -14,9 +14,11 @@ type LiveState = {
   from: string | null;
   /** A game is running right now: a snapshot newer than STALE_MS. */
   active: boolean;
+  /** Spoiler keys discovered during recorded runs (run history), on every paired device. */
+  found: string[];
 };
 
-export const useLiveRun = create<LiveState>(() => ({ run: null, at: 0, from: null, active: false }));
+export const useLiveRun = create<LiveState>(() => ({ run: null, at: 0, from: null, active: false, found: [] }));
 
 let staleTimer: ReturnType<typeof setTimeout> | undefined;
 

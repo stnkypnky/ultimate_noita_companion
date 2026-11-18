@@ -3,17 +3,20 @@
 import { onLiveFile } from '@/features/progress/liveSave';
 import { liveChanged, registerLive } from '@/features/sync/sync';
 import { parseLiveRun } from './parse';
+import { recordSnapshot, startRunHistory } from './runs';
 import { setLiveRun, useLiveRun } from './state';
 
 let started = false;
 export function startLiveRun() {
   if (started) return;
   started = true;
+  void startRunHistory();
   onLiveFile((text, at) => {
     const run = parseLiveRun(text);
     if (!run || at <= useLiveRun.getState().at) return;
     setLiveRun(run, at, null);
     liveChanged();
+    recordSnapshot(run, at);
   });
   registerLive(
     () => {

@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { buildTime, startEngine, type BuildRecord, type Kind, type SettingsLog, type SyncAdapter } from '../src/features/sync/engine.ts';
+import { buildTime, startEngine, type BuildRecord, type Kind, type RunStamp, type SettingsLog, type SyncAdapter } from '../src/features/sync/engine.ts';
 import { memoryHub } from '../src/features/sync/transport.ts';
 import { mergeRevealLogs, type RevealLog } from '../src/store/progress.ts';
 
 /** A device's state, held in memory, behind the same adapter interface the app uses. */
-function device(init: { save?: { code: string; at: number }; reveals?: RevealLog; settings?: SettingsLog; builds?: BuildRecord[] } = {}) {
+function device(init: { save?: { code: string; at: number }; reveals?: RevealLog; settings?: SettingsLog; builds?: BuildRecord[]; runs?: RunStamp[]; old?: boolean } = {}) {
   const s = {
     save: init.save ?? null,
     reveals: init.reveals ?? {},
     settings: init.settings ?? {},
     builds: new Map((init.builds ?? []).map((b) => [b.id, b])),
     live: null as { run: unknown; at: number; from?: string } | null,
+    runs: new Map((init.runs ?? []).map((r) => [r.id, r])),
   };
   const subs = new Set<(k: Kind) => void>();
   const changed = (k: Kind) => subs.forEach((f) => f(k));
@@ -62,6 +63,15 @@ function device(init: { save?: { code: string; at: number }; reveals?: RevealLog
       },
     },
     live: { get: () => s.live, apply: (run, at, from) => (s.live = { run, at, from }) },
+    // An older version of the app has no run history.
+    runs: init.old
+      ? undefined
+      : {
+          all: async () => [...s.runs.values()],
+          apply: async (recs) => {
+            for (const r of recs as RunStamp[]) if (r.updatedAt > (s.runs.get(r.id)?.updatedAt ?? -1)) s.runs.set(r.id, r);
+          },
+        },
     watch: (fn) => {
       subs.add(fn);
       return () => subs.delete(fn);
@@ -154,6 +164,46 @@ describe('device sync engine', () => {
     expect(phone.s.save).toEqual({ code: 'new', at: 500 });
     expect(phone.s.reveals).toEqual({ a: { on: true, t: 1 } });
     expect(phone.s.builds.size).toBe(0);
+  });
+
+  it('syncs run history in batches, newest copy of each run winning', async () => {
+    const hub = memoryHub();
+    const many = Array.from({ length: 25 }, (_, i) => ({ id: `run${i}`, updatedAt: 10 + i, seed: i }));
+    const pc = device({ runs: [...many, { id: 'shared', updatedAt: 50 }] });
+    const phone = device({ runs: [{ id: 'shared', updatedAt: 40 }, { id: 'phone-only', updatedAt: 5 }] });
+    const sizes: number[] = [];
+    const pcTransport = hub.connect();
+    const send = pcTransport.send.bind(pcTransport);
+    pcTransport.send = (m, to) => {
+      if ((m as { k: string }).k === 'runs') sizes.push((m as { recs: unknown[] }).recs.length);
+      send(m, to);
+    };
+    startEngine(pcTransport, pc.adapter, { id: 'pc', name: 'PC' });
+    startEngine(hub.connect(), phone.adapter, { id: 'phone', name: 'Phone' });
+    await settle();
+    expect(phone.s.runs.size).toBe(27);
+    expect(phone.s.runs.get('shared')?.updatedAt).toBe(50);
+    expect(pc.s.runs.get('phone-only')).toBeDefined();
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(10);
+
+    // An ongoing run updates: only it goes out.
+    sizes.length = 0;
+    pc.s.runs.set('run3', { id: 'run3', updatedAt: 999 });
+    pc.changed('runs');
+    await settle();
+    expect(phone.s.runs.get('run3')?.updatedAt).toBe(999);
+    expect(sizes).toEqual([1]);
+  });
+
+  it('still pairs with an older app that has no run history', async () => {
+    const hub = memoryHub();
+    const pc = device({ save: { code: 'pc', at: 9 }, runs: [{ id: 'r', updatedAt: 1 }] });
+    const old = device({ old: true });
+    startEngine(hub.connect(), pc.adapter, { id: 'pc', name: 'PC' });
+    const oldEngine = startEngine(hub.connect(), old.adapter, { id: 'old', name: 'Old' });
+    await settle();
+    expect(old.s.save?.code).toBe('pc');
+    expect(oldEngine.peers().map((p) => p.name)).toEqual(['PC']);
   });
 
   it('ignores its own hello (another tab of the same device)', async () => {

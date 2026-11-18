@@ -148,6 +148,23 @@ const t0 = Date.now();
 await writeSave(pc, { 'persistent/flags/action_nuke': '', 'companion_live.json': liveRun(55, 300) });
 await phone.getByText('55 / 100').waitFor({ timeout: 30000 });
 console.log(`phone: live HP update in ${Date.now() - t0} ms`);
+
+// Run history: what the run found reaches the phone; a death and a new run turn it into a past run.
+try {
+  await phone.getByText(/^Creatures \+\d+$/).first().waitFor({ timeout: 40000 });
+} catch (e) {
+  console.log('phone run page:', (await phone.locator('main').innerText()).slice(0, 2500));
+  console.log('PC run page:', (await pc.locator('main').innerText()).slice(0, 2500));
+  throw e;
+}
+console.log('phone: creatures met this run listed under Found this run');
+const dead = JSON.parse(liveRun(0, 300));
+await writeSave(pc, { 'companion_live.json': JSON.stringify({ ...dead, status: 'dead', killedBy: 'zombie_weak' }) });
+await phone.getByText('You died').first().waitFor({ timeout: 30000 });
+await writeSave(pc, { 'companion_live.json': JSON.stringify({ ...JSON.parse(liveRun(100, 0)), seed: 777, playtime: 3 }) });
+await phone.getByText('Past runs', { exact: true }).waitFor({ timeout: 40000 });
+await phone.getByText(/^Died · zombie weak$/).first().waitFor({ timeout: 10000 });
+console.log('phone: the finished run is under Past runs');
 await phone.goto(`${BASE}progress`);
 await phone.getByText(/^3\s*\/\s*\d+/).first().waitFor({ timeout: 30000 });
 console.log('phone: new spell discovery arrived (3 spells)');

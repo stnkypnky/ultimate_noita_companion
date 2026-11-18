@@ -156,11 +156,13 @@ export function useSpoilers() {
   const reveal = useProgress((s) => s.reveal);
   // What's in hand in the current run (companion mod) is on screen in-game, so it isn't hidden either.
   const run = useLiveRun((s) => s.run);
+  // Discovered during a run (creatures met, secret items carried…), before the save itself records them.
+  const found = useLiveRun((s) => s.found);
 
   return useMemo(() => {
-    const known = new Set<string>([...(flags ?? []), ...(enemies ?? []).map((e) => `enemy:${e}`), ...revealed, ...liveFlags(run)]);
+    const known = new Set<string>([...(flags ?? []), ...(enemies ?? []).map((e) => `enemy:${e}`), ...revealed, ...liveFlags(run), ...found]);
     const flagSet = new Set(flags ?? []);
     const visible = (key: string) => mode === 'all' || known.has(key);
     return { mode, visible, reveal, hasFlag: (f: string) => flagSet.has(f) };
-  }, [mode, flags, enemies, revealed, reveal, run]);
+  }, [mode, flags, enemies, revealed, reveal, run, found]);
 }

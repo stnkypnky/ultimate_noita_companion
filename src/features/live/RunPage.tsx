@@ -14,6 +14,7 @@ import { RecipeCard } from '@/features/alchemy/AlchemyPage';
 import { alchemyRecipes } from '@/features/alchemy/aplc';
 import { ModInstall } from './ModInstall';
 import { RunStats, SeedCards } from './seedCards';
+import { FoundThisRun, PastRuns, Timeline, useRunRecord } from './historyParts';
 import { DetailSheet, Flasks, Perks, SpellButton, Wands, type Detail } from './parts';
 import type { LiveRun } from './parse';
 import { useLiveRun } from './state';
@@ -21,6 +22,7 @@ import { useLiveRun } from './state';
 export function RunPage() {
   const { run, at, from, active } = useLiveRun();
   const [detail, setDetail] = useState<Detail | null>(null);
+  const rec = useRunRecord(run);
   if (!run) return <NoRun />;
   return (
     <Page title="Current run" subtitle={<RunStatus run={run} at={at} from={from} active={active} />} toolbar={run.status !== 'no_player' && <Hud run={run} />}>
@@ -41,6 +43,8 @@ export function RunPage() {
                 </div>
               </Section>
             )}
+            <FoundThisRun rec={rec} onOpen={setDetail} />
+            <Timeline rec={rec} />
           </div>
           <div>
             <RunStats run={run} at={at} active={active} />
@@ -61,6 +65,7 @@ export function RunPage() {
           </div>
         </div>
       )}
+      <PastRuns exclude={rec?.id} />
       <DetailSheet detail={detail} onClose={() => setDetail(null)} />
     </Page>
   );
@@ -158,6 +163,7 @@ function NoRun() {
           this seed's secrets. Paired phones see it too.
         </p>
       </div>
+      <PastRuns />
       <Section title="Set up the companion mod">
         <ModInstall />
       </Section>

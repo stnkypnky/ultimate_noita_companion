@@ -126,6 +126,19 @@ export function liveChanged() {
   liveHooks.subs.forEach((f) => f());
 }
 
+type Runs = NonNullable<SyncAdapter['runs']>;
+const runHooks: { all?: Runs['all']; apply?: Runs['apply']; subs: Set<() => void> } = { subs: new Set() };
+
+/** Run history plugs in the same way. */
+export function registerRuns(all: Runs['all'], apply: Runs['apply']) {
+  runHooks.all = all;
+  runHooks.apply = apply;
+}
+/** Tell paired devices the run history changed. */
+export function runsChanged() {
+  runHooks.subs.forEach((f) => f());
+}
+
 export const appAdapter: SyncAdapter = {
   progress: {
     time: () => saveTime(useProgress.getState().progress),
@@ -180,6 +193,10 @@ export const appAdapter: SyncAdapter = {
     get: () => liveHooks.get?.() ?? null,
     apply: (run, at, from) => liveHooks.apply?.(run, at, from),
   },
+  runs: {
+    all: async () => (runHooks.all ? runHooks.all() : []),
+    apply: async (recs) => runHooks.apply?.(recs),
+  },
   watch: (fn) => {
     const offProgress = useProgress.subscribe((s, p) => {
       if (s.progress !== p.progress) fn('progress');
@@ -188,6 +205,8 @@ export const appAdapter: SyncAdapter = {
     const offSettings = watchSettings(() => fn('settings'));
     const onLive = () => fn('live');
     liveHooks.subs.add(onLive);
+    const onRuns = () => fn('runs');
+    runHooks.subs.add(onRuns);
     let offBuilds = () => {};
     let cancelled = false;
     void dexie().then(async ({ db }) => {
@@ -206,6 +225,7 @@ export const appAdapter: SyncAdapter = {
       offSettings();
       offBuilds();
       liveHooks.subs.delete(onLive);
+      runHooks.subs.delete(onRuns);
     };
   },
 };

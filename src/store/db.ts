@@ -1,4 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
+import type { RunRecord } from '@/features/live/history';
 
 export type SavedBuild = {
   id: string;
@@ -21,11 +22,14 @@ class CompanionDB extends Dexie {
   builds!: EntityTable<SavedBuild, 'id'>;
   handles!: EntityTable<Handle, 'key'>;
   tombstones!: EntityTable<BuildTombstone, 'id'>;
+  /** Run history (features/live/history.ts), synced with paired devices. */
+  runs!: EntityTable<RunRecord, 'id'>;
   constructor() {
     super('noita-companion');
     this.version(1).stores({ kv: 'key', builds: 'id, updatedAt, name' });
     this.version(2).stores({ handles: 'key' });
     this.version(3).stores({ tombstones: 'id' });
+    this.version(4).stores({ runs: 'id, startedAt' });
   }
 }
 

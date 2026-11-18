@@ -9,7 +9,12 @@ export const buildTime = (b: BuildRecord) => ('deletedAt' in b ? b.deletedAt : b
 
 export type SettingsLog = Record<string, { value: string; t: number }>;
 
-export type Kind = 'progress' | 'reveals' | 'settings' | 'builds' | 'live';
+export type Kind = 'progress' | 'reveals' | 'settings' | 'builds' | 'live' | 'runs';
+
+/** A run-history record as the engine sees it; the adapter checks the rest. */
+export type RunStamp = { id: string; updatedAt: number };
+/** Runs go out a few at a time so a message stays well under the transport's size cap. */
+const RUN_BATCH = 10;
 
 export type SyncAdapter = {
   progress: {
@@ -23,6 +28,8 @@ export type SyncAdapter = {
   settings: { get: () => SettingsLog; apply: (log: SettingsLog) => void };
   builds: { all: () => Promise<BuildRecord[]>; apply: (recs: BuildRecord[]) => Promise<void> };
   live?: { get: () => { run: unknown; at: number } | null; apply: (run: unknown, at: number, from: string) => void };
+  /** Run history (newer record wins per run id). */
+  runs?: { all: () => Promise<RunStamp[]>; apply: (recs: unknown[]) => Promise<void> };
   /** Calls back whenever local state of a kind changes (also after remote data was applied). */
   watch: (fn: (kind: Kind) => void) => () => void;
 };
@@ -34,7 +41,8 @@ export type EngineHooks = {
   onReceived?: (kind: Kind, from: Peer | undefined) => void;
 };
 
-type Digest = { p: number; r: [number, number]; s: [number, number]; b: Record<string, number> };
+/** `h` (run history) is newer than the rest: older devices don't send it. */
+type Digest = { p: number; r: [number, number]; s: [number, number]; b: Record<string, number>; h?: Record<string, number> };
 
 const logDigest = (log: Record<string, { t: number }>): [number, number] => [Math.max(0, ...Object.values(log).map((e) => e.t)), Object.keys(log).length];
 
@@ -60,8 +68,10 @@ function validLog(x: unknown, value: 'boolean' | 'string'): boolean {
 function validDigest(x: unknown): x is Digest {
   if (!obj(x) || !num(x.p) || !obj(x.b)) return false;
   const pair = (v: unknown) => Array.isArray(v) && v.length === 2 && v.every(num);
-  return pair(x.r) && pair(x.s) && Object.values(x.b).every(num);
+  return pair(x.r) && pair(x.s) && Object.values(x.b).every(num) && (x.h === undefined || (obj(x.h) && Object.values(x.h).every(num)));
 }
+
+const validStamp = (x: unknown): x is RunStamp => obj(x) && str(x.id, 64) && num(x.updatedAt);
 
 export type Engine = { stop: () => void; resync: () => void; peers: () => Peer[] };
 
@@ -69,7 +79,12 @@ export function startEngine(transport: Transport, adapter: SyncAdapter, me: { id
   const peers = new Map<string, Peer>();
   /** What each kind looked like when last pushed, so builds go out as a delta. */
   let sentBuilds = new Map<string, number>();
+  let sentRuns = new Map<string, number>();
   let stopped = false;
+  const allRuns = async () => (adapter.runs ? adapter.runs.all() : []);
+  const sendRuns = (recs: RunStamp[], to?: string) => {
+    for (let i = 0; i < recs.length; i += RUN_BATCH) transport.send({ k: 'runs', recs: recs.slice(i, i + RUN_BATCH) }, to);
+  };
 
   const emitPeers = () => hooks.onPeers?.([...peers.values()]);
 
@@ -78,6 +93,7 @@ export function startEngine(transport: Transport, adapter: SyncAdapter, me: { id
     r: logDigest(adapter.reveals.get()),
     s: logDigest(adapter.settings.get()),
     b: Object.fromEntries((await adapter.builds.all()).map((b) => [b.id, buildTime(b)])),
+    h: Object.fromEntries((await allRuns()).map((r) => [r.id, r.updatedAt])),
   });
 
   const hello = async (to?: string) => transport.send({ k: 'hello', v: 1, id: me.id, name: me.name, d: await digest() }, to);
@@ -100,7 +116,16 @@ export function startEngine(transport: Transport, adapter: SyncAdapter, me: { id
     if (differs(logDigest(adapter.settings.get()), d.s)) transport.send({ k: 'settings', log: adapter.settings.get() }, to);
     const newer = (await adapter.builds.all()).filter((b) => buildTime(b) > (d.b[b.id] ?? -1));
     if (newer.length) transport.send({ k: 'builds', recs: newer }, to);
+    // An older device sends no `h` and has no use for runs: send none.
+    if (d.h) sendRuns((await allRuns()).filter((r) => r.updatedAt > (d.h![r.id] ?? -1)), to);
     sendLive(to);
+  };
+
+  const pushRuns = async () => {
+    const all = await allRuns();
+    const changed = all.filter((r) => sentRuns.get(r.id) !== r.updatedAt);
+    sentRuns = new Map(all.map((r) => [r.id, r.updatedAt]));
+    if (changed.length && peers.size) sendRuns(changed);
   };
 
   const pushBuilds = async () => {
@@ -113,6 +138,7 @@ export function startEngine(transport: Transport, adapter: SyncAdapter, me: { id
   const push = (kind: Kind) => {
     if (stopped || !peers.size) {
       if (kind === 'builds') void pushBuilds();
+      if (kind === 'runs') void pushRuns();
       return;
     }
     if (kind === 'progress') void sendProgress();
@@ -120,6 +146,7 @@ export function startEngine(transport: Transport, adapter: SyncAdapter, me: { id
     else if (kind === 'settings') transport.send({ k: 'settings', log: adapter.settings.get() });
     else if (kind === 'builds') void pushBuilds();
     else if (kind === 'live') sendLive();
+    else if (kind === 'runs') void pushRuns();
   };
 
   transport.onPeer((peerId, joined) => {
@@ -164,11 +191,18 @@ export function startEngine(transport: Transport, adapter: SyncAdapter, me: { id
           if (!adapter.live || !num(m.at) || m.run === undefined) return;
           adapter.live.apply(m.run, m.at, peer?.name ?? 'another device');
           return got('live');
+        case 'runs':
+          if (!adapter.runs || !Array.isArray(m.recs) || m.recs.length > RUN_BATCH || !m.recs.every(validStamp)) return;
+          await adapter.runs.apply(m.recs);
+          // What arrived needn't be pushed back out on the next local change.
+          for (const r of m.recs as RunStamp[]) if (r.updatedAt >= (sentRuns.get(r.id) ?? -1)) sentRuns.set(r.id, r.updatedAt);
+          return got('runs');
       }
     })().catch((e: unknown) => console.warn('[sync] message failed', m.k, e));
   });
 
   void adapter.builds.all().then((all) => (sentBuilds = new Map(all.map((b) => [b.id, buildTime(b)]))));
+  void allRuns().then((all) => (sentRuns = new Map(all.map((r) => [r.id, r.updatedAt]))));
   const unwatch = adapter.watch(push);
 
   return {
