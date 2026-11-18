@@ -113,7 +113,8 @@ export function parseLiveRun(input: unknown): LiveRun | null {
   const o = obj(raw);
   if (!o || o.v !== 1) return null;
   const biome = obj(o.biome);
-  const biomeId = biome && str(biome.id, 80);
+  // Unnamed areas (the starting surface, among others) come back as _EMPTY_: show no biome then.
+  const biomeId = biome && str(biome.id, 80) !== '_EMPTY_' ? str(biome.id, 80) : undefined;
   return {
     status: (STATUSES as readonly unknown[]).includes(o.status) ? (o.status as LiveRun['status']) : 'alive',
     seed: num(o.seed),
