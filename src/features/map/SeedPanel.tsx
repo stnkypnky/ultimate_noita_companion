@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { Check, Dices, ExternalLink, Info, Loader2, Wand2 } from 'lucide-react';
-import { fetchJson, useData } from '@/data/store';
+import { fetchJson, gameUrl, useData } from '@/data/store';
 import type { Material, WorldMap } from '@/data/types';
 import { SECRET_MATERIALS, materialKey } from '@/data/spoilers';
 import { useProgress, useSpoilers } from '@/store/progress';
@@ -216,9 +216,19 @@ function WandLink({ wand, cost, sale }: { wand: ShopWand; cost: number; sale: bo
             <SpellChip id={id} />
           </span>
         ))}
-        {wand.spells.filter((s): s is string => !!s).map((id, i) => (
-          <SpellChip key={i} id={id} />
-        ))}
+        {/* Every slot the wand has, empty ones as empty inventory slots (as the game shows them). */}
+        {Array.from({ length: Math.max(wand.capacity, wand.spells.length) }, (_, i) => wand.spells[i] ?? null).map((id, i) =>
+          id ? (
+            <SpellChip key={i} id={id} />
+          ) : (
+            <span
+              key={i}
+              title="Empty slot"
+              className="pixelated inline-block shrink-0 opacity-60"
+              style={{ width: 30, height: 30, backgroundImage: `url(${gameUrl('ui/full_inventory_box.png')})`, backgroundSize: '100% 100%' }}
+            />
+          ),
+        )}
         {href && (
           <Link to={href} className="ml-auto inline-flex items-center gap-1 text-xs text-gold hover:underline">
             <Wand2 size={13} /> Open in builder

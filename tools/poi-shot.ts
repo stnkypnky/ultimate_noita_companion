@@ -58,6 +58,13 @@ for (const [name, viewport, mobile] of [
   }
   await page.waitForTimeout(1500);
   await page.screenshot({ path: join(out, `${name}-map-pois.png`) });
+  // The seed tab's Holy Mountain shops: wands show every slot, empty ones too.
+  await page.goto(`${BASE}map#seed`);
+  const wandShop = page.getByText(/\d+\/cast · \d+ slots/).first();
+  await wandShop.waitFor({ timeout: 60000 });
+  await wandShop.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: join(out, `${name}-shop-wands.png`) });
   void box;
   await ctx.close();
 }
