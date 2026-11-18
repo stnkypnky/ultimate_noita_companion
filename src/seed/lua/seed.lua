@@ -347,6 +347,87 @@ function seed_wand(x, y, cost, level, unshuffle)
 end
 
 ---------------------------------------------------------------------------
+-- Points of interest: where a cave biome's own script puts its rooms for this seed. The engine calls the
+-- function a biome registers for a colour (RegisterSpawnFunction) at every pixel of that colour in the
+-- generated layout, and init(x, y, w, h) once per chunk; the room functions end in LoadPixelScene, which we
+-- record instead of drawing. (The colour table and the walk over the layout follow TwoAbove/noita-tools.)
+---------------------------------------------------------------------------
+-- Spawn colours the engine knows before any biome script registers its own.
+local ENGINE_SPAWNS = {
+  [0xff0aff] = "load_pixel_scene", [0xff0080] = "load_pixel_scene2",
+}
+local poi_spawns = {}
+local poi_rec = nil
+
+local function poi_hooks(on)
+  if on then
+    __poi_saved = { LoadPixelScene = LoadPixelScene, EntityLoad = EntityLoad, RegisterSpawnFunction = RegisterSpawnFunction, RaytracePlatforms = RaytracePlatforms }
+    LoadPixelScene = function(file, visual, x, y, background, skip_biome_checks)
+      if poi_rec then table.insert(poi_rec, { f = file, x = x, y = y, any = skip_biome_checks == true }) end
+    end
+    EntityLoad = function() return 0 end
+    -- No terrain to trace against: the ray "hits" where it starts (as noita-tools does), so props meant to sit on
+    -- the ground (the Jungle's hint statues) stay at their spot, off by at most the ray's length.
+    RaytracePlatforms = function(x1, y1) return true, x1, y1 end
+    RegisterSpawnFunction = function(color, name) poi_spawns[math.tointeger(color) % 0x1000000] = name end
+  else
+    for k, v in pairs(__poi_saved) do _G[k] = v end
+  end
+end
+
+--- Load a biome script fresh. Returns its room-placing spawn colours as JSON {"rrggbb": "function"}: those whose
+--- function (in the script's own text) loads a pixel scene.
+function seed_poi_load(script)
+  poi_spawns = {}
+  for c, n in pairs(ENGINE_SPAWNS) do poi_spawns[c] = n end
+  init = nil
+  poi_hooks(true)
+  local ok, err = pcall(dofile, script)
+  poi_hooks(false)
+  if not ok then return json_encode({ error = tostring(err) }) end
+  local src = __read_file(script) or ""
+  local placers = {}
+  -- A function whose text (up to the next top-level function) loads a pixel scene, directly or through
+  -- load_random_pixel_scene.
+  local pieces = {}
+  local from = 1
+  while true do
+    local s = string.find(src, "\nfunction%s", from)
+    if not s then table.insert(pieces, string.sub(src, from)) break end
+    table.insert(pieces, string.sub(src, from, s))
+    from = s + 1
+  end
+  for _, piece in ipairs(pieces) do
+    local name = string.match(piece, "^function%s+([%w_]+)")
+    if name and (string.find(piece, "LoadPixelScene", 1, true) or string.find(piece, "load_random_pixel_scene", 1, true)) then placers[name] = true end
+  end
+  local out = {}
+  for c, n in pairs(poi_spawns) do
+    if placers[n] and type(_G[n]) == "function" then out[string.format("%06x", c)] = n end
+  end
+  return json_encode({ spawns = out, init = type(init) == "function" })
+end
+
+--- One chunk of the loaded biome: its init() at the chunk, then each marker "function,x,y;…" in order.
+--- Returns the pixel scenes loaded, as JSON [{f, x, y}], and how many calls failed.
+function seed_poi_chunk(cx, cy, size, markers)
+  poi_rec = {}
+  local errors = 0
+  poi_hooks(true)
+  if type(init) == "function" then
+    if not pcall(init, cx, cy, size, size) then errors = errors + 1 end
+  end
+  for name, x, y in string.gmatch(markers or "", "([%w_]+),([-%d]+),([-%d]+)") do
+    local fn = _G[name]
+    if type(fn) == "function" and not pcall(fn, tonumber(x), tonumber(y), 10, 10, false) then errors = errors + 1 end
+  end
+  poi_hooks(false)
+  local rec = poi_rec
+  poi_rec = nil
+  return json_encode({ scenes = rec, errors = errors })
+end
+
+---------------------------------------------------------------------------
 -- Fungal shifts (data/scripts/magic/fungal_shift.lua)
 ---------------------------------------------------------------------------
 local fungal_loaded = false

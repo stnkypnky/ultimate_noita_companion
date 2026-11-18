@@ -9,6 +9,7 @@ import type { LuaCall } from '../sim/protocol';
 import { biomeModifiers, fungalShifts, generateWand, holyMountainPerks, holyMountainShops, setupSeed, type SeedSetup, type ShopWand } from './seed';
 import { generateLayouts, type AreaLayout } from './layout';
 import { buildTileset, type Tileset } from './wang';
+import { placePois, type PoiData, type PoiStats, type SeedPoi } from './poi';
 import type { WorldMap } from '../data/types';
 
 export type SeedQuery = SeedSetup & {
@@ -27,8 +28,11 @@ export type WandRoll = { seed: number; x: number; y: number; cost: number; level
 export type SeedIn =
   | { id: number; base: string; query: SeedQuery }
   | { id: number; base: string; layoutSeed: number }
+  | { id: number; base: string; poiSeed: number }
   | { id: number; base: string; roll: WandRoll };
-export type SeedOut = { id: number; ok: true; report?: SeedReport; layouts?: AreaLayout[]; wand?: ShopWand } | { id: number; ok: false; error: string };
+export type SeedOut =
+  | { id: number; ok: true; report?: SeedReport; layouts?: AreaLayout[]; wand?: ShopWand; pois?: SeedPoi[] }
+  | { id: number; ok: false; error: string };
 
 // ---- Cave layouts (wang.ts): the map and the templates, decoded once ----
 let layoutData: Promise<{ map: WorldMap; tilesets: Map<string, Tileset>; overlay?: Uint8Array }> | null = null;
@@ -78,8 +82,29 @@ async function createEngine(base: string): Promise<LuaCall> {
   return (fn, ...args) => (lua.global.get(fn) as (...a: unknown[]) => unknown)(...args);
 }
 
+// Points of interest run the cave biomes' own scripts, which define globals of their own: a separate Lua engine,
+// so they can't disturb the scripts the seed report runs.
+let poiEngine: Promise<LuaCall> | null = null;
+let poiData: Promise<PoiData> | null = null;
+
 self.onmessage = async (e: MessageEvent<SeedIn>) => {
   const { id, base } = e.data;
+  if ('poiSeed' in e.data) {
+    try {
+      const seed = e.data.poiSeed >>> 0;
+      const d = await (layoutData ??= loadLayoutData(base));
+      const data = await (poiData ??= fetch(`${base}game/data/pois.json`).then((r) => r.json() as Promise<PoiData>));
+      const call = await (poiEngine ??= createEngine(base));
+      call('sim_set_world_seed', seed);
+      const stats: PoiStats[] = [];
+      const pois = placePois(call, d.map, generateLayouts(d.map, seed, d.tilesets, d.overlay), data, stats);
+      if (import.meta.env.DEV) console.debug('[poi]', seed, stats.filter((s) => s.markers));
+      postMessage({ id, ok: true, pois } satisfies SeedOut);
+    } catch (err) {
+      postMessage({ id, ok: false, error: String((err as Error)?.message ?? err) } satisfies SeedOut);
+    }
+    return;
+  }
   if ('layoutSeed' in e.data) {
     try {
       const d = await (layoutData ??= loadLayoutData(base));

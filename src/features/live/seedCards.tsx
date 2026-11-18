@@ -9,7 +9,8 @@ import { useProgress, useSpoilers } from '@/store/progress';
 import { CollapsibleSection } from '@/ui/controls';
 import { AtlasIcon } from '@/ui/GameIcon';
 import { useNow } from '@/ui/time';
-import { MapView, type MarkerKind } from '@/features/map/MapView';
+import { MapView, POI_COLOR, type MarkerKind } from '@/features/map/MapView';
+import { poiCentre, poiDirection } from '@/features/map/pois';
 import { MaterialName, PerkChip, ShopView } from '@/features/map/SeedPanel';
 import { loadMap, makeVisibility } from '@/features/map/world';
 import { useSeedLayers } from '@/features/map/useSeedLayers';
@@ -104,9 +105,24 @@ function MiniMap({ map, x, y, seed, kind, biome }: { map: WorldMap; x: number; y
     // Where you're standing isn't a secret.
     return { ...base, biome: (b: Parameters<typeof base.biome>[0]) => b === here || base.biome(b) };
   }, [map, mode, visible, orbs, x, y]);
-  const { layouts, wangColors } = useSeedLayers(seed > 0 ? seed : null);
+  const { layouts, wangColors, pois } = useSeedLayers(seed > 0 ? seed : null, map);
+  // The closest points of interest you could see on the map (spoilers stay hidden), nearest first.
+  const near = useMemo(() => {
+    if (!pois) return [];
+    return pois
+      .filter((p) => {
+        const c = poiCentre(p);
+        const at = base(map, c.x, c.y);
+        return at !== null && vis.biome(at) && (!p.scene || vis.scene(p.scene));
+      })
+      .map((p) => ({ p, d: Math.hypot(poiCentre(p).x - x, poiCentre(p).y - y) }))
+      .filter((n) => n.d < NEAR_PX)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, 3);
+  }, [pois, map, vis, x, y]);
+  const summary = near[0] ? `${near[0].p.name} · ${poiDirection({ x, y }, near[0].p)}` : biome;
   return (
-    <CollapsibleSection id="run-map" title={MARKER_TITLE[kind]} summary={biome}>
+    <CollapsibleSection id="run-map" title={MARKER_TITLE[kind]} summary={summary}>
       <div className="h-[300px]">
         <MapView
           map={map}
@@ -119,10 +135,31 @@ function MiniMap({ map, x, y, seed, kind, biome }: { map: WorldMap; x: number; y
           follow
           layouts={layouts}
           wangColors={wangColors}
+          pois={pois}
         />
       </div>
+      {near.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {near.map(({ p }) => (
+            <li key={p.id} className="flex items-baseline gap-2 text-sm" title={p.text}>
+              <span className="h-2 w-2 shrink-0 translate-y-[-1px] rotate-45" style={{ background: POI_COLOR[p.kind] }} aria-hidden />
+              <span className="min-w-0 flex-1 truncate text-ink">{p.name}</span>
+              <span className="shrink-0 text-xs text-muted">{poiDirection({ x, y }, p)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </CollapsibleSection>
   );
+}
+
+/** Points of interest further than this (world pixels, about two chunks) aren't "nearby". */
+const NEAR_PX = 1100;
+/** The biome at a world position, or null outside the map. */
+function base(map: WorldMap, x: number, y: number) {
+  const cx = Math.floor(x / map.chunk + map.w / 2);
+  const cy = Math.floor(y / map.chunk + map.offsetY);
+  return cx < 0 || cy < 0 || cx >= map.w || cy >= map.h ? null : map.biomes[map.cells[cy * map.w + cx]!]!;
 }
 
 /** A past run: how far down it got, with this seed's mountains a tap away. */

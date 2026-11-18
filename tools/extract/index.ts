@@ -21,6 +21,10 @@ import { buildEnemies, enemyIconFiles } from './enemies.ts';
 import { EntityLoader } from './entity.ts';
 import { buildAtlas, buildPackedAtlas, firstFrame } from './sprites.ts';
 import { bitmapFont } from './fonts.ts';
+import { FIXED_POIS, POI_TABLE } from './pois.ts';
+import { placePois, type PoiData, type PoiInfo, type PoiStats } from '../../src/seed/poi.ts';
+import { generateLayouts } from '../../src/seed/layout.ts';
+import { buildTileset, type Tileset } from '../../src/seed/wang.ts';
 
 const ROOT = join(import.meta.dirname, '../..');
 const OUT = join(ROOT, 'public/game');
@@ -115,6 +119,28 @@ const seedHost = await createLuaHost(readGame);
 await seedHost.lua.doString(seedSource);
 setupSeed(seedHost.call, { seed: 1, materials: materialTable(materials), allUnlocked: true, flags: [] });
 runAllSeedInfo(seedHost.call);
+// The world map (built here so the seed tool gets the cave biomes' scripts: they place points of interest).
+const world = await buildWorldMap(wak, t);
+const poiScripts = [...new Set(world.map.biomes.flatMap((b) => (b.luaScript ? [b.luaScript] : [])))];
+for (const s of poiScripts) {
+  const r = JSON.parse(seedHost.call('seed_poi_load', s) as string) as { error?: string };
+  if (r.error) console.warn(`points of interest: ${s} failed to load: ${r.error}`);
+}
+// A whole placement for one seed, so whatever the room functions load as they run is shipped too.
+{
+  const tilesets = new Map<string, Tileset>();
+  for (const [key, png] of world.wangImages) {
+    const { data, info } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const ts = buildTileset(new Uint8Array(data), info.width, info.height);
+    if (ts) tilesets.set(key, ts);
+  }
+  const overlay = new Uint8Array(await sharp(readFileSync(join(import.meta.dirname, 'assets/coalmine_overlay.png'))).removeAlpha().raw().toBuffer());
+  seedHost.call('sim_set_world_seed', 1);
+  const stats: PoiStats[] = [];
+  const placed = placePois(seedHost.call, world.map, generateLayouts(world.map, 1, tilesets, overlay), { scenes: new Proxy({}, { get: () => undefined }) }, stats);
+  const errors = stats.reduce((n, s) => n + s.errors, 0);
+  console.log(`points of interest: seed 1 ran ${stats.reduce((n, s) => n + s.markers, 0)} room markers (${errors} failed, ${placed.length} kept)`);
+}
 // Shop wands load data/scripts/gun/procedural/wand_<kind>_<level>.lua by level, which depends on the seed: take them all.
 const seedLuaFiles = [...new Set([...seedHost.filesRead, ...wak.list('data/scripts/gun/procedural/').filter((f) => /\/wand_(level|unshuffle)_\d+\.lua$/.test(f))])];
 for (const f of seedLuaFiles) {
@@ -160,7 +186,6 @@ for (const [key, f] of Object.entries(await rangeProps(wak))) {
 }
 console.log(`visuals: ${Object.keys(visuals).length} entities, ${vis.images.length} sprites; range props: ${Object.keys(props).join(', ')}`);
 // The world map: biome per chunk, and the pictures of the fixed pixel scenes.
-const world = await buildWorldMap(wak, t);
 await mkdir(join(OUT, 'map'), { recursive: true });
 for (const [key, png] of world.images) await writeFile(join(OUT, 'map', `${key}.png`), png);
 await writeJson('data/map.json', world.map);
@@ -171,6 +196,22 @@ for (const [key, png] of world.wangImages) await writeFile(join(OUT, 'wang', `${
 await writeFile(join(OUT, 'wang', 'coalmine_overlay.png'), readFileSync(join(import.meta.dirname, 'assets/coalmine_overlay.png')));
 await writeJson('data/wang_colors.json', Object.fromEntries(wang));
 console.log(`map: ${world.map.w}×${world.map.h} chunks, ${world.map.biomes.length} biomes, ${world.map.scenes.length} pixel scenes`);
+// Points of interest: the curated rooms with their sizes (a room only loads where it fits inside its biome).
+const sized = async (table: typeof POI_TABLE) => {
+  const out: Record<string, PoiInfo> = {};
+  for (const [file, e] of Object.entries(table)) {
+    const m = file.endsWith('.png') && wak.has(file) ? await sharp(wak.bytes(file)).metadata() : null;
+    if (file.endsWith('.png') && !m) {
+      console.warn(`points of interest: missing ${file}`);
+      continue;
+    }
+    out[file] = { ...e, w: m?.width ?? 0, h: m?.height ?? 0 };
+  }
+  return out;
+};
+const poiData: PoiData = { scenes: await sized(POI_TABLE), fixed: await sized(FIXED_POIS) };
+await writeJson('data/pois.json', poiData);
+console.log(`points of interest: ${Object.keys(poiData.scenes).length} placed per seed, ${Object.keys(poiData.fixed!).length} fixed, from ${poiScripts.length} biome scripts`);
 // The cave backgrounds behind each biome the range can look like and the map shows (Topology background_image).
 await mkdir(join(OUT, 'backgrounds'), { recursive: true });
 for (const bg of new Set([...BIOMES.flatMap((b) => (b.background ? [b.background] : [])), ...world.backgrounds])) {

@@ -9,7 +9,8 @@ import { Chip, Section, StatTable } from '@/ui/controls';
 import { HiddenNotice } from '@/ui/Spoiler';
 import { MasterDetail } from '@/ui/MasterDetail';
 import { Runes } from '@/ui/game';
-import { MapView } from './MapView';
+import { MapView, POI_COLOR } from './MapView';
+import { poiCentre, type MapPoi } from './pois';
 import { SeedPanel } from './SeedPanel';
 import { areaNotes } from './notes';
 import type { SeedReport } from '@/seed/worker';
@@ -32,8 +33,6 @@ const parsePlace = (p: string | undefined) => {
   const m = p && /^(\d+)-(\d+)$/.exec(p);
   return m ? { cx: Number(m[1]), cy: Number(m[2]) } : null;
 };
-
-const humanize = (s: string) => s.replace(/[_-]+/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 
 /** /map?seed=123 (from the Run page) opens that seed: SeedPanel starts from the remembered seed. */
 const adoptSeedFromUrl = () => {
@@ -72,7 +71,7 @@ export function MapPage() {
   // The caves are drawn for the chosen seed; until one is chosen, for an example seed.
   const [seed, setSeed] = useState<number | null>(null);
   const caveSeed = seed ?? EXAMPLE_SEED;
-  const { layouts, wangColors } = useSeedLayers(caveSeed);
+  const { layouts, wangColors, pois } = useSeedLayers(caveSeed, map);
   const all = mode === 'all' || spoilers;
   const vis = useMemo(() => (map ? makeVisibility(map, { all, visible, orbs: orbs ?? [] }) : null), [map, all, visible, orbs]);
   const selected = parsePlace(place);
@@ -139,7 +138,7 @@ export function MapPage() {
         <MasterDetail
           detailKey={place}
           onClose={close}
-          detail={selected ? <AreaDetail map={map} vis={vis} cx={selected.cx} cy={selected.cy} orbs={orbs ?? []} onReveal={reveal} report={report} /> : null}
+          detail={selected ? <AreaDetail map={map} vis={vis} cx={selected.cx} cy={selected.cy} orbs={orbs ?? []} onReveal={reveal} report={report} pois={pois} seed={caveSeed} onGo={select} /> : null}
           empty={
             <div className="mt-24 text-center text-sm text-faint">
               <Runes className="mb-2 block text-[16px] text-gold/40">the world below</Runes>
@@ -151,7 +150,7 @@ export function MapPage() {
             // Phones: tall, to pan and zoom in. Laptops: the world's own shape (70 × 48 chunks), up to the screen's height.
             <div>
               <div className="h-[calc(100dvh-var(--page-header-h,88px)-140px)] md:aspect-[70/48] md:h-auto md:max-h-[calc(100vh-var(--page-header-h,88px)-60px)]">
-                <MapView map={map} vis={vis} materialById={materialById} selected={selected} onSelect={select} layouts={layouts} wangColors={wangColors} />
+                <MapView map={map} vis={vis} materialById={materialById} selected={selected} onSelect={select} layouts={layouts} wangColors={wangColors} pois={pois} />
               </div>
               <p className="mt-1.5 text-xs text-faint">
                 {layouts ? `Caves laid out as in seed ${caveSeed}` : 'Laying out the caves…'}
@@ -165,7 +164,7 @@ export function MapPage() {
                     )
                   </>
                 )}
-                . Each pixel of a cave is 10 × 10 in the game; spawns, items and enemies aren't drawn.
+                {layouts && (pois ? "; points of interest placed by the game's own scripts for this seed" : '; placing points of interest…')}. Each pixel of a cave is 10 × 10 in the game; enemies and items aren't drawn.
               </p>
             </div>
           }
@@ -189,6 +188,9 @@ function AreaDetail({
   orbs,
   onReveal,
   report,
+  pois,
+  seed,
+  onGo,
 }: {
   map: WorldMap;
   vis: ReturnType<typeof makeVisibility>;
@@ -197,6 +199,9 @@ function AreaDetail({
   orbs: number[];
   onReveal: (key: string) => void;
   report: SeedReport | null;
+  pois: MapPoi[] | null;
+  seed: number;
+  onGo: (cx: number, cy: number) => void;
 }) {
   const [texts, setTexts] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -209,8 +214,7 @@ function AreaDetail({
   const hm = b.id.startsWith('temple_') || b.id === 'solid_wall_temple' ? holyMountains(map).get(cy) : undefined;
   const orb = orbOf(b);
   const chunks = map.cells.filter((k) => map.biomes[k] === b).length;
-  const inside = map.scenes.filter((s) => s.x < w.x + map.chunk && s.x + s.w > w.x && s.y < w.y + map.chunk && s.y + s.h > w.y);
-  const hidden = inside.filter((s) => !vis.scene(s));
+  const hidden = map.scenes.filter((s) => s.x < w.x + map.chunk && s.x + s.w > w.x && s.y < w.y + map.chunk && s.y + s.h > w.y && !vis.scene(s));
   const name = biomeName(b);
   return (
     <div>
@@ -250,25 +254,14 @@ function AreaDetail({
           </p>
         </Section>
       )}
-      {inside.length > 0 && (
-        <Section title="Here">
-          <ul className="space-y-1 text-sm">
-            {inside
-              .filter((s) => vis.scene(s))
-              .map((s, i) => (
-                <li key={i} className="text-ink">
-                  {humanize(s.from === 'biome' ? s.file.split('/').pop()!.replace(/\.png$/, '') : s.from === 'pixel_scenes' || s.from === 'background_images' ? s.id : s.from)}
-                </li>
-              ))}
-            {hidden.length > 0 && (
-              <li>
-                <button onClick={() => hidden.forEach((s) => onReveal(sceneKey(s)))} className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-line-strong px-2.5 py-1 text-xs text-muted hover:text-ink">
-                  <EyeOff size={13} /> {hidden.length} hidden thing{hidden.length === 1 ? '' : 's'} here: reveal
-                </button>
-              </li>
-            )}
-          </ul>
-        </Section>
+      <AreaPois map={map} vis={vis} biome={map.cells[cy * map.w + cx]!} chunk={{ cx, cy }} pois={pois} seed={seed} onGo={onGo} />
+      {hidden.length > 0 && (
+        <button
+          onClick={() => hidden.forEach((s) => onReveal(sceneKey(s)))}
+          className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-line-strong px-2.5 py-1 text-xs text-muted hover:text-ink"
+        >
+          <EyeOff size={13} /> {hidden.length} hidden thing{hidden.length === 1 ? '' : 's'} here: reveal
+        </button>
       )}
       <a
         href={`https://noita.wiki.gg/index.php?search=${encodeURIComponent(name)}`}
@@ -282,5 +275,80 @@ function AreaDetail({
         Biome from <code>{b.file || 'biome_map.png'}</code>. The world repeats to each side as parallel worlds; New Game+ uses a different map.
       </p>
     </div>
+  );
+}
+
+/**
+ * Points of interest in this biome: the ones in the tapped chunk first, then the rest of the biome by depth.
+ * The seed's rooms are where its scripts put them; tapping one moves the selection to its chunk.
+ */
+function AreaPois({
+  map,
+  vis,
+  biome,
+  chunk,
+  pois,
+  seed,
+  onGo,
+}: {
+  map: WorldMap;
+  vis: ReturnType<typeof makeVisibility>;
+  biome: number;
+  chunk: { cx: number; cy: number };
+  pois: MapPoi[] | null;
+  seed: number;
+  onGo: (cx: number, cy: number) => void;
+}) {
+  const where = (p: MapPoi) => {
+    const c = poiCentre(p);
+    return { cx: Math.floor(c.x / map.chunk + map.w / 2), cy: Math.floor(c.y / map.chunk + map.offsetY) };
+  };
+  // Areas of the same name count together (a biome can be split into several patches with the same rooms).
+  const name = biomeName(map.biomes[biome]!);
+  const mine = (pois ?? [])
+    .map((p) => ({ p, at: where(p) }))
+    .filter(({ p, at }) => {
+      const k = map.cells[at.cy * map.w + at.cx];
+      if (k === undefined || at.cx < 0 || at.cx >= map.w) return false;
+      const b = map.biomes[k]!;
+      return (k === biome || (name && biomeName(b) === name)) && vis.biome(b) && (!p.scene || vis.scene(p.scene));
+    })
+    .sort((a, b) => Number(b.at.cx === chunk.cx && b.at.cy === chunk.cy) - Number(a.at.cx === chunk.cx && a.at.cy === chunk.cy) || a.p.y - b.p.y);
+  if (!pois) return <p className="mt-5 text-xs text-faint">Placing this seed's points of interest…</p>;
+  if (!mine.length) return null;
+  return (
+    <Section title="Points of interest">
+      <ul className="space-y-1.5">
+        {mine.map(({ p, at }) => {
+          const here = at.cx === chunk.cx && at.cy === chunk.cy;
+          return (
+            <li key={p.id} className={`slot p-2.5 ${here ? 'ring-1 ring-gold/50' : ''}`}>
+              <div className="flex items-start gap-2">
+                <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rotate-45" style={{ background: POI_COLOR[p.kind] }} aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <button onClick={() => onGo(at.cx, at.cy)} className="text-left text-sm text-ink hover:text-gold">
+                    {p.name}
+                    {here && <span className="ml-2 text-[11px] text-gold">here</span>}
+                  </button>
+                  {p.text && <p className="mt-0.5 text-xs text-muted">{p.text}</p>}
+                  <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-faint">
+                    <span className="font-mono">
+                      x {Math.round(p.x + p.w / 2)}, y {Math.round(p.y + p.h / 2)}
+                    </span>
+                    {p.fixed ? <span>always here</span> : <span>seed {seed}</span>}
+                    {p.wiki && (
+                      <a href={p.wiki} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-gold hover:underline">
+                        wiki <ExternalLink size={10} />
+                      </a>
+                    )}
+                  </p>
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="mt-2 text-[11px] text-faint">Rooms placed by the game's own scripts for this seed's caves. In New Game+ they differ.</p>
+    </Section>
   );
 }

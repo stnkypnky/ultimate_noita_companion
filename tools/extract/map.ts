@@ -71,6 +71,8 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
         // does), and a profile would make a browser or decoder shift them (and break the tile header).
         if (!wangImages.has(key)) wangImages.set(key, await sharp(wak.bytes(tpl), { ignoreIcc: true }).removeAlpha().png().toBuffer());
         biomes[k]!.wangTemplate = key;
+        // Its script places the rooms (points of interest) at markers in the layout.
+        if (script && wak.has(script)) biomes[k]!.luaScript = script;
         const swaps = [...xml.matchAll(/<RandomColor[^>]*>/g)].flatMap((m) => {
           const from = attr(m[0], 'input_color');
           const to = attr(m[0], 'output_colors');

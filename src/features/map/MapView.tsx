@@ -4,6 +4,8 @@ import { gameUrl } from '@/data/store';
 import type { Material, WorldMap } from '@/data/types';
 import { biomeName, chunkWorld, displayMaterial, namedInGame, type makeVisibility } from './world';
 import type { AreaLayout } from '@/seed/layout';
+import type { PoiKind } from '@/seed/poi';
+import { poiCentre, type MapPoi } from './pois';
 
 type Vis = ReturnType<typeof makeVisibility>;
 type View = { x: number; y: number; s: number };
@@ -181,6 +183,32 @@ const MARKER_LOOK: Record<MarkerKind, { glow: string; edge: string; body: string
   died: { glow: 'rgba(226,68,92,0.85)', edge: '#1a0507', body: '#f2e6c9', shine: '#ffffff' },
   last: { glow: 'rgba(200,190,180,0.6)', edge: '#2a2420', body: '#b9aa9c', shine: '#f3ede6' },
 };
+/** Pin colours by kind, from the app's palette. */
+export const POI_COLOR: Record<PoiKind, string> = {
+  room: '#eda949',
+  puzzle: '#9b7bff',
+  shop: '#7bd65c',
+  treasure: '#f89000',
+  secret: '#6cc8ff',
+  hazard: '#e2445c',
+};
+/** A 7 × 7 pixel diamond (rows as [dx, dy, w, h]), and a 1-pixel rim around it. */
+const DIAMOND: [number, number, number, number][] = [
+  [-1, -3, 2, 1],
+  [-2, -2, 4, 1],
+  [-3, -1, 6, 2],
+  [-2, 1, 4, 1],
+  [-1, 2, 2, 1],
+];
+const DIAMOND_RIM: [number, number, number, number][] = [
+  [-1, -4, 2, 1],
+  [-2, -3, 4, 1],
+  [-3, -2, 6, 1],
+  [-4, -1, 8, 2],
+  [-3, 1, 6, 1],
+  [-2, 2, 4, 1],
+  [-1, 3, 2, 1],
+];
 /** 7 × 7, centred on the marker. */
 const SKULL = [' ##### ', '#######', '#  #  #', '#######', ' ## ## ', ' # # # ', '       '];
 
@@ -196,6 +224,7 @@ export function MapView({
   marker,
   follow,
   markerKind = 'here',
+  pois,
 }: {
   map: WorldMap;
   vis: Vis;
@@ -211,6 +240,8 @@ export function MapView({
   follow?: boolean;
   /** What the marker means: you, live; where a past run died; where it was last seen. */
   markerKind?: MarkerKind;
+  /** Points of interest to pin (fixed ones and the seed's rooms). */
+  pois?: MapPoi[] | null;
 }) {
   const caves = useMemo(() => {
     const out = new Map<number, HTMLCanvasElement>();
@@ -238,6 +269,15 @@ export function MapView({
   const worldH = map.h * map.chunk;
   const left = -(map.w / 2) * map.chunk;
   const top = -map.offsetY * map.chunk;
+  /** The biome index at a world position, or -1 outside the map. */
+  const cellAt = useCallback(
+    (x: number, y: number) => {
+      const cx = Math.floor((x - left) / map.chunk);
+      const cy = Math.floor((y - top) / map.chunk);
+      return cx < 0 || cy < 0 || cx >= map.w || cy >= map.h ? -1 : map.cells[cy * map.w + cx]!;
+    },
+    [map, left, top],
+  );
 
   const fit = useCallback(() => {
     if (!size.w) return;
@@ -465,6 +505,52 @@ export function MapView({
       ctx.fillStyle = '#f2e6c9';
       ctx.fillText(label, sx, sy);
     }
+    // Points of interest: a pin each, the room's outline close up, and its name closer still (labels that would
+    // overlap an area name or another pin's are left out).
+    if (pois?.length) {
+      ctx.font = `600 11px ui-sans-serif, system-ui`;
+      for (const p of pois) {
+        const c = poiCentre(p);
+        const k = cellAt(c.x, c.y);
+        if (k < 0 || !vis.biome(map.biomes[k]!) || (p.scene && !vis.scene(p.scene))) continue;
+        const [fx, fy] = toScreen(c.x, c.y);
+        if (fx < -40 || fy < -40 || fx > size.w + 40 || fy > size.h + 40) continue;
+        const color = POI_COLOR[p.kind];
+        const sw = p.w * v.s;
+        const sh = p.h * v.s;
+        if (sw >= 28 && sh >= 16) {
+          ctx.setLineDash([4, 3]);
+          ctx.strokeStyle = color;
+          ctx.globalAlpha = 0.7;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(Math.round(fx - sw / 2) + 0.5, Math.round(fy - sh / 2) + 0.5, Math.round(sw), Math.round(sh));
+          ctx.setLineDash([]);
+          ctx.globalAlpha = 1;
+        }
+        // A small pixel diamond: dark rim, the kind's colour, a light glint.
+        const sx = Math.round(fx);
+        const sy = Math.round(fy);
+        ctx.fillStyle = '#0a0807';
+        for (const [dx, dy, w, h] of DIAMOND_RIM) ctx.fillRect(sx + dx, sy + dy, w, h);
+        ctx.fillStyle = color;
+        for (const [dx, dy, w, h] of DIAMOND) ctx.fillRect(sx + dx, sy + dy, w, h);
+        ctx.fillStyle = 'rgba(255,255,255,0.75)';
+        ctx.fillRect(sx - 1, sy - 3, 2, 2);
+        if (cs >= 150) {
+          const half = ctx.measureText(p.name).width / 2 + 3;
+          const box: [number, number, number, number] = [sx - half, sy + 7, sx + half, sy + 21];
+          if (taken.some((t) => box[0] < t[2] && box[2] > t[0] && box[1] < t[3] && box[3] > t[1])) continue;
+          taken.push(box);
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+          ctx.strokeText(p.name, sx, sy + 8);
+          ctx.fillStyle = color;
+          ctx.fillText(p.name, sx, sy + 8);
+        }
+      }
+    }
     if (selected) {
       const w = chunkWorld(map, selected.cx, selected.cy);
       const [sx, sy] = toScreen(w.x, w.y);
@@ -503,7 +589,7 @@ export function MapView({
         ctx.fillRect(sx - 2, sy - 2, 2, 2);
       }
     }
-  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, caveBiomes, wangColors, sceneColor, mx, my, markerKind]);
+  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, caveBiomes, wangColors, sceneColor, mx, my, markerKind, pois, cellAt]);
 
   // Pointer: drag pans, two fingers pinch, a tap selects.
   const pointers = useRef(new Map<number, { x: number; y: number }>());

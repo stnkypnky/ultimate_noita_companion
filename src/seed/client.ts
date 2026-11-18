@@ -1,12 +1,13 @@
 import type { SeedIn, SeedOut, SeedQuery, SeedReport, WandRoll } from './worker';
 import type { AreaLayout } from './layout';
 import type { ShopWand } from './seed';
+import type { SeedPoi } from './poi';
 
 let worker: Worker | null = null;
 let nextId = 1;
 const pending = new Map<number, (r: SeedOut) => void>();
 
-type Request = { query: SeedQuery } | { layoutSeed: number } | { roll: WandRoll };
+type Request = { query: SeedQuery } | { layoutSeed: number } | { poiSeed: number } | { roll: WandRoll };
 
 function send(req: Request): Promise<SeedOut & { ok: true }> {
   if (!worker) {
@@ -26,7 +27,6 @@ function send(req: Request): Promise<SeedOut & { ok: true }> {
 /** What the seed gives, computed in a worker (the first call also loads the game scripts). */
 export const seedReport = (query: SeedQuery): Promise<SeedReport> => send({ query }).then((r) => r.report!);
 
-/** The seed's cave layouts, one per cave-biome patch of the world map. */
 /**
  * A random wand of this tier, made by the game's own generate_gun with the cost and level its
  * wand_level_XX.lua passes (tier 10 is wand_level_10: cost 200, level 11).
@@ -46,4 +46,8 @@ export function rollWand(tier: number): Promise<ShopWand> {
   return send({ roll: { seed: r(), x: (r() % 70000) - 35000, y: (r() % 30000) - 2000, ...t } }).then((res) => res.wand!);
 }
 
-export const seedLayouts =(seed: number): Promise<AreaLayout[]> => send({ layoutSeed: seed }).then((r) => r.layouts ?? []);
+/** The seed's cave layouts, one per cave-biome patch of the world map. */
+export const seedLayouts = (seed: number): Promise<AreaLayout[]> => send({ layoutSeed: seed }).then((r) => r.layouts ?? []);
+
+/** Where the seed's biome scripts put their rooms (the curated points of interest). */
+export const seedPois = (seed: number): Promise<SeedPoi[]> => send({ poiSeed: seed }).then((r) => r.pois ?? []);

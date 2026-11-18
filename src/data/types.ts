@@ -480,6 +480,8 @@ export type MapBiome = {
   wangTemplate?: string;
   /** <RandomMaterials>: a colour in the layout that becomes one of these (rrggbb). */
   randomMaterials?: { from: string; to: string[] }[];
+  /** A cave biome's lua_script: where its rooms are placed (seed/poi.ts). */
+  luaScript?: string;
 };
 
 /** A pixel scene placed at a fixed world position. */
