@@ -75,21 +75,22 @@ function Rail() {
       aria-label="Main"
       className="safe-top hidden w-[72px] shrink-0 flex-col border-r-2 border-line-strong/60 bg-raised md:flex lg:w-[var(--rail-w)]"
     >
-      <div className="flex items-center gap-3 px-4 py-5 lg:px-5">
+      <div className="flex shrink-0 items-center gap-3 px-4 py-5 lg:px-5 short:py-2">
         <img src={`${import.meta.env.BASE_URL}icons/favicon-64.png`} alt="" className="pixelated h-8 w-8" />
         <div className="hidden leading-none lg:block">
           <div className="font-game-caps text-[8px] text-gold">Ultimate</div>
           <div className="font-game mt-1 text-[16px]">Noita Companion</div>
         </div>
       </div>
-      <ul className="flex flex-col gap-1 px-2 lg:px-3">
+      {/* A landscape phone gets the rail too: its items scroll when they don't fit the height. */}
+      <ul className="scrollbar-thin flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 pb-2 lg:px-3 short:gap-0.5">
         {railItems(run.show).map((item) => (
           <li key={item.to}>
             <RailLink item={item} locked={locked(item.to)} live={run.active} />
           </li>
         ))}
       </ul>
-      <p className="mt-auto hidden px-5 py-4 text-[11px] leading-snug text-faint lg:block">
+      <p className="hidden shrink-0 px-5 py-4 text-[11px] leading-snug text-faint lg:block short:hidden">
         Unofficial fan project. Game data &amp; art © Nolla Games.
       </p>
     </nav>
@@ -103,7 +104,7 @@ function RailLink({ item, locked, live }: { item: NavItem; locked: boolean; live
       end={item.to === '/'}
       title={locked ? `${item.label} (sync your save first)` : item.label}
       className={({ isActive }) =>
-        `group relative flex items-center gap-3 px-3 py-2.5 transition-colors max-lg:justify-center ${
+        `group relative flex items-center gap-3 px-3 py-2.5 transition-colors max-lg:justify-center short:py-1.5 ${
           isActive ? 'slot text-ink' : 'text-muted hover:bg-surface hover:text-ink'
         }`
       }

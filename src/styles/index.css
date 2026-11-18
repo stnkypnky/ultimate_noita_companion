@@ -1,5 +1,8 @@
 @import 'tailwindcss';
 
+/* Short screens (a phone turned landscape): tighter navigation. */
+@custom-variant short (@media (max-height: 500px));
+
 /* ---------- The game's fonts (built from data/fonts by the extractor) ---------- */
 @font-face {
   font-family: 'Noita Pixel';
