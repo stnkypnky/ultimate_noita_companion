@@ -6,7 +6,7 @@ import engineSource from '../sim/lua/engine.lua?raw';
 import seedSource from './lua/seed.lua?raw';
 import { NoitaRandom } from '../sim/rng';
 import type { LuaCall } from '../sim/protocol';
-import { biomeModifiers, fungalShifts, holyMountainPerks, holyMountainShops, setupSeed, type SeedSetup } from './seed';
+import { biomeModifiers, fungalShifts, generateWand, holyMountainPerks, holyMountainShops, setupSeed, type SeedSetup, type ShopWand } from './seed';
 import { generateLayouts, type AreaLayout } from './layout';
 import { buildTileset, type Tileset } from './wang';
 import type { WorldMap } from '../data/types';
@@ -22,8 +22,13 @@ export type SeedReport = {
   perks: ReturnType<typeof holyMountainPerks>;
   shops: ReturnType<typeof holyMountainShops>;
 };
-export type SeedIn = { id: number; base: string; query: SeedQuery } | { id: number; base: string; layoutSeed: number };
-export type SeedOut = { id: number; ok: true; report?: SeedReport; layouts?: AreaLayout[] } | { id: number; ok: false; error: string };
+/** One random wand from generate_gun (cost, level as a wand_level_XX.lua passes them), at a random spot and seed. */
+export type WandRoll = { seed: number; x: number; y: number; cost: number; level: number };
+export type SeedIn =
+  | { id: number; base: string; query: SeedQuery }
+  | { id: number; base: string; layoutSeed: number }
+  | { id: number; base: string; roll: WandRoll };
+export type SeedOut = { id: number; ok: true; report?: SeedReport; layouts?: AreaLayout[]; wand?: ShopWand } | { id: number; ok: false; error: string };
 
 // ---- Cave layouts (wang.ts): the map and the templates, decoded once ----
 let layoutData: Promise<{ map: WorldMap; tilesets: Map<string, Tileset>; overlay?: Uint8Array }> | null = null;
@@ -80,6 +85,19 @@ self.onmessage = async (e: MessageEvent<SeedIn>) => {
       const d = await (layoutData ??= loadLayoutData(base));
       const layouts = generateLayouts(d.map, e.data.layoutSeed, d.tilesets, d.overlay);
       postMessage({ id, ok: true, layouts } satisfies SeedOut, { transfer: layouts.map((l) => l.rgb.buffer) });
+    } catch (err) {
+      postMessage({ id, ok: false, error: String((err as Error)?.message ?? err) } satisfies SeedOut);
+    }
+    return;
+  }
+  if ('roll' in e.data) {
+    const r = e.data.roll;
+    try {
+      engine ??= createEngine(base);
+      const call = await engine;
+      call('sim_set_world_seed', r.seed >>> 0);
+      call('seed_set_flags', true, '');
+      postMessage({ id, ok: true, wand: generateWand(call, r.x, r.y, r.cost, r.level).wand } satisfies SeedOut);
     } catch (err) {
       postMessage({ id, ok: false, error: String((err as Error)?.message ?? err) } satisfies SeedOut);
     }

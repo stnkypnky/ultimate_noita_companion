@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createLuaHost, seedSource, type LuaHost } from '../tools/extract/lua.ts';
 import type { Material } from '../src/data/types.ts';
+import { WAND_TIERS } from '../src/seed/client.ts';
 import { SHOP_SPOTS, biomeModifiers, fungalShifts, generateWand, holyMountainPerks, holyMountainShops, materialTable, setupSeed } from '../src/seed/seed.ts';
 
 const GAME = join(import.meta.dirname, '../public/game');
@@ -130,6 +131,20 @@ describe('Holy Mountain shops (temple_altar.lua, generate_shop_item.lua, gun_pro
     expect(raw.spells).toEqual(['BURST_2', 'HEAVY_SPREAD', 'DYNAMITE', 'DYNAMITE', 'DYNAMITE']);
     expect([wand.capacity, wand.castDelay, wand.rechargeTime, wand.manaMax, wand.manaChargeSpeed, wand.spread, wand.spellsPerCast, wand.shuffle]).toEqual([6, 18, 28, 80, 245, 2, 1, true]);
     expect(wand.speedMultiplier).toBeCloseTo(1.08233642578125, 6);
+  });
+
+  it('the wand builder’s Randomize: every tier rolls a usable wand with only a world seed set', () => {
+    for (const [tier, t] of Object.entries(WAND_TIERS)) {
+      for (const seed of [1, 777, 98765]) {
+        host.call('sim_set_world_seed', seed);
+        host.call('seed_set_flags', true, '');
+        const { wand } = generateWand(host.call, seed % 5000, 300 + Number(tier) * 1000, t.cost, t.level);
+        expect(wand.capacity, `tier ${tier}`).toBeGreaterThanOrEqual(1);
+        expect(wand.spellsPerCast).toBeGreaterThanOrEqual(1);
+        expect(wand.manaMax).toBeGreaterThan(0);
+        expect(Number.isFinite(wand.castDelay) && Number.isFinite(wand.rechargeTime)).toBe(true);
+      }
+    }
   });
 
   it('a level 6 wand gets its 16 spells, and its fractional capacity is cut to a whole number', () => {

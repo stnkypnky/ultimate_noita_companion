@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, Shuffle } from 'lucide-react';
+import { ChevronDown, ChevronUp, Dices, Shuffle } from 'lucide-react';
 import { FPS, fmtNum } from '@/data/format';
-import { MAX_CAPACITY, type Wand } from './model';
+import { WAND_TIERS, rollWand } from '@/seed/client';
+import { MAX_CAPACITY, resize, type Wand } from './model';
 import { useWand } from './store';
 import { StatIcon, type StatIconName } from '@/ui/game';
 
@@ -92,11 +93,89 @@ export function WandStats({ collapsible }: { collapsible?: boolean }) {
         />
       ))}
     </div>
+    <RandomizeStats />
     {collapsible && (
       <button onClick={() => setOpen(false)} className="mt-1.5 flex w-full items-center justify-center gap-1 py-1 text-xs text-faint hover:text-ink">
         <ChevronUp size={14} /> Collapse
       </button>
     )}
+    </div>
+  );
+}
+
+const TIERS = Object.keys(WAND_TIERS).map(Number);
+const TIER_KEY = 'wand-random-tier';
+
+/**
+ * Rolls new stats as a wand of the chosen tier would spawn in the game (its own generate_gun, run in the
+ * seed worker). Spells stay; a smaller capacity drops the ones past the end (undo brings them back).
+ */
+function RandomizeStats() {
+  const edit = useWand((s) => s.edit);
+  const [tier, setTierState] = useState(() => {
+    try {
+      const t = Number(localStorage.getItem(TIER_KEY));
+      return TIERS.includes(t) ? t : 3;
+    } catch {
+      return 3;
+    }
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const setTier = (t: number) => {
+    setTierState(t);
+    try {
+      localStorage.setItem(TIER_KEY, String(t));
+    } catch {
+      /* not remembered */
+    }
+  };
+  const roll = async () => {
+    setBusy(true);
+    setError(false);
+    try {
+      const r = await rollWand(tier);
+      const capacity = Math.max(1, Math.min(MAX_CAPACITY, r.capacity));
+      edit((w) => ({
+        ...w,
+        shuffle: r.shuffle,
+        spellsPerCast: Math.max(1, r.spellsPerCast),
+        castDelay: r.castDelay,
+        rechargeTime: r.rechargeTime,
+        manaMax: Math.round(r.manaMax),
+        manaChargeSpeed: Math.round(r.manaChargeSpeed),
+        capacity,
+        spread: Math.round(r.spread * 10) / 10,
+        speedMultiplier: r.speedMultiplier,
+        spells: resize(w.spells, capacity),
+        ...(w.charges ? { charges: resize(w.charges, capacity) } : {}),
+      }));
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <button onClick={roll} disabled={busy} className="btn-game quiet font-game px-3 py-1.5 text-[16px] disabled:opacity-60" title="New stats, as a wand of this tier spawns in the game">
+        <Dices size={15} className={busy ? 'animate-spin' : undefined} /> Randomize
+      </button>
+      <span className="text-[11px] tracking-wide text-faint uppercase">Tier</span>
+      <span role="radiogroup" aria-label="Wand tier" className="inline-flex gap-1">
+        {TIERS.map((t) => (
+          <button
+            key={t}
+            role="radio"
+            aria-checked={tier === t}
+            onClick={() => setTier(t)}
+            className={`font-game min-w-7 px-1.5 py-0.5 text-[16px] ${tier === t ? 'bg-ember text-[#120a04] [text-shadow:none]' :'bg-surface-2 text-muted hover:text-ink'}`}
+          >
+            {t}
+          </button>
+        ))}
+      </span>
+      {error && <span className="text-xs text-blood">Couldn’t load the game’s wand scripts.</span>}
     </div>
   );
 }
