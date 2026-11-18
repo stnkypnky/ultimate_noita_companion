@@ -1,0 +1,7 @@
+<Mod
+  name="Noita Companion Live"
+  description="Shows your current run (health, gold, biome, perks, wands and flasks) live in the Ultimate Noita Companion app on your PC, phone or tablet. Writes one small file, companion_live.json, into your save folder. Needs 'unsafe' mods allowed because it writes that file."
+  request_no_api_restrictions="1"
+  is_game_mode="0"
+>
+</Mod>

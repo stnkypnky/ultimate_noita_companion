@@ -4,6 +4,7 @@ import { ArrowRight, Beaker, FlaskConical, Gem, Lock, Map as MapIcon, Package, R
 import { useGameData } from '@/data/store';
 import { useHasSave, useProgress, useProgressHydrated } from '@/store/progress';
 import { SyncSave } from '@/features/progress/SyncSave';
+import { CurrentRun } from '@/features/live/CurrentRun';
 import { HudBar, Runes } from '@/ui/game';
 import { DiscoveryBar } from '@/features/progress/DiscoveryBar';
 
@@ -110,6 +111,8 @@ export function HomePage() {
           )}
         </div>
       </motion.section>
+
+      <CurrentRun />
 
       <section className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
         {TILES.map(({ to, title, text, icon: Icon, accent, open }, i) => (

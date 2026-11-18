@@ -7,7 +7,8 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsx tools/mod-zip.ts && vite build",
+    "mod": "tsx tools/mod-zip.ts",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",

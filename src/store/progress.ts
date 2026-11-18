@@ -2,6 +2,7 @@ import { useMemo, useSyncExternalStore } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { idbStorage } from './kv';
+import { liveFlags, useLiveRun } from '@/features/live/state';
 
 export type RunSummary = {
   runs: number;
@@ -153,11 +154,13 @@ export function useSpoilers() {
   const enemies = useProgress((s) => s.progress?.enemies);
   const revealed = useProgress((s) => s.revealed);
   const reveal = useProgress((s) => s.reveal);
+  // What's in hand in the current run (companion mod) is on screen in-game, so it isn't hidden either.
+  const run = useLiveRun((s) => s.run);
 
   return useMemo(() => {
-    const known = new Set<string>([...(flags ?? []), ...(enemies ?? []).map((e) => `enemy:${e}`), ...revealed]);
+    const known = new Set<string>([...(flags ?? []), ...(enemies ?? []).map((e) => `enemy:${e}`), ...revealed, ...liveFlags(run)]);
     const flagSet = new Set(flags ?? []);
     const visible = (key: string) => mode === 'all' || known.has(key);
     return { mode, visible, reveal, hasFlag: (f: string) => flagSet.has(f) };
-  }, [mode, flags, enemies, revealed, reveal]);
+  }, [mode, flags, enemies, revealed, reveal, run]);
 }

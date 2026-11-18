@@ -165,7 +165,7 @@ export function startEngine(transport: Transport, adapter: SyncAdapter, me: { id
           adapter.live.apply(m.run, m.at, peer?.name ?? 'another device');
           return got('live');
       }
-    })().catch(() => {});
+    })().catch((e: unknown) => console.warn('[sync] message failed', m.k, e));
   });
 
   void adapter.builds.all().then((all) => (sentBuilds = new Map(all.map((b) => [b.id, buildTime(b)]))));
