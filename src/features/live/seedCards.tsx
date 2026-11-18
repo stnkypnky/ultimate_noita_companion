@@ -11,6 +11,7 @@ import { useNow } from '@/ui/time';
 import { MapView } from '@/features/map/MapView';
 import { MaterialName, PerkChip, ShopView } from '@/features/map/SeedPanel';
 import { loadMap, makeVisibility } from '@/features/map/world';
+import { useSeedLayers } from '@/features/map/useSeedLayers';
 import { clock, nextMountain, picksBefore } from './runMath';
 import { materialTable } from '@/seed/seed';
 import { seedReport } from '@/seed/client';
@@ -78,17 +79,27 @@ export function SeedCards({ run, at }: { run: LiveRun; at: number }) {
   );
 }
 
+const mapSpoilersShown = () => {
+  try {
+    return localStorage.getItem('map-spoilers') === '1';
+  } catch {
+    return false;
+  }
+};
+
 function MiniMap({ map, x, y, seed }: { map: WorldMap; x: number; y: number; seed: number }) {
   const { materialById } = useData();
   const { mode, visible } = useSpoilers();
   const orbs = useProgress((s) => s.progress?.orbs);
   const navigate = useNavigate();
   const vis = useMemo(() => {
-    const base = makeVisibility(map, { all: mode === 'all', visible, orbs: orbs ?? [] });
+    // The World Map's own "Show spoilers" switch counts here too, so both maps show the same.
+    const base = makeVisibility(map, { all: mode === 'all' || mapSpoilersShown(), visible, orbs: orbs ?? [] });
     const here = base.chunkAt(x, y);
     // Where you're standing isn't a secret.
     return { ...base, biome: (b: Parameters<typeof base.biome>[0]) => b === here || base.biome(b) };
   }, [map, mode, visible, orbs, x, y]);
+  const { layouts, wangColors } = useSeedLayers(seed > 0 ? seed : null);
   return (
     <Section title="Where you are">
       <div className="h-[300px]">
@@ -100,6 +111,8 @@ function MiniMap({ map, x, y, seed }: { map: WorldMap; x: number; y: number; see
           onSelect={(cx, cy) => navigate(`/map/${cx}-${cy}?seed=${seed}`)}
           marker={{ x, y }}
           follow
+          layouts={layouts}
+          wangColors={wangColors}
         />
       </div>
     </Section>

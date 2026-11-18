@@ -13,8 +13,7 @@ import { MapView } from './MapView';
 import { SeedPanel } from './SeedPanel';
 import { areaNotes } from './notes';
 import type { SeedReport } from '@/seed/worker';
-import type { AreaLayout } from '@/seed/layout';
-import { seedLayouts } from '@/seed/client';
+import { useSeedLayers } from './useSeedLayers';
 import { biomeKey, biomeName, chunkWorld, holyMountains, loadMap, makeVisibility, namedInGame, onPath, orbOf, sceneKey } from './world';
 
 /** Whose caves the map shows before you pick a seed. */
@@ -73,21 +72,7 @@ export function MapPage() {
   // The caves are drawn for the chosen seed; until one is chosen, for an example seed.
   const [seed, setSeed] = useState<number | null>(null);
   const caveSeed = seed ?? EXAMPLE_SEED;
-  const [layouts, setLayouts] = useState<AreaLayout[] | null>(null);
-  const [wangColors, setWangColors] = useState<Record<string, string> | null>(null);
-  useEffect(() => {
-    void fetchJson<Record<string, string>>('data/wang_colors.json').then(setWangColors, () => {});
-  }, []);
-  useEffect(() => {
-    let live = true;
-    seedLayouts(caveSeed).then(
-      (l) => live && setLayouts(l),
-      () => live && setLayouts(null),
-    );
-    return () => {
-      live = false;
-    };
-  }, [caveSeed]);
+  const { layouts, wangColors } = useSeedLayers(caveSeed);
   const all = mode === 'all' || spoilers;
   const vis = useMemo(() => (map ? makeVisibility(map, { all, visible, orbs: orbs ?? [] }) : null), [map, all, visible, orbs]);
   const selected = parsePlace(place);
