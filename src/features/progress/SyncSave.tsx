@@ -25,6 +25,9 @@ export function SyncSave({ compact }: { compact?: boolean }) {
   );
 }
 
+/** Brave hides the File System Access API behind a flag; it identifies itself with navigator.brave. */
+const isBrave = () => typeof (navigator as Navigator & { brave?: unknown }).brave === 'object';
+
 export function PhoneHowTo() {
   return (
     <ol className="space-y-3 panel p-4 text-sm text-muted">
@@ -122,7 +125,9 @@ export function ScanSave({ onScanned, compact }: { onScanned: (p: Progress) => v
           </p>
           <p className="mt-1 text-sm text-muted">
             {watch.status === 'unsupported'
-              ? 'Read entirely in your browser. This browser can’t keep watching a folder — use Chrome or Edge for live sync.'
+              ? isBrave()
+                ? 'Read entirely in your browser. Brave turns folder watching off by default: open brave://flags/#file-system-access-api, set it to Enabled and relaunch Brave for live sync (or use Chrome or Edge).'
+                : 'Read entirely in your browser. This browser can’t keep watching a folder — use Chrome or Edge for live sync.'
               : watch.status === 'standby'
                 ? 'Live sync is running in another tab of the companion.'
                 : 'Read entirely in your browser. Choose the folder once and the companion keeps itself up to date.'}
