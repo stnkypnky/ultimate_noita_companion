@@ -31,7 +31,7 @@ export function SettingsPage() {
             Manage progress sync
           </Link>
           {revealed.length > 0 && (
-            <button onClick={() => useProgress.setState({ revealed: [] })} className="inline-flex items-center gap-1.5 hover:text-ink">
+            <button onClick={() => useProgress.getState().hideAll()} className="inline-flex items-center gap-1.5 hover:text-ink">
               <RotateCcw size={14} /> Re-hide {revealed.length} individually revealed item{revealed.length > 1 ? 's' : ''}
             </button>
           )}

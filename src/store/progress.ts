@@ -15,6 +15,10 @@ export type RunSummary = {
 
 export type Progress = {
   syncedAt: string;
+  /** When the save itself last changed (newest file time). Missing on older syncs; see `saveTime`. */
+  savedAt?: string;
+  /** Name of the device that read the save. */
+  source?: string;
   /** Persistent flags from save00/persistent/flags (action_*, perk_picked_*, card_unlocked_*, progress_*). */
   flags: string[];
   /** Enemy ids seen, from save00/stats/stats_<enemy>.xml. */
@@ -24,6 +28,21 @@ export type Progress = {
   orbs: number[];
   runs?: RunSummary;
 };
+
+/** How recent this save is, for picking the newest between devices (ms; 0 if unknown). */
+export const saveTime = (p: Progress | null | undefined) => (p ? Date.parse(p.savedAt ?? p.syncedAt) || 0 : 0);
+
+/** Same discoveries, ignoring when or where it was read. */
+export function sameProgress(a: Progress | null, b: Progress | null): boolean {
+  if (!a || !b) return a === b;
+  const strip = ({ syncedAt: _s, savedAt: _a, source: _n, ...rest }: Progress) => ({
+    ...rest,
+    flags: [...rest.flags].sort(),
+    enemies: [...rest.enemies].sort(),
+    enemyStats: Object.entries(rest.enemyStats ?? {}).sort(([x], [y]) => x.localeCompare(y)),
+  });
+  return JSON.stringify(strip(a)) === JSON.stringify(strip(b));
+}
 
 /**
  * 'progress' — show only what the save says you've discovered (plus anything revealed by hand).
@@ -35,33 +54,85 @@ type ProgressState = {
   onboarded: boolean;
   mode: SpoilerMode;
   progress: Progress | null;
-  /** Spoiler keys revealed individually. */
+  /** Spoiler keys revealed individually (derived from `revealedAt`). */
   revealed: string[];
+  /** Every reveal or re-hide with its time, so devices can merge them (newest wins per key). */
+  revealedAt: RevealLog;
+  /** When the spoiler mode was last changed by hand (ms), for syncing it. */
+  modeAt: number;
   setMode: (m: SpoilerMode) => void;
   setOnboarded: () => void;
   importProgress: (p: Progress) => void;
+  /** A background update (live watch, another device): keeps the spoiler mode the player chose. */
+  updateProgress: (p: Progress) => void;
   clearProgress: () => void;
   reveal: (key: string) => void;
   hideAgain: (key: string) => void;
+  /** Re-hide every individually revealed item. */
+  hideAll: () => void;
+  /** Merge reveals from another device. */
+  mergeReveals: (log: RevealLog) => void;
 };
+
+export type RevealLog = Record<string, { on: boolean; t: number }>;
+
+const revealedFrom = (log: RevealLog) => Object.keys(log).filter((k) => log[k]!.on);
 
 export const useProgress = create<ProgressState>()(
   persist(
-    (set) => ({
-      onboarded: false,
-      mode: 'progress',
-      progress: null,
-      revealed: [],
-      setMode: (mode) => set({ mode }),
-      setOnboarded: () => set({ onboarded: true }),
-      importProgress: (progress) => set({ progress, onboarded: true, mode: 'progress' }),
-      clearProgress: () => set({ progress: null }),
-      reveal: (key) => set((s) => (s.revealed.includes(key) ? s : { revealed: [...s.revealed, key] })),
-      hideAgain: (key) => set((s) => ({ revealed: s.revealed.filter((k) => k !== key) })),
-    }),
-    { name: 'progress', storage: createJSONStorage(() => idbStorage), version: 1 },
+    (set) => {
+      const logged = (s: ProgressState, keys: string[], on: boolean) => {
+        const t = Date.now();
+        const revealedAt = { ...s.revealedAt };
+        for (const k of keys) revealedAt[k] = { on, t };
+        return { revealedAt, revealed: revealedFrom(revealedAt) };
+      };
+      return {
+        onboarded: false,
+        mode: 'progress',
+        progress: null,
+        revealed: [],
+        revealedAt: {},
+        modeAt: 0,
+        setMode: (mode) => set({ mode, modeAt: Date.now() }),
+        setOnboarded: () => set({ onboarded: true }),
+        importProgress: (progress) => set({ progress, onboarded: true, mode: 'progress' }),
+        updateProgress: (progress) => set({ progress, onboarded: true }),
+        clearProgress: () => set({ progress: null }),
+        reveal: (key) => set((s) => (s.revealed.includes(key) ? s : logged(s, [key], true))),
+        hideAgain: (key) => set((s) => logged(s, [key], false)),
+        hideAll: () => set((s) => logged(s, s.revealed, false)),
+        mergeReveals: (log) =>
+          set((s) => {
+            const revealedAt = mergeRevealLogs(s.revealedAt, log);
+            return revealedAt === s.revealedAt ? s : { revealedAt, revealed: revealedFrom(revealedAt) };
+          }),
+      };
+    },
+    {
+      name: 'progress',
+      storage: createJSONStorage(() => idbStorage),
+      version: 2,
+      migrate: (old, version) => {
+        const s = old as ProgressState;
+        // v1 kept only the list; date old reveals at 1 so any real change elsewhere beats them.
+        if (version < 2) return { ...s, revealedAt: Object.fromEntries((s.revealed ?? []).map((k) => [k, { on: true, t: 1 }])), modeAt: 0 };
+        return s;
+      },
+    },
   ),
 );
+
+/** Per key, the newest entry wins; on a tie, revealed wins. Returns `a` itself when nothing changes. */
+export function mergeRevealLogs(a: RevealLog, b: RevealLog): RevealLog {
+  let out: RevealLog | null = null;
+  for (const [k, e] of Object.entries(b)) {
+    if (!e || typeof e.t !== 'number' || typeof e.on !== 'boolean') continue;
+    const mine = a[k];
+    if (!mine || e.t > mine.t || (e.t === mine.t && e.on && !mine.on)) (out ??= { ...a })[k] = { on: e.on, t: e.t };
+  }
+  return out ?? a;
+}
 
 /** Whether the stored progress has loaded from IndexedDB yet (so a missing save isn't judged too early). */
 export function useProgressHydrated() {

@@ -90,7 +90,7 @@ export function MapPage() {
   // Everything back under wraps: the page's switch off, and every item revealed one at a time hidden again.
   const hideAll = () => {
     setSpoilers(false);
-    useProgress.setState({ revealed: [] });
+    useProgress.getState().hideAll();
   };
 
   return (

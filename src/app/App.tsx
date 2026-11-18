@@ -6,6 +6,8 @@ import { Splash } from './Splash';
 import { useGameData } from '@/data/store';
 import { useProgress } from '@/store/progress';
 import { useWand } from '@/features/wand/store';
+import { initSaveWatch } from '@/features/progress/liveSave';
+import { startTabSync } from '@/features/sync/tabs';
 
 // Long enough for the splash wand to light the whole title.
 const MIN_SPLASH_MS = 1500;
@@ -32,6 +34,13 @@ export function App() {
   }, [load]);
 
   const ready = minElapsed && hydrated && status !== 'loading';
+
+  // Background sync starts once stored state is in, so a live update can't be overwritten by hydration.
+  useEffect(() => {
+    if (!hydrated) return;
+    startTabSync();
+    void initSaveWatch();
+  }, [hydrated]);
 
   return (
     <>

@@ -1,17 +1,16 @@
 // The ways to sync a save: read the save folder on the PC, or paste a sync code made there. Shared by
 // Progress Sync, Home and the "sync your save first" lock screen.
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
-import { Check, ClipboardCopy, FolderOpen, Laptop, RefreshCw, Smartphone, Upload } from 'lucide-react';
+import { Check, ClipboardCopy, FolderOpen, Laptop, Pause, Radio, RefreshCw, Smartphone, Upload } from 'lucide-react';
 import { useData } from '@/data/store';
-import { db } from '@/store/db';
 import { useProgress, type Progress } from '@/store/progress';
 import { useIsDesktop } from '@/ui/hooks';
+import { timeAgo, useNow } from '@/ui/time';
 import { SyncCodeError, decodeProgress } from './codec';
-import { SAVE_PATH, ScanError, canPickDirectory, filesFromDrop, filesFromHandle, filesFromInput, parseSave, pickDirectory, type SaveFile } from './scan';
-
-const HANDLE_KEY = 'save-dir';
+import { chooseSaveFolder, resumeSaveWatch, stopSaveWatch, syncSaveNow, useSaveWatch } from './liveSave';
+import { SAVE_PATH, ScanError, canPickDirectory, filesFromDrop, filesFromInput, parseSave, type SaveFile } from './scan';
 
 /** The folder picker on a computer, or the steps to sync from the PC on a phone; then a sync-code box. */
 export function SyncSave({ compact }: { compact?: boolean }) {
@@ -58,21 +57,18 @@ export function ScanSave({ onScanned, compact }: { onScanned: (p: Progress) => v
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const [savedHandle, setSavedHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [copied, setCopied] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const watch = useSaveWatch();
+  const now = useNow();
+  const live = watch.status === 'live';
 
-  useEffect(() => {
-    void db.handles.get(HANDLE_KEY).then((h) => setSavedHandle(h?.handle ?? null));
-  }, []);
-
-  const run = async (get: () => Promise<SaveFile[]>) => {
+  const run = async (job: () => Promise<void>) => {
     setBusy(true);
     setError(null);
     setDone(false);
     try {
-      const progress = await parseSave(await get());
-      onScanned(progress);
+      await job();
       setDone(true);
     } catch (e) {
       if ((e as Error).name === 'AbortError') return;
@@ -81,24 +77,13 @@ export function ScanSave({ onScanned, compact }: { onScanned: (p: Progress) => v
       setBusy(false);
     }
   };
+  /** One-off read (drop, or a browser without folder handles). */
+  const readOnce = (get: () => Promise<SaveFile[]>) => run(async () => onScanned(await parseSave(await get())));
 
   const choose = () => {
     if (!canPickDirectory()) return input.current?.click();
-    void run(async () => {
-      const dir = await pickDirectory();
-      await db.handles.put({ key: HANDLE_KEY, handle: dir });
-      setSavedHandle(dir);
-      return filesFromHandle(dir);
-    });
+    void run(chooseSaveFolder);
   };
-
-  const resync = () =>
-    savedHandle &&
-    void run(async () => {
-      const h = savedHandle as FileSystemDirectoryHandle & { requestPermission?: (o: object) => Promise<string> };
-      if (h.requestPermission && (await h.requestPermission({ mode: 'read' })) !== 'granted') throw new ScanError('Permission to read the folder was denied.');
-      return filesFromHandle(savedHandle);
-    });
 
   return (
     <div
@@ -111,36 +96,75 @@ export function ScanSave({ onScanned, compact }: { onScanned: (p: Progress) => v
         e.preventDefault();
         setDragging(false);
         const items = e.dataTransfer.items;
-        void run(() => filesFromDrop(items));
+        void readOnce(() => filesFromDrop(items));
       }}
       className={`rounded-[var(--radius)] border-2 border-dashed text-center transition-colors ${compact ? 'p-4' : 'p-6'} ${
         dragging ? 'border-ember bg-ember/10' : 'border-line-strong bg-surface'
       }`}
     >
-      {!compact && <Upload className="mx-auto text-ember" size={28} />}
-      <p className={`${compact ? '' : 'mt-3'} font-medium`}>Choose or drop your Noita save folder</p>
-      <p className="mt-1 text-sm text-muted">Read entirely in your browser — nothing is uploaded.</p>
+      {live ? (
+        <>
+          <p className="inline-flex items-center gap-2 font-game text-[16px] text-toxic">
+            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-toxic" aria-hidden /> Live sync on
+          </p>
+          <p className="mt-1 text-sm text-muted">
+            Watching your save folder — new discoveries show up by themselves.
+            {watch.lastChange ? ` Last change ${timeAgo(watch.lastChange, now)}.` : watch.lastScan ? ` Checked ${timeAgo(watch.lastScan, now)}.` : ''}
+          </p>
+        </>
+      ) : (
+        <>
+          {!compact && <Upload className="mx-auto text-ember" size={28} />}
+          <p className={`${compact ? '' : 'mt-3'} font-medium`}>
+            {watch.status === 'needs-permission' ? 'Resume live sync with your save folder' : 'Choose or drop your Noita save folder'}
+          </p>
+          <p className="mt-1 text-sm text-muted">
+            {watch.status === 'unsupported'
+              ? 'Read entirely in your browser. This browser can’t keep watching a folder — use Chrome or Edge for live sync.'
+              : watch.status === 'standby'
+                ? 'Live sync is running in another tab of the companion.'
+                : 'Read entirely in your browser. Choose the folder once and the companion keeps itself up to date.'}
+          </p>
+        </>
+      )}
 
-      <button
-        onClick={() => {
-          void navigator.clipboard.writeText(SAVE_PATH);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        }}
-        className="mx-auto mt-3 flex max-w-full items-center gap-2 rounded-lg bg-raised px-3 py-1.5 font-mono text-xs text-muted hover:text-ink"
-        title="Copy path — paste it into the folder picker's address bar"
-      >
-        <span className="truncate">{SAVE_PATH}</span>
-        {copied ? <Check size={14} className="text-toxic" /> : <ClipboardCopy size={14} />}
-      </button>
+      {!live && (
+        <button
+          onClick={() => {
+            void navigator.clipboard.writeText(SAVE_PATH);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          }}
+          className="mx-auto mt-3 flex max-w-full items-center gap-2 rounded-lg bg-raised px-3 py-1.5 font-mono text-xs text-muted hover:text-ink"
+          title="Copy path — paste it into the folder picker's address bar"
+        >
+          <span className="truncate">{SAVE_PATH}</span>
+          {copied ? <Check size={14} className="text-toxic" /> : <ClipboardCopy size={14} />}
+        </button>
+      )}
 
       <div className="mt-5 flex flex-wrap justify-center gap-2">
-        <button disabled={busy} onClick={choose} className="inline-flex items-center gap-2 btn-game font-game text-[16px] px-4 py-2.5 disabled:opacity-60">
-          <FolderOpen size={17} /> {busy ? 'Reading…' : 'Choose save folder'}
-        </button>
-        {savedHandle && (
-          <button disabled={busy} onClick={resync} className="inline-flex items-center gap-2 btn-game quiet font-game text-[16px] px-4 py-2.5 disabled:opacity-60">
-            <RefreshCw size={16} /> Re-sync
+        {live ? (
+          <>
+            <button disabled={busy} onClick={() => void run(syncSaveNow)} className="inline-flex items-center gap-2 btn-game font-game text-[16px] px-4 py-2.5 disabled:opacity-60">
+              <RefreshCw size={16} /> {busy ? 'Reading…' : 'Sync now'}
+            </button>
+            <button onClick={stopSaveWatch} className="inline-flex items-center gap-2 btn-game quiet font-game text-[16px] px-4 py-2.5">
+              <Pause size={16} /> Stop watching
+            </button>
+          </>
+        ) : watch.hasHandle && watch.status !== 'standby' && watch.status !== 'unsupported' ? (
+          <>
+            <button disabled={busy} onClick={() => void run(resumeSaveWatch)} className="inline-flex items-center gap-2 btn-game font-game text-[16px] px-4 py-2.5 disabled:opacity-60">
+              <Radio size={16} /> {busy ? 'Reading…' : 'Resume live sync'}
+            </button>
+            <button disabled={busy} onClick={choose} className="inline-flex items-center gap-2 btn-game quiet font-game text-[16px] px-4 py-2.5 disabled:opacity-60">
+              <FolderOpen size={17} /> Other folder
+            </button>
+          </>
+        ) : (
+          <button disabled={busy} onClick={choose} className="inline-flex items-center gap-2 btn-game font-game text-[16px] px-4 py-2.5 disabled:opacity-60">
+            <FolderOpen size={17} /> {busy ? 'Reading…' : 'Choose save folder'}
           </button>
         )}
       </div>
@@ -149,22 +173,22 @@ export function ScanSave({ onScanned, compact }: { onScanned: (p: Progress) => v
         type="file"
         hidden
         {...({ webkitdirectory: '', directory: '' } as object)}
-        onChange={(e) => e.target.files && void run(async () => filesFromInput(e.target.files!))}
+        onChange={(e) => e.target.files && void readOnce(async () => filesFromInput(e.target.files!))}
       />
 
       <AnimatePresence>
-        {error && (
+        {(error ?? (watch.status === 'error' || watch.status === 'needs-permission' ? watch.error : undefined)) && (
           <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="mt-4 text-sm text-blood">
-            {error}
+            {error ?? watch.error}
           </motion.p>
         )}
-        {done && (
+        {done && !live && (
           <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="mt-4 text-sm text-toxic">
-            Progress synced on this device. Use “Send to phone” on Progress Sync to copy it to your phone.
+            Progress synced on this device. Pair your phone on Progress Sync to keep it up to date too.
           </motion.p>
         )}
       </AnimatePresence>
-      {!compact && (
+      {!compact && !live && (
         <p className="mt-4 text-xs text-faint">
           If the picker says the folder contains system files, drag <code>save00</code> from File Explorer onto this box instead.
         </p>

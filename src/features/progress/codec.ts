@@ -10,6 +10,9 @@ type Payload = {
   /** Game data build (first 8 of the version hash) the bitsets were made against. */
   g: string;
   t: string;
+  /** When the save last changed, and which device read it (both optional, added for device sync). */
+  a?: string;
+  n?: string;
   s: string;
   p: string;
   e: string;
@@ -46,6 +49,8 @@ export async function encodeProgress(progress: Progress, lists: Lists, gameHash:
     v: 1,
     g: gameHash.slice(0, 8),
     t: progress.syncedAt,
+    ...(progress.savedAt ? { a: progress.savedAt } : {}),
+    ...(progress.source ? { n: progress.source.slice(0, 40) } : {}),
     s: bitset(lists.spells.length, (i) => flags.has(lists.spells[i]!.discoverFlag)),
     p: bitset(lists.perks.length, (i) => flags.has(lists.perks[i]!.discoverFlag)),
     e: bitset(lists.enemies.length, (i) => enemies.has(lists.enemies[i]!.id)),
@@ -63,6 +68,18 @@ export async function encodeProgress(progress: Progress, lists: Lists, gameHash:
 
 export class SyncCodeError extends Error {}
 
+/** Codes also arrive from other devices, so check the shape before trusting it. */
+function validRuns(r: unknown): r is RunSummary {
+  const x = r as RunSummary;
+  return (
+    !!x &&
+    typeof x === 'object' &&
+    (['runs', 'deaths', 'playtimeSec', 'kills', 'bestGold'] as const).every((k) => Number.isFinite(x[k])) &&
+    Array.isArray(x.recent) &&
+    x.recent.every((e) => e && Number.isFinite(e.seed) && typeof e.date === 'string' && Number.isFinite(e.playtimeSec) && (e.killedBy === undefined || typeof e.killedBy === 'string'))
+  );
+}
+
 export async function decodeProgress(code: string, lists: Lists, gameHash: string): Promise<{ progress: Progress; versionMismatch: boolean }> {
   let payload: Payload;
   try {
@@ -70,7 +87,21 @@ export async function decodeProgress(code: string, lists: Lists, gameHash: strin
   } catch {
     throw new SyncCodeError("That sync code couldn't be read. Make sure you copied all of it.");
   }
-  if (payload.v !== 1) throw new SyncCodeError('This sync code was made by a newer version of the app.');
+  if (payload?.v !== 1) throw new SyncCodeError('This sync code was made by a newer version of the app.');
+  const ok =
+    typeof payload.t === 'string' &&
+    typeof payload.s === 'string' &&
+    typeof payload.p === 'string' &&
+    typeof payload.e === 'string' &&
+    Array.isArray(payload.f) &&
+    payload.f.every((x) => typeof x === 'string') &&
+    Array.isArray(payload.o) &&
+    payload.o.every((x) => Number.isInteger(x)) &&
+    (payload.a === undefined || typeof payload.a === 'string') &&
+    (payload.n === undefined || typeof payload.n === 'string') &&
+    (payload.k === undefined || (Array.isArray(payload.k) && payload.k.every((x) => Array.isArray(x) && x.length === 3 && x.every(Number.isFinite)))) &&
+    (payload.r === undefined || validRuns(payload.r));
+  if (!ok) throw new SyncCodeError("That sync code couldn't be read. Make sure you copied all of it.");
   const flags = [
     ...readBits(payload.s, lists.spells.length).map((i) => lists.spells[i]!.discoverFlag),
     ...readBits(payload.p, lists.perks.length).map((i) => lists.perks[i]!.discoverFlag),
@@ -79,6 +110,8 @@ export async function decodeProgress(code: string, lists: Lists, gameHash: strin
   return {
     progress: {
       syncedAt: payload.t,
+      ...(payload.a ? { savedAt: payload.a } : {}),
+      ...(payload.n ? { source: payload.n } : {}),
       flags,
       enemies: readBits(payload.e, lists.enemies.length).map((i) => lists.enemies[i]!.id),
       ...(payload.k

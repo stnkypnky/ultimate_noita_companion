@@ -1,15 +1,26 @@
 // Reads a Noita save folder (save00, or the Nolla_Games_Noita folder above it) entirely on-device.
 import type { Progress, RunSummary } from '@/store/progress';
 
-export type SaveFile = { path: string; text: () => Promise<string> };
+/** `lastModified` (ms) dates the save itself, not the scan; sources that can't tell leave it out. */
+export type SaveFile = { path: string; text: () => Promise<string>; lastModified?: number };
+
+/** The mod's live run file (Phase 4), written next to persistent/ and stats/. */
+export const LIVE_FILE = 'companion_live.json';
 
 export class ScanError extends Error {}
 
 const norm = (p: string) => p.replace(/\\/g, '/');
 
 /** The directories we need; everything else (notably world/, thousands of chunks) is skipped. */
-const WANTED = [/(^|\/)persistent\/flags\/[^/]+$/, /(^|\/)persistent\/orbs_new\/[^/]+$/, /(^|\/)stats\/[^/]+$/, /(^|\/)stats\/sessions\/[^/]+$/];
+const WANTED = [
+  /(^|\/)persistent\/flags\/[^/]+$/,
+  /(^|\/)persistent\/orbs_new\/[^/]+$/,
+  /(^|\/)stats\/[^/]+$/,
+  /(^|\/)stats\/sessions\/[^/]+$/,
+  /(^|\/)companion_live\.json$/,
+];
 export const isWanted = (path: string) => WANTED.some((r) => r.test(norm(path)));
+export const isLiveFile = (path: string) => norm(path).split('/').pop() === LIVE_FILE;
 
 /** Pick the save slot: save00 if present, else the first folder containing persistent/flags. */
 function findRoot(paths: string[]): string | null {
@@ -88,31 +99,44 @@ export async function parseSave(files: SaveFile[]): Promise<Progress> {
     };
   }
 
-  return { syncedAt: new Date().toISOString(), flags, enemies, enemyStats, orbs, ...(runs ? { runs } : {}) };
+  // The mod's live file changes every second mid-run; it isn't save progress.
+  const newest = Math.max(0, ...files.filter((f) => rel(f) !== null && !isLiveFile(f.path)).map((f) => f.lastModified ?? 0));
+  return {
+    syncedAt: new Date().toISOString(),
+    ...(newest ? { savedAt: new Date(newest).toISOString() } : {}),
+    flags,
+    enemies,
+    enemyStats,
+    orbs,
+    ...(runs ? { runs } : {}),
+  };
 }
 
 // ---------- Sources ----------
 
 /** <input type="file" webkitdirectory> */
 export function filesFromInput(list: FileList): SaveFile[] {
-  return [...list].filter((f) => isWanted(f.webkitRelativePath || f.name)).map((f) => ({ path: f.webkitRelativePath || f.name, text: () => f.text() }));
+  return [...list]
+    .filter((f) => isWanted(f.webkitRelativePath || f.name))
+    .map((f) => ({ path: f.webkitRelativePath || f.name, text: () => f.text(), lastModified: f.lastModified }));
 }
 
 /** File System Access API directory handle (Chrome/Edge). */
 export async function filesFromHandle(dir: FileSystemDirectoryHandle, prefix = '', depth = 0): Promise<SaveFile[]> {
-  const out: SaveFile[] = [];
+  const jobs: Promise<SaveFile[]>[] = [];
   for await (const entry of (dir as unknown as { values(): AsyncIterable<FileSystemHandle> }).values()) {
     const path = `${prefix}${entry.name}`;
     if (entry.kind === 'file') {
       if (isWanted(path)) {
-        const fh = entry as FileSystemFileHandle;
-        out.push({ path, text: async () => (await fh.getFile()).text() });
+        jobs.push(
+          (entry as FileSystemFileHandle).getFile().then((file) => [{ path, text: () => file.text(), lastModified: file.lastModified }]),
+        );
       }
     } else if (depth < 4 && entry.name !== 'world' && !entry.name.startsWith('save_rec')) {
-      out.push(...(await filesFromHandle(entry as FileSystemDirectoryHandle, `${path}/`, depth + 1)));
+      jobs.push(filesFromHandle(entry as FileSystemDirectoryHandle, `${path}/`, depth + 1));
     }
   }
-  return out;
+  return (await Promise.all(jobs)).flat();
 }
 
 /** Drag-and-dropped folder (works even where folder pickers refuse system folders). */
@@ -122,8 +146,8 @@ export async function filesFromDrop(items: DataTransferItemList): Promise<SaveFi
     const path = `${prefix}${entry.name}`;
     if (entry.isFile) {
       if (isWanted(path)) {
-        const fe = entry as FileSystemFileEntry;
-        out.push({ path, text: () => new Promise<File>((res, rej) => fe.file(res, rej)).then((f) => f.text()) });
+        const file = await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej));
+        out.push({ path, text: () => file.text(), lastModified: file.lastModified });
       }
       return;
     }
