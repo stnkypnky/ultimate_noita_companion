@@ -37,7 +37,28 @@ export type LiveRun = {
   perks: { id: string; count: number }[];
   /** Unix seconds when the mod wrote it. */
   time?: number;
+
+  // Mod version 2 onwards (all optional: an older mod just leaves them out).
+  /** The mod's version; missing = 1. */
+  mod?: number;
+  /** Player position in world pixels. */
+  x?: number;
+  y?: number;
+  /** Seconds played this run. */
+  playtime?: number;
+  kills?: number;
+  /** Orbs picked up this run. */
+  orbs?: number;
+  /** Fungal shifts done so far, and seconds until the next one can happen (0 = ready). */
+  fungal?: { count: number; readyIn: number };
+  /** Creatures met this run (entity file ids, as the save's stats_<id>.xml use). */
+  seen?: string[];
+  /** Carried items other than wands and flasks (stones, eggs, dice…). */
+  items?: LiveItem[];
+  /** What killed you, when status is dead. */
+  killedBy?: string;
 };
+export type LiveItem = { id: string; name: string; held?: boolean };
 
 const MAX_BYTES = 256 * 1024;
 const STATUSES = ['alive', 'dead', 'paused', 'no_player'] as const;
@@ -136,5 +157,44 @@ export function parseLiveRun(input: unknown): LiveRun | null {
       })
       .filter((p): p is { id: string; count: number } => !!p),
     time: optNum(o.time),
+    ...v2(o),
   };
+}
+
+/** The mod-2 fields, each only if present and well-formed. */
+function v2(o: Record<string, unknown>): Partial<LiveRun> {
+  const out: Partial<LiveRun> = {};
+  const count = (x: unknown) => {
+    const n = optNum(x);
+    return n !== undefined && n >= 0 ? Math.floor(n) : undefined;
+  };
+  const mod = count(o.mod);
+  if (mod) out.mod = mod;
+  const x = optNum(o.x);
+  const y = optNum(o.y);
+  if (x !== undefined && y !== undefined) {
+    out.x = Math.round(x);
+    out.y = Math.round(y);
+  }
+  const playtime = optNum(o.playtime);
+  if (playtime !== undefined && playtime >= 0) out.playtime = playtime;
+  const kills = count(o.kills);
+  if (kills !== undefined) out.kills = kills;
+  const orbs = count(o.orbs);
+  if (orbs !== undefined) out.orbs = Math.min(orbs, 99);
+  const f = obj(o.fungal);
+  const fc = f && count(f.count);
+  if (f && fc !== undefined && fc !== null) out.fungal = { count: Math.min(fc, 99), readyIn: count(f.readyIn) ?? 0 };
+  if (Array.isArray(o.seen)) out.seen = [...new Set(arr(o.seen, 400).map(id).filter((s): s is string => !!s))];
+  if (Array.isArray(o.items))
+    out.items = arr(o.items, 32)
+      .map((it) => {
+        const io = obj(it);
+        const i = io && id(io.id);
+        return io && i ? { id: i, name: str(io.name, 80) ?? '', ...(io.held === true ? { held: true } : {}) } : null;
+      })
+      .filter((it): it is LiveItem => !!it);
+  const killedBy = str(o.killedBy, 120);
+  if (killedBy) out.killedBy = killedBy;
+  return out;
 }

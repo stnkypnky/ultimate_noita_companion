@@ -15,13 +15,10 @@ import { areaNotes } from './notes';
 import type { SeedReport } from '@/seed/worker';
 import type { AreaLayout } from '@/seed/layout';
 import { seedLayouts } from '@/seed/client';
-import { biomeKey, biomeName, chunkWorld, holyMountains, makeVisibility, namedInGame, onPath, orbOf, sceneKey } from './world';
+import { biomeKey, biomeName, chunkWorld, holyMountains, loadMap, makeVisibility, namedInGame, onPath, orbOf, sceneKey } from './world';
 
 /** Whose caves the map shows before you pick a seed. */
 const EXAMPLE_SEED = 123;
-
-let mapData: Promise<WorldMap> | null = null;
-const loadMap = () => (mapData ??= fetchJson<WorldMap>('data/map.json'));
 
 const remembered = () => {
   try {

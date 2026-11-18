@@ -111,7 +111,50 @@ describe('companion mod export', () => {
   it('copes with no player (main menu, between runs)', async () => {
     const lua = await host();
     const raw = JSON.parse((await lua.doString('E[1].tags = {}; return companion_json(companion_state())')) as string);
-    expect(raw).toEqual({ v: 1, status: 'no_player', seed: 123456, ngPlus: 1 });
+    expect(raw).toEqual({ v: 1, mod: 2, status: 'no_player', seed: 123456, ngPlus: 1 });
+    lua.global.close();
+  });
+
+  it('leaves out what an older Noita build has no API for', async () => {
+    const lua = await host();
+    const raw = JSON.parse((await lua.doString('return companion_json(companion_state())')) as string);
+    expect(raw).toMatchObject({ x: 100, y: 2400, seen: [], items: [], fungal: { count: 0, readyIn: 0 } });
+    expect(raw.orbs).toBeUndefined();
+    expect(raw.kills).toBeUndefined();
+    lua.global.close();
+  });
+
+  it('reports position, stats, carried items, creatures met and the fungal cooldown', async () => {
+    const lua = await host();
+    await lua.doString(`
+      F = { [50] = "data/entities/items/pickup/evil_eye.xml", [60] = "data/entities/animals/zombie.xml", [61] = "data/entities/animals/longleg.xml", [62] = "data/entities/animals/zombie.xml" }
+      function EntityGetFilename(id) return F[id] or "" end
+      function EntityGetInRadiusWithTag(x, y, r, tag) if tag == "enemy" then return { 60, 61, 62 } end return {} end
+      function GameGetOrbCountThisRun() return 2 end
+      function GameGetFrameNum() return 6000 end
+      S = { world_seed = "123456", playtime = "321.5", enemies_killed = "17", killed_by = "zombie" }
+      function StatsGetValue(k) return S[k] end
+      local G = { fungal_shift_iteration = "1", fungal_shift_last_frame = "3000" }
+      function GlobalsGetValue(k, d) return G[k] or d end
+      E[2].children = { 20, 30, 50 }
+      E[50] = { name = "", tags = {}, comps = { ItemComponent = 51 }, children = {} }
+      C[51] = { values = { item_name = "$item_evil_eye" }, objects = {} }
+      C[12].values.mActiveItem = 50
+    `);
+    const raw = JSON.parse((await lua.doString('return companion_json(companion_state())')) as string);
+    expect(raw).toMatchObject({ mod: 2, x: 100, y: 2400, playtime: 321.5, kills: 17, orbs: 2, seen: ['zombie', 'longleg'] });
+    expect(raw.items).toEqual([{ id: 'evil_eye', name: '$item_evil_eye', held: true }]);
+    // Shifted at frame 3000; the 5-minute cooldown (18000 frames) ends at frame 21000, 250 s after frame 6000.
+    expect(raw.fungal).toEqual({ count: 1, readyIn: 250 });
+    expect(JSON.parse((await lua.doString('return companion_json(companion_state("dead"))')) as string).killedBy).toBe('zombie');
+
+    // Ticking play time alone doesn't cause a write; meeting a new creature does.
+    await lua.doString('companion_tick(30, 1000)');
+    await lua.doString('S.playtime = "400"; companion_tick(60, 1001)');
+    expect((await lua.doString('return #written')) as number).toBe(1);
+    await lua.doString('F[63] = "data/entities/animals/shotgunner.xml"; function EntityGetInRadiusWithTag() return { 63 } end; companion_tick(90, 1002)');
+    expect((await lua.doString('return #written')) as number).toBe(2);
+    expect(JSON.parse((await lua.doString('return written[2]')) as string).seen).toEqual(['zombie', 'longleg', 'shotgunner']);
     lua.global.close();
   });
 });

@@ -148,7 +148,7 @@ export function SeedPanel({ map, onReport, onSeed }: { map: WorldMap; onReport: 
   );
 }
 
-function PerkChip({ id, taken, onClick }: { id: string; taken?: boolean; onClick?: () => void }) {
+export function PerkChip({ id, taken, onClick }: { id: string; taken?: boolean; onClick?: () => void }) {
   const { perkById } = useData();
   const { visible, reveal } = useSpoilers();
   const perk = perkById.get(id);
@@ -229,7 +229,7 @@ function WandLink({ wand, cost, sale }: { wand: ShopWand; cost: number; sale: bo
   );
 }
 
-function ShopView({ items, type }: { items: ShopItem[]; type: 'spell' | 'wand' }) {
+export function ShopView({ items, type }: { items: ShopItem[]; type: 'spell' | 'wand' }) {
   if (type === 'wand')
     return (
       <div className="grid gap-2 md:grid-cols-2">
@@ -307,7 +307,7 @@ function HolyMountains({ report, picks, onPick }: { report: SeedReport; picks: s
   );
 }
 
-function MaterialName({ id }: { id: string }) {
+export function MaterialName({ id }: { id: string }) {
   const { materialById } = useData();
   const { visible, reveal } = useSpoilers();
   const m = materialById.get(id);

@@ -5,6 +5,14 @@
 // revealed: one at a time, with the page's "Show spoilers" switch, or by the global "show everything" mode. Orb rooms
 // also open once your synced save has that orb.
 import type { MapBiome, MapScene, WorldMap } from '@/data/types';
+import { fetchJson } from '@/data/store';
+
+let mapData: Promise<WorldMap> | null = null;
+/** The world map data (fetched once). */
+export const loadMap = () => (mapData ??= fetchJson<WorldMap>('data/map.json'));
+
+/** The map chunk (column, row) a world position falls in. */
+export const chunkOf = (map: WorldMap, x: number, y: number) => ({ cx: Math.floor(x / map.chunk + map.w / 2), cy: Math.floor(y / map.chunk + map.offsetY) });
 
 /** The descent: the biomes every run walks through. */
 const PATH = new Set([

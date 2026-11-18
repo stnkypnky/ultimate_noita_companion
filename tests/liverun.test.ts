@@ -3,6 +3,40 @@ import { parseLiveRun } from '../src/features/live/parse.ts';
 import { STALE_MS, liveFlags, setLiveRun, useLiveRun } from '../src/features/live/state.ts';
 import { toBuilderWand } from '../src/features/live/toBuilder.ts';
 import { bottomItems, railItems } from '../src/app/nav.ts';
+import { clock, nextMountain, picksBefore } from '../src/features/live/runMath.ts';
+import type { WorldMap } from '../src/data/types.ts';
+
+describe('run page helpers', () => {
+  // A 1-wide world of 512-px chunks, the surface at row 2, Holy Mountains at rows 5 and 9.
+  const biome = (id: string) => ({ id }) as WorldMap['biomes'][number];
+  const map = {
+    w: 1,
+    h: 12,
+    chunk: 512,
+    offsetY: 2,
+    biomes: [biome('coalmine'), biome('temple_altar')],
+    cells: [0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0],
+  } as unknown as WorldMap;
+
+  it('finds the next Holy Mountain below the player', () => {
+    expect(nextMountain(map, 100)).toBe(1); // row 2
+    expect(nextMountain(map, 2 * 512 + 10)).toBe(1); // row 4, just above it
+    expect(nextMountain(map, 3 * 512 + 10)).toBe(2); // row 5: standing in the first, so the next is the second
+    expect(nextMountain(map, 4 * 512)).toBe(2); // row 6
+    expect(nextMountain(map, 9 * 512)).toBeNull(); // row 11, past the last
+  });
+
+  it('counts the perks taken so far as picks before the next mountain', () => {
+    const run = { perks: [{ id: 'SHIELD', count: 2 }, { id: 'EXTRA_HP', count: 1 }] };
+    expect(picksBefore(run, 1)).toEqual([]);
+    expect(picksBefore(run, 3)).toEqual([[], ['SHIELD', 'SHIELD', 'EXTRA_HP']]);
+  });
+
+  it('formats play time', () => {
+    expect(clock(65.9)).toBe('1:05');
+    expect(clock(3729)).toBe('1:02:09');
+  });
+});
 
 const wand = {
   name: 'Wand',
@@ -48,6 +82,29 @@ describe('live run file (companion mod)', () => {
     const run = parseLiveRun({ v: 1, seed: 7, wands: [wand] })!;
     const relayed = JSON.parse(JSON.stringify({ v: 1, ...run }));
     expect(parseLiveRun(relayed)).toEqual(run);
+  });
+
+  it('reads the mod-2 fields, and counts creatures met and items carried as discovered', () => {
+    const run = parseLiveRun({
+      v: 1,
+      mod: 2,
+      x: 120.4,
+      y: 2399.6,
+      playtime: 65.5,
+      kills: 3,
+      orbs: 1,
+      fungal: { count: 2, readyIn: 40 },
+      seen: ['zombie', 'zombie', '../evil', 'longleg'],
+      items: [{ id: 'evil_eye', name: 'Evil eye', held: true }, { id: 'bad id' }],
+      killedBy: 'zombie',
+    })!;
+    expect(run).toMatchObject({ mod: 2, x: 120, y: 2400, playtime: 65.5, kills: 3, orbs: 1, fungal: { count: 2, readyIn: 40 }, killedBy: 'zombie' });
+    expect(run.seen).toEqual(['zombie', 'longleg']);
+    expect(run.items).toEqual([{ id: 'evil_eye', name: 'Evil eye', held: true }]);
+    expect(liveFlags(run)).toEqual(expect.arrayContaining(['enemy:zombie', 'enemy:longleg', 'item:evil_eye']));
+    // An old mod's file has none of them.
+    const old = parseLiveRun({ v: 1, seed: 1 })!;
+    expect(old.mod ?? old.x ?? old.seen ?? old.fungal).toBeUndefined();
   });
 
   it('rejects junk and oversized input', () => {

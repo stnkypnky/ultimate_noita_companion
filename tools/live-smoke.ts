@@ -44,6 +44,16 @@ const liveRun = (hp: number, gold: number) =>
     flasks: [{ name: 'Flask', capacity: 1000, contents: [{ material: 'water', amount: 700 }] }],
     spells: [],
     perks: [{ id: 'SHIELD', count: 1 }],
+    // Mod 2
+    mod: 2,
+    x: 300,
+    y: 2400,
+    playtime: 312,
+    kills: 4,
+    orbs: 0,
+    fungal: { count: 0, readyIn: 0 },
+    seen: ['zombie_weak', 'slimeshooter_weak'],
+    items: [{ id: 'evil_eye', name: '$item_evil_eye' }],
   });
 
 /** Write files into the OPFS save00 folder from inside the page. */
@@ -108,6 +118,15 @@ await pc.goto(`${BASE}run`);
 await pc.getByRole('heading', { name: 'Current run' }).waitFor({ timeout: 15000 });
 await pc.getByText('Damage / sec').first().waitFor({ timeout: 15000 });
 console.log('PC: Run page with a simulated wand');
+for (const text of ['Where you are', /^Next: Holy Mountain \d$/, 'Next fungal shift', 'ready now', 'Kills']) {
+  try {
+    await pc.getByText(text, { exact: true }).first().waitFor({ timeout: 20000 });
+  } catch (e) {
+    console.log('PC run page:', (await pc.locator('main').innerText()).slice(0, 1500));
+    throw e;
+  }
+}
+console.log('PC: map, next Holy Mountain, fungal shift and run stats');
 await phone.goto(BASE);
 try {
   await phone.getByText('Run in progress').first().waitFor({ timeout: 30000 });

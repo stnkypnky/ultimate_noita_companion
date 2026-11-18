@@ -184,6 +184,8 @@ export function MapView({
   onSelect,
   layouts,
   wangColors,
+  marker,
+  follow,
 }: {
   map: WorldMap;
   vis: Vis;
@@ -193,6 +195,10 @@ export function MapView({
   /** The seed's cave layouts, when generated. */
   layouts?: AreaLayout[] | null;
   wangColors?: Record<string, string> | null;
+  /** "You are here": the player's world position, from the live run. */
+  marker?: { x: number; y: number } | null;
+  /** Start zoomed in on the marker and keep it centred as it moves. */
+  follow?: boolean;
 }) {
   const caves = useMemo(() => {
     const out = new Map<number, HTMLCanvasElement>();
@@ -223,10 +229,26 @@ export function MapView({
 
   const fit = useCallback(() => {
     if (!size.w) return;
-    const s = Math.min(size.w / worldW, size.h / worldH);
-    view.current = { s, x: left - (size.w / s - worldW) / 2, y: top - (size.h / s - worldH) / 2 };
+    if (follow && marker) {
+      // About three chunks across: enough to see the area you're in and the next one.
+      const s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.min(size.w, size.h) / (map.chunk * 3)));
+      view.current = { s, x: marker.x - size.w / s / 2, y: marker.y - size.h / s / 2 };
+    } else {
+      const s = Math.min(size.w / worldW, size.h / worldH);
+      view.current = { s, x: left - (size.w / s - worldW) / 2, y: top - (size.h / s - worldH) / 2 };
+    }
     redraw();
-  }, [size, worldW, worldH, left, top, redraw]);
+    // The marker only places the first view; following it is the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [size, worldW, worldH, left, top, redraw, follow, map.chunk, !!marker]);
+  const mx = marker?.x;
+  const my = marker?.y;
+  useEffect(() => {
+    const v = view.current;
+    if (!follow || !v || mx === undefined || my === undefined || !size.w) return;
+    view.current = { ...v, x: mx - size.w / v.s / 2, y: my - size.h / v.s / 2 };
+    redraw();
+  }, [follow, mx, my, size, redraw]);
 
   useEffect(() => {
     const el = boxRef.current;
@@ -438,7 +460,22 @@ export function MapView({
       ctx.lineWidth = 2;
       ctx.strokeRect(Math.round(sx) + 1, Math.round(sy) + 1, Math.max(4, cs - 2), Math.max(4, cs - 2));
     }
-  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, caveBiomes, wangColors, sceneColor]);
+    if (mx !== undefined && my !== undefined) {
+      // A green "you are here" light, like the live crystal.
+      const [sx, sy] = toScreen(mx, my);
+      const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, 16);
+      glow.addColorStop(0, 'rgba(185,247,154,0.9)');
+      glow.addColorStop(1, 'rgba(123,214,92,0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(sx - 16, sy - 16, 32, 32);
+      ctx.fillStyle = '#173d14';
+      ctx.fillRect(Math.round(sx) - 4, Math.round(sy) - 4, 8, 8);
+      ctx.fillStyle = '#8fe86a';
+      ctx.fillRect(Math.round(sx) - 3, Math.round(sy) - 3, 6, 6);
+      ctx.fillStyle = '#e2ffd2';
+      ctx.fillRect(Math.round(sx) - 2, Math.round(sy) - 2, 2, 2);
+    }
+  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, caveBiomes, wangColors, sceneColor, mx, my]);
 
   // Pointer: drag pans, two fingers pinch, a tap selects.
   const pointers = useRef(new Map<number, { x: number; y: number }>());

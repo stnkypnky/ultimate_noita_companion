@@ -13,6 +13,7 @@ import { timeAgo, useNow } from '@/ui/time';
 import { RecipeCard } from '@/features/alchemy/AlchemyPage';
 import { alchemyRecipes } from '@/features/alchemy/aplc';
 import { ModInstall } from './ModInstall';
+import { RunStats, SeedCards } from './seedCards';
 import { DetailSheet, Flasks, Perks, SpellButton, Wands, type Detail } from './parts';
 import type { LiveRun } from './parse';
 import { useLiveRun } from './state';
@@ -42,13 +43,21 @@ export function RunPage() {
             )}
           </div>
           <div>
+            <RunStats run={run} at={at} active={active} />
             <Section title="Flasks">
               <Flasks run={run} onOpen={setDetail} />
             </Section>
             <Section title="Perks">
               <Perks run={run} onOpen={setDetail} />
             </Section>
+            <SeedCards run={run} at={at} />
             {run.seed > 0 && <ThisSeed seed={run.seed} />}
+            {!run.mod && (
+              <p className="mt-4 text-xs text-faint">
+                Update the companion mod (<Link to="/settings" className="text-muted underline hover:text-ink">Settings</Link>) for a live map, the next
+                Holy Mountain, the fungal shift timer, run stats and creatures met.
+              </p>
+            )}
           </div>
         </div>
       )}

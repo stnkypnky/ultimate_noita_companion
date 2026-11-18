@@ -1,6 +1,6 @@
 // The live-run store on its own (no app imports), so the spoiler hook can read it without a cycle.
 import { create } from 'zustand';
-import { materialKey } from '@/data/spoilers';
+import { itemKey, materialKey } from '@/data/spoilers';
 import type { LiveRun } from './parse';
 
 /** Quieter than this and the game is probably closed (the mod rewrites at least every 30 s). */
@@ -40,5 +40,8 @@ export function liveFlags(run: LiveRun | null): string[] {
     ...run.perks.map((p) => `perk_picked_${p.id.toLowerCase()}`),
     // A flask's tooltip names what's in it.
     ...run.flasks.flatMap((f) => f.contents.map((c) => materialKey(c.material))),
+    // Mod 2: creatures you've met this run and the items you carry.
+    ...(run.seen ?? []).map((id) => `enemy:${id}`),
+    ...(run.items ?? []).map((it) => itemKey(it.id)),
   ];
 }

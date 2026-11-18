@@ -150,19 +150,73 @@ local function player()
   return list[1]
 end
 
+-- A Noita API call that may be missing (older builds) or fail: nil instead of breaking the whole write.
+local function try(f, ...)
+  if type(f) ~= "function" then return nil end
+  local ok, v = pcall(f, ...)
+  if ok then return v end
+  return nil
+end
+
+-- "data/entities/animals/zombie.xml" -> "zombie": the id the save's stats files use (stats_zombie.xml).
+local function file_id(e)
+  local file = try(EntityGetFilename, e)
+  return type(file) == "string" and file:match("([%w_]+)%.xml$") or nil
+end
+
+local SEEN_RADIUS = 260 -- about half a screen: creatures you can actually see
+local SEEN_MAX = 400
+local FUNGAL_COOLDOWN = 60 * 60 * 5 -- data/scripts/magic/fungal_shift.lua
+local seen, seen_list, seen_seed = {}, {}, nil
+
+-- Creatures met this run, so the companion can count them as discovered before the run's stats are saved.
+local function look_around(seed, x, y)
+  if seen_seed ~= seed then seen, seen_list, seen_seed = {}, {}, seed end
+  for _, e in ipairs(try(EntityGetInRadiusWithTag, x, y, SEEN_RADIUS, "enemy") or {}) do
+    local id = file_id(e)
+    if id and not seen[id] and #seen_list < SEEN_MAX then
+      seen[id] = true
+      seen_list[#seen_list + 1] = id
+    end
+  end
+  return seen_list
+end
+
+local function stat(key)
+  return tonumber(try(StatsGetValue, key) or "")
+end
+
+local function fungal()
+  local count = tonumber(GlobalsGetValue("fungal_shift_iteration", "0")) or 0
+  local last = tonumber(GlobalsGetValue("fungal_shift_last_frame", "-1000000")) or -1000000
+  local frame = try(GameGetFrameNum) or 0
+  return { count = count, readyIn = math.max(0, math.floor((last + FUNGAL_COOLDOWN - frame) / 60 + 0.5)) }
+end
+
 function companion_state(status)
   local p = player()
   local state = {
     v = 1,
+    mod = 2,
     status = status or "alive",
     seed = tonumber(StatsGetValue("world_seed") or "") or 0,
     ngPlus = tonumber(SessionNumbersGetValue("NEW_GAME_PLUS_COUNT") or "") or 0,
   }
+  if status == "dead" then
+    state.killedBy = try(StatsGetValue, "killed_by")
+  end
   if not p then
     state.status = status or "no_player"
     return state
   end
   local x, y = EntityGetTransform(p)
+  state.x = math.floor(x + 0.5)
+  state.y = math.floor(y + 0.5)
+  state.playtime = stat("playtime")
+  state.kills = stat("enemies_killed")
+  state.orbs = try(GameGetOrbCountThisRun)
+  state.fungal = try(fungal)
+  state.seen = look_around(state.seed, x, y)
   local biome = BiomeMapGetName(x, y)
   state.biome = { id = biome, name = translated(biome) }
   local dm = comp(p, "DamageModelComponent")
@@ -176,7 +230,7 @@ function companion_state(status)
 
   local inv2 = comp(p, "Inventory2Component")
   local active = inv2 and ComponentGetValue2(inv2, "mActiveItem") or 0
-  local wands, flasks = {}, {}
+  local wands, flasks, items = {}, {}, {}
   local quick = child_named(p, "inventory_quick")
   for _, e in ipairs(quick and EntityGetAllChildren(quick) or {}) do
     if EntityHasTag(e, "wand") then
@@ -184,11 +238,21 @@ function companion_state(status)
       if w then wands[#wands + 1] = w end
     else
       local f = read_flask(e)
-      if f then flasks[#flasks + 1] = f end
+      if f then
+        flasks[#flasks + 1] = f
+      else
+        -- Stones, eggs, dice and the like: carried items.
+        local ic = comp(e, "ItemComponent")
+        local id = file_id(e)
+        if id then
+          items[#items + 1] = { id = id, name = ic and translated(ComponentGetValue2(ic, "item_name")) or "", held = (e == active) or nil }
+        end
+      end
     end
   end
   state.wands = wands
   state.flasks = flasks
+  state.items = items
 
   local bag = {}
   local full = child_named(p, "inventory_full")
@@ -224,10 +288,17 @@ companion_writer = companion_writer or write_file
 function companion_write(status, now)
   now = now or os.time()
   local state = companion_state(status)
+  -- Play time and the fungal countdown tick every second: they ride along with real changes and the
+  -- heartbeat instead of forcing a write each time.
+  local playtime, ready = state.playtime, state.fungal and state.fungal.readyIn
+  state.playtime = nil
+  if state.fungal then state.fungal.readyIn = nil end
   local body = companion_json(state)
   if body == last_json and now - last_write < HEARTBEAT_SECONDS then return false end
   last_json = body
   last_write = now
+  state.playtime = playtime
+  if state.fungal then state.fungal.readyIn = ready end
   state.time = now
   companion_writer(save_path(), companion_json(state))
   return true
