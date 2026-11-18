@@ -70,6 +70,11 @@ describe('toSimRequest', () => {
     expect(await decodeWand(await encodeWand(spent))).toEqual(spent);
   });
 
+  it('share codes keep a randomized wand’s sprite and rarity', async () => {
+    const rolled: Wand = { ...wand, sprite: 'data/items_gfx/wands/wand_0123.png', rare: true };
+    expect(await decodeWand(await encodeWand(rolled))).toEqual(rolled);
+  });
+
   it('resizes slot arrays', () => {
     expect(resize(['A', 'B'], 4)).toEqual(['A', 'B', null, null]);
     expect(resize(['A', 'B', 'C'], 2)).toEqual(['A', 'B']);

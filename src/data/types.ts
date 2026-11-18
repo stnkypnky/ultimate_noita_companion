@@ -331,6 +331,8 @@ export type RangeAnim = {
 /** One of the game's wand sprites (data/scripts/gun/procedural/wands.lua), in the stat space the game matches wands with. */
 export type WandSprite = {
   name: string;
+  /** Its game path (data/items_gfx/wands/wand_XXXX.png), as gun_procedural's SetWandSprite gets it. */
+  file?: string;
   icon: Icon;
   grip: [number, number];
   tip: [number, number];

@@ -11,7 +11,6 @@ export function SettingsPage() {
   const mode = useProgress((s) => s.mode);
   const setMode = useProgress((s) => s.setMode);
   const revealed = useProgress((s) => s.revealed);
-  const progress = useProgress((s) => s.progress);
   const version = useGameData((s) => s.version);
 
   return (
@@ -23,7 +22,7 @@ export function SettingsPage() {
             onClick={() => setMode('progress')}
             icon={<EyeOff size={18} />}
             title="Hide undiscovered"
-            text={progress ? 'Only show what your synced save has found.' : 'Hide everything until you sync your progress.'}
+            text="Only show what your synced save has found."
           />
           <ModeCard active={mode === 'all'} onClick={() => setMode('all')} icon={<Eye size={18} />} title="Show everything" text="No spoiler protection." />
         </div>

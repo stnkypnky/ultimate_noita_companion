@@ -147,6 +147,28 @@ describe('Holy Mountain shops (temple_altar.lua, generate_shop_item.lua, gun_pro
     }
   });
 
+  it('Randomize also gets the sprite GetWand picks for the stats (shuffle wands get shuffle sprites), and rare wands', () => {
+    const kit = JSON.parse(readFileSync(join(GAME, 'data/range_kit.json'), 'utf8')) as { wands: { file: string; shuffle: number }[] };
+    const byFile = new Map(kit.wands.map((w) => [w.file, w]));
+    let matches = 0;
+    let total = 0;
+    let rare = 0;
+    for (let seed = 1; seed <= 120; seed++) {
+      host.call('sim_set_world_seed', seed * 7919);
+      host.call('seed_set_flags', true, '');
+      const { wand } = generateWand(host.call, seed * 13, 500 + seed, 60, 3);
+      const sprite = byFile.get(wand.sprite!);
+      expect(sprite, `seed ${seed}: ${wand.sprite}`).toBeDefined();
+      total++;
+      if (sprite!.shuffle === (wand.shuffle ? 1 : 0)) matches++;
+      if (wand.rare) rare++;
+    }
+    expect(matches / total).toBeGreaterThan(0.8);
+    // is_rare is a 5% roll.
+    expect(rare).toBeGreaterThan(0);
+    expect(rare).toBeLessThan(20);
+  });
+
   it('a level 6 wand gets its 16 spells, and its fractional capacity is cut to a whole number', () => {
     use(123);
     const { raw, wand } = generateWand(host.call, 155, 6161, 200, 6);

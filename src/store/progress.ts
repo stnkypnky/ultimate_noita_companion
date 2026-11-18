@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { idbStorage } from './kv';
@@ -62,6 +62,18 @@ export const useProgress = create<ProgressState>()(
     { name: 'progress', storage: createJSONStorage(() => idbStorage), version: 1 },
   ),
 );
+
+/** Whether the stored progress has loaded from IndexedDB yet (so a missing save isn't judged too early). */
+export function useProgressHydrated() {
+  return useSyncExternalStore(
+    (cb) => useProgress.persist.onFinishHydration(cb),
+    () => useProgress.persist.hasHydrated(),
+    () => false,
+  );
+}
+
+/** The app's features need a synced save (a save folder read, or a sync code from one). */
+export const useHasSave = () => useProgress((s) => s.progress !== null);
 
 /** Returns a stable predicate: is this spoiler key visible to the player? */
 export function useSpoilers() {

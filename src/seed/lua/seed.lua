@@ -337,7 +337,8 @@ function seed_wand(x, y, cost, level, unshuffle)
   EntityGetTransform = function() return x, y end
   AddGunAction = function(e, id) table.insert(wand.spells, id) end
   AddGunActionPermanent = function(e, id) table.insert(wand.always, id) end
-  SetWandSprite = function() end
+  -- GetWand() picks the sprite from wands.lua to match the rolled stats.
+  SetWandSprite = function(e, c, file) wand.sprite = file end
   SetItemSprite = function() end
   local ok, err = pcall(generate_gun, cost, level, unshuffle)
   for k, v in pairs(saved) do _G[k] = v end

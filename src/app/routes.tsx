@@ -1,7 +1,6 @@
-import { createBrowserRouter, type RouteObject } from 'react-router';
+import { Navigate, createBrowserRouter, type RouteObject } from 'react-router';
 import { Layout } from './Layout';
 import { HomePage } from '@/features/home/HomePage';
-import { MorePage } from '@/features/home/MorePage';
 import { NotFound } from '@/ui/NotFound';
 
 // Pages load on demand (the service worker still precaches every chunk for offline use).
@@ -15,7 +14,8 @@ export const router = createBrowserRouter(
       element: <Layout />,
       children: [
         { index: true, element: <HomePage /> },
-        { path: 'more', element: <MorePage /> },
+        // The phone menu became Home; old links and installed shortcuts still land somewhere useful.
+        { path: 'more', element: <Navigate to="/" replace /> },
         { path: 'wand', ...page(() => import('@/features/wand/WandPage').then((m) => ({ default: m.WandPage }))) },
         { path: 'spells/:id?', ...page(() => import('@/features/spells/SpellsPage').then((m) => ({ default: m.SpellsPage }))) },
         { path: 'perks/:id?', ...page(() => import('@/features/perks/PerksPage').then((m) => ({ default: m.PerksPage }))) },

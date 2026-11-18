@@ -68,6 +68,10 @@ export type ShopWand = {
   speedMultiplier: number;
   spells: (string | null)[];
   alwaysCasts: string[];
+  /** The sprite GetWand() gave it (data/items_gfx/wands/wand_XXXX.png), when known. */
+  sprite?: string;
+  /** A rare wand (is_rare in gun_procedural.lua): extra cost budget, and it glows purple. */
+  rare?: boolean;
 };
 
 export type ShopItem =
@@ -76,7 +80,18 @@ export type ShopItem =
 
 export type Shop = { type: 'spell' | 'wand'; items: ShopItem[] };
 
-type RawShopItem = { kind: 'spell' | 'wand'; spell?: string; cost?: number; sale: boolean; row: 'top' | 'bottom'; file?: string; stats?: Record<string, string | number>; spells?: string[]; always?: string[] };
+type RawShopItem = {
+  kind: 'spell' | 'wand';
+  spell?: string;
+  cost?: number;
+  sale: boolean;
+  row: 'top' | 'bottom';
+  file?: string;
+  stats?: Record<string, string | number>;
+  spells?: string[];
+  always?: string[];
+  sprite?: string;
+};
 
 const num = (v: string | number | undefined, d = 0) => (v === undefined || v === '' ? d : Number(v));
 
@@ -101,6 +116,9 @@ function shopWand(r: RawShopItem): ShopWand {
     speedMultiplier: num(s.speed_multiplier, 1),
     spells,
     alwaysCasts: r.always ?? [],
+    ...(r.sprite ? { sprite: r.sprite } : {}),
+    // make_wand_from_gun_data lights rare wands purple (LightComponent r 128, g 0, b 255).
+    ...(num(s.b) === 255 && num(s.r) === 128 ? { rare: true } : {}),
   };
 }
 

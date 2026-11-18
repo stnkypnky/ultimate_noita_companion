@@ -9,7 +9,18 @@ export type Wand = SimWand & {
   alwaysCasts: string[];
   /** Charges left per slot, for spells with limited uses; null or missing = full. */
   charges?: (number | null)[];
+  /**
+   * The sprite the game gave a randomized wand (data/items_gfx/wands/wand_XXXX.png). Missing: the sprite
+   * follows the stats (pickWandSprite). Editing a stat by hand clears it.
+   */
+  sprite?: string;
+  /** A rare wand (gun_procedural's is_rare): it glows purple. Cleared with `sprite`. */
+  rare?: boolean;
 };
+
+const SPRITE_RE = /^data\/items_gfx\/wands\/wand_(\d{4})\.png$/;
+const spriteNumber = (file: string | undefined) => (file ? SPRITE_RE.exec(file)?.[1] : undefined);
+const spriteFile = (n: number) => `data/items_gfx/wands/wand_${String(n).padStart(4, '0')}.png`;
 
 export type SimOptions = {
   /** "Unlimited spells" perk: charges never run out (except never_unlimited spells). */
@@ -138,7 +149,17 @@ export function toSimRequest(
 
 /** Compact on-the-wire form: short keys, spells as one comma string. */
 /** `c`: charges left per slot, one comma entry per slot (empty = full), only when any were spent. */
-type Packed = { v: 1; n?: string; w: [number, number, number, number, number, number, number, number, number, number]; s: string; a?: string; c?: string };
+/** `p`: the randomized sprite's number (wand_0123.png → 123); `r`: 1 for a rare wand. */
+type Packed = {
+  v: 1;
+  n?: string;
+  w: [number, number, number, number, number, number, number, number, number, number];
+  s: string;
+  a?: string;
+  c?: string;
+  p?: number;
+  r?: 1;
+};
 
 export async function encodeWand(w: Wand): Promise<string> {
   const packed: Packed = {
@@ -148,6 +169,8 @@ export async function encodeWand(w: Wand): Promise<string> {
     s: w.spells.map((s) => s ?? '').join(','),
     ...(w.alwaysCasts.length ? { a: w.alwaysCasts.join(',') } : {}),
     ...(w.charges?.some((c) => c !== null && c !== undefined) ? { c: resize(w.charges, w.capacity).map((c) => c ?? '').join(',') } : {}),
+    ...(spriteNumber(w.sprite) ? { p: Number(spriteNumber(w.sprite)) } : {}),
+    ...(w.rare ? { r: 1 as const } : {}),
   };
   return packJson(packed);
 }
@@ -174,5 +197,7 @@ export async function decodeWand(code: string): Promise<Wand> {
     ),
     alwaysCasts: p.a ? p.a.split(',').filter(Boolean) : [],
     ...(p.c ? { charges: resize(p.c.split(',').map((c) => (c === '' || !Number.isFinite(Number(c)) ? null : Math.max(0, Math.round(Number(c))))), cap) } : {}),
+    ...(Number.isInteger(p.p) && p.p! >= 0 && p.p! < 10000 ? { sprite: spriteFile(p.p!) } : {}),
+    ...(p.r === 1 ? { rare: true } : {}),
   };
 }

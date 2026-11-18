@@ -170,6 +170,7 @@ export async function rangeKit(wak: Wak): Promise<{ kit: RangeKit; files: Record
     arm: { w: aw, h: ah, ox: num(as.attrs.offset_x, 0), oy: num(as.attrs.offset_y, 2), hand },
     wands: table.map((w) => ({
       name: String(w.name ?? ''),
+      file: String(w.file),
       icon: atlas.rects.get(String(w.file))!,
       grip: [Number(w.grip_x ?? 0), Number(w.grip_y ?? 0)],
       tip: [Number(w.tip_x ?? 0), Number(w.tip_y ?? 0)],

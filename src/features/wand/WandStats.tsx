@@ -4,6 +4,7 @@ import { FPS, fmtNum } from '@/data/format';
 import { WAND_TIERS, rollWand } from '@/seed/client';
 import { MAX_CAPACITY, resize, type Wand } from './model';
 import { useWand } from './store';
+import { WandPortrait } from './WandPortrait';
 import { StatIcon, type StatIconName } from '@/ui/game';
 
 type Field = {
@@ -46,6 +47,7 @@ export function WandStats({ collapsible }: { collapsible?: boolean }) {
         onClick={() => setOpen(true)}
         className="flex w-full items-center gap-2 slot px-3 py-2.5 text-left text-[13px]"
       >
+        <WandPortrait wand={wand} scale={2} />
         <span className="flex min-w-0 flex-1 flex-wrap gap-x-3 gap-y-0.5 text-muted tabular-nums">
           {wand.shuffle && <span className="text-blood">Shuffle</span>}
           <span>
@@ -69,6 +71,10 @@ export function WandStats({ collapsible }: { collapsible?: boolean }) {
   return (
     // Container query: the stat grid lives in a narrow middle column on laptops.
     <div className="@container">
+    <div className="slot mb-2 flex items-center justify-center gap-3 px-3 py-2">
+      <WandPortrait wand={wand} />
+      {wand.rare && <span className="secret-name font-game text-[16px]">Rare</span>}
+    </div>
     <div className="grid grid-cols-2 gap-2 @md:grid-cols-4">
       <button
         onClick={() => setStat('shuffle', !wand.shuffle)}
@@ -149,6 +155,9 @@ function RandomizeStats() {
         speedMultiplier: r.speedMultiplier,
         spells: resize(w.spells, capacity),
         ...(w.charges ? { charges: resize(w.charges, capacity) } : {}),
+        // The sprite the game picked for these stats (GetWand), and whether it rolled a rare wand.
+        sprite: r.sprite,
+        rare: r.rare || undefined,
       }));
     } catch {
       setError(true);

@@ -57,10 +57,17 @@ export const useWand = create<WandState>()(
           if (next === s.wand) return s;
           return { wand: next, past: [...s.past, s.wand].slice(-HISTORY), future: [] };
         }),
-      setStat: (key, value) => get().edit((w) => ({ ...w, [key]: value })),
+      // A hand-edited stat drops a randomized sprite, so the picture follows the stats again.
+      setStat: (key, value) => get().edit((w) => ({ ...w, [key]: value, ...(key !== 'name' ? { sprite: undefined, rare: undefined } : {}) })),
       setCapacity: (n) => {
         const capacity = Math.max(1, Math.min(MAX_CAPACITY, Math.round(n)));
-        get().edit((w) => ({ ...w, capacity, spells: resize(w.spells, capacity), ...(w.charges ? { charges: resize(w.charges, capacity) } : {}) }));
+        get().edit((w) => ({
+          ...w,
+          capacity,
+          spells: resize(w.spells, capacity),
+          ...(w.charges ? { charges: resize(w.charges, capacity) } : {}),
+          ...(capacity !== w.capacity ? { sprite: undefined, rare: undefined } : {}),
+        }));
       },
       // A spell put in a slot arrives with full charges.
       place: (slot, id) => get().edit((w) => withCharge({ ...w, spells: w.spells.map((s, i) => (i === slot ? id : s)) }, slot, null)),

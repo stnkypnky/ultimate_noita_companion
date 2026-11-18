@@ -1,9 +1,19 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { NavLink, useLocation, useOutlet } from 'react-router';
-import { MORE, NAV, type NavItem } from './nav';
+import { Lock } from 'lucide-react';
+import { NAV, isOpenPath, type NavItem } from './nav';
 import { UpdateToast } from './UpdateToast';
 import { Onboarding } from './Onboarding';
+import { SaveGate } from './SaveGate';
 import { Embers } from '@/ui/game';
+import { useHasSave, useProgressHydrated } from '@/store/progress';
+
+/** Sections that wait for a synced save show a small lock in the nav until there is one. */
+function useLocked() {
+  const hasSave = useHasSave();
+  const hydrated = useProgressHydrated();
+  return (to: string) => hydrated && !hasSave && !isOpenPath(to);
+}
 
 export function Layout() {
   const location = useLocation();
@@ -26,7 +36,7 @@ export function Layout() {
               transition={{ duration: 0.18, ease: 'easeOut' }}
               className="min-h-full"
             >
-              {outlet}
+              <SaveGate>{outlet}</SaveGate>
             </motion.div>
           </AnimatePresence>
         </main>
@@ -39,6 +49,7 @@ export function Layout() {
 }
 
 function Rail() {
+  const locked = useLocked();
   return (
     <nav
       aria-label="Main"
@@ -54,7 +65,7 @@ function Rail() {
       <ul className="flex flex-col gap-1 px-2 lg:px-3">
         {NAV.map((item) => (
           <li key={item.to}>
-            <RailLink item={item} />
+            <RailLink item={item} locked={locked(item.to)} />
           </li>
         ))}
       </ul>
@@ -65,13 +76,13 @@ function Rail() {
   );
 }
 
-function RailLink({ item }: { item: NavItem }) {
+function RailLink({ item, locked }: { item: NavItem; locked: boolean }) {
   const Icon = item.icon;
   return (
     <NavLink
       to={item.to}
       end={item.to === '/'}
-      title={item.label}
+      title={locked ? `${item.label} (sync your save first)` : item.label}
       className={({ isActive }) =>
         `group relative flex items-center gap-3 px-3 py-2.5 transition-colors max-lg:justify-center ${
           isActive ? 'slot text-ink' : 'text-muted hover:bg-surface hover:text-ink'
@@ -87,8 +98,9 @@ function RailLink({ item }: { item: NavItem }) {
               transition={{ type: 'spring', stiffness: 500, damping: 35 }}
             />
           )}
-          <Icon size={19} className={isActive ? 'text-ember' : ''} />
-          <span className="font-game hidden text-[16px] lg:inline">{item.label}</span>
+          <Icon size={19} className={isActive ? 'text-ember' : locked ? 'opacity-50' : ''} />
+          <span className={`font-game hidden text-[16px] lg:inline ${locked ? 'opacity-50' : ''}`}>{item.label}</span>
+          {locked && <Lock size={12} aria-label="locked" className="ml-auto hidden text-faint lg:block" />}
         </>
       )}
     </NavLink>
@@ -96,7 +108,8 @@ function RailLink({ item }: { item: NavItem }) {
 }
 
 function BottomNav() {
-  const items = [...NAV.filter((n) => n.mobile), MORE];
+  const items = NAV.filter((n) => n.mobile);
+  const locked = useLocked();
   return (
     <nav
       aria-label="Main"
@@ -125,7 +138,10 @@ function BottomNav() {
                         transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                       />
                     )}
-                    <Icon size={21} className={isActive ? 'text-ember' : ''} />
+                    <span className="relative">
+                      <Icon size={21} className={isActive ? 'text-ember' : locked(item.to) ? 'opacity-50' : ''} />
+                      {locked(item.to) && <Lock size={10} aria-label="locked" className="absolute -top-1 -right-2.5 text-faint" />}
+                    </span>
                     <span>{item.label === 'Wand Builder' ? 'Wand' : item.label}</span>
                   </>
                 )}

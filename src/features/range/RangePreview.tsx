@@ -122,7 +122,13 @@ export function RangePreview({
   const spentRef = useRef(onChargesSpent);
   spentRef.current = onChargesSpent;
   const empty = req.deck.length === 0 && req.alwaysCasts.length === 0;
-  const wandSprite = useMemo(() => (ready?.data.kit ? pickWandSprite(ready.data.kit.wands, wand, look) : undefined), [ready, wand, look]);
+  // A randomized wand keeps the sprite the game rolled for it, until "another sprite" is asked for.
+  const wandSprite = useMemo(() => {
+    const wands = ready?.data.kit?.wands;
+    if (!wands) return undefined;
+    const rolled = look === 0 && wand.sprite ? wands.find((s) => s.file === wand.sprite) : undefined;
+    return rolled ?? pickWandSprite(wands, wand, look);
+  }, [ready, wand, look]);
   const touch = useMemo(() => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches, []);
 
   useEffect(() => () => session.dispose(), [session]);

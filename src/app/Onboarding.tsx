@@ -1,26 +1,30 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { ArrowRight, RefreshCw } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router';
 import { useProgress } from '@/store/progress';
 
-/** First launch: decide how spoilers are handled before showing any game content. */
+/**
+ * First launch: the companion needs a synced save before its features unlock. Spoiler protection follows the
+ * save; "Show everything" is in Settings once synced.
+ */
 export function Onboarding() {
   const onboarded = useProgress((s) => s.onboarded);
+  const hasSave = useProgress((s) => s.progress !== null);
   const setOnboarded = useProgress((s) => s.setOnboarded);
   const setMode = useProgress((s) => s.setMode);
   const navigate = useNavigate();
-  // Arriving from a sync QR code: the import page itself answers the question.
+  // Arriving from a sync QR code: the import page itself syncs.
   const importing = useLocation().pathname.startsWith('/import');
 
-  const choose = (mode: 'progress' | 'all', thenSync = false) => {
-    setMode(mode);
+  const go = (to: string) => {
+    setMode('progress');
     setOnboarded();
-    if (thenSync) navigate('/progress');
+    navigate(to);
   };
 
   return (
     <AnimatePresence>
-      {!onboarded && !importing && (
+      {!onboarded && !hasSave && !importing && (
         <motion.div
           className="fixed inset-0 z-[60] grid place-items-end bg-black/80 sm:place-items-center"
           initial={{ opacity: 0 }}
@@ -38,27 +42,21 @@ export function Onboarding() {
             transition={{ type: 'spring', stiffness: 320, damping: 30 }}
           >
             <div className="font-game-caps text-[16px] text-gold">Welcome, seeker</div>
-            <h2 id="onboard-title" className="mt-1 font-game text-[24px]">How much do you want to know?</h2>
+            <h2 id="onboard-title" className="mt-1 font-game text-[24px]">Bring your save</h2>
             <p className="mt-2 text-sm text-muted">
-              Noita is full of secrets. The companion can hide everything you haven't discovered in-game yet.
+              The companion is built around your own game. Sync your Noita save and it shows what you’ve discovered, keeps the
+              rest a secret, and unlocks every section. Your save is read in your browser and never uploaded.
             </p>
             <div className="mt-5 space-y-2">
               <Option
                 icon={<RefreshCw size={18} />}
-                title="Sync my progress"
-                text="Show only what my save file says I've found. Best on the PC where Noita is installed."
-                onClick={() => choose('progress', true)}
+                title="Sync my save"
+                text="On the PC where Noita is installed, or with a sync code from it."
+                onClick={() => go('/progress')}
                 primary
               />
-              <Option
-                icon={<EyeOff size={18} />}
-                title="Hide everything for now"
-                text="Start fully spoiler-free. You can sync or reveal things one at a time later."
-                onClick={() => choose('progress')}
-              />
-              <Option icon={<Eye size={18} />} title="Show me everything" text="No spoiler protection. I've seen it all." onClick={() => choose('all')} />
+              <Option icon={<ArrowRight size={18} />} title="Look around first" text="See what the companion offers. Everything unlocks once you sync." onClick={() => go('/')} />
             </div>
-            <p className="mt-4 text-center text-[11px] text-faint">You can change this any time in Settings.</p>
           </motion.div>
         </motion.div>
       )}
