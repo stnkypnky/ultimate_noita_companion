@@ -15,7 +15,7 @@ import { SeedPanel } from './SeedPanel';
 import { areaNotes } from './notes';
 import type { SeedReport } from '@/seed/worker';
 import { useSeedLayers } from './useSeedLayers';
-import { biomeKey, biomeName, chunkWorld, holyMountains, loadMap, makeVisibility, namedInGame, onPath, orbOf, sceneKey } from './world';
+import { biomeKey, biomeName, chunkOf, chunkWorld, holyMountains, loadMap, makeVisibility, namedInGame, onPath, orbOf, sceneKey } from './world';
 
 /** Whose caves the map shows before you pick a seed. */
 const EXAMPLE_SEED = 123;
@@ -278,6 +278,21 @@ function AreaDetail({
   );
 }
 
+/** Where a portal leads: the area there (unless it's still a spoiler), a tap away. */
+function PortalTo({ map, vis, to, onGo }: { map: WorldMap; vis: ReturnType<typeof makeVisibility>; to: { x: number; y: number }; onGo: (cx: number, cy: number) => void }) {
+  const { cx, cy } = chunkOf(map, to.x, to.y);
+  const b = cx >= 0 && cy >= 0 && cx < map.w && cy < map.h ? map.biomes[map.cells[cy * map.w + cx]!]! : null;
+  if (!b) return <p className="mt-0.5 text-xs text-muted">Leads off the map (a parallel world).</p>;
+  return (
+    <p className="mt-0.5 text-xs text-muted">
+      Leads to{' '}
+      <button onClick={() => onGo(cx, cy)} className="text-gold hover:underline">
+        {vis.biome(b) ? biomeName(b) : 'somewhere still hidden'}
+      </button>
+    </p>
+  );
+}
+
 /**
  * Points of interest in this biome: the ones in the tapped chunk first, then the rest of the biome by depth.
  * The seed's rooms are where its scripts put them; tapping one moves the selection to its chunk.
@@ -313,7 +328,9 @@ function AreaPois({
       const b = map.biomes[k]!;
       return (k === biome || (name && biomeName(b) === name)) && vis.biome(b) && (!p.scene || vis.scene(p.scene));
     })
-    .sort((a, b) => Number(b.at.cx === chunk.cx && b.at.cy === chunk.cy) - Number(a.at.cx === chunk.cx && a.at.cy === chunk.cy) || a.p.y - b.p.y);
+    .sort((a, b) => Number(b.at.cx === chunk.cx && b.at.cy === chunk.cy) - Number(a.at.cx === chunk.cx && a.at.cy === chunk.cy) || a.p.y - b.p.y)
+    // A Holy Mountain row has a portal in every chunk: one of each kind is enough beyond the tapped chunk.
+    .filter(({ p, at }, i, all) => p.kind !== 'portal' || (at.cx === chunk.cx && at.cy === chunk.cy) || all.findIndex((o) => o.p.kind === 'portal' && o.p.name === p.name) === i);
   if (!pois) return <p className="mt-5 text-xs text-faint">Placing this seed's points of interest…</p>;
   if (!mine.length) return null;
   return (
@@ -331,6 +348,7 @@ function AreaPois({
                     {here && <span className="ml-2 text-[11px] text-gold">here</span>}
                   </button>
                   {p.text && <p className="mt-0.5 text-xs text-muted">{p.text}</p>}
+                  {p.to && <PortalTo map={map} vis={vis} to={p.to} onGo={onGo} />}
                   <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-faint">
                     <span className="font-mono">
                       x {Math.round(p.x + p.w / 2)}, y {Math.round(p.y + p.h / 2)}

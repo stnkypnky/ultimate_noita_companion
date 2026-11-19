@@ -163,7 +163,39 @@ export const FIXED_POIS: Record<string, Entry & { wiki: string }> = {
   [`${I}tower_start.png`]: { name: 'Tower entrance', kind: 'room', wiki: `${W}Tower` },
 };
 
-/** The table, keyed by the full scene file as the scripts load it. */
-export const POI_TABLE: Record<string, Entry & { wiki: string }> = Object.fromEntries(
-  groups.flatMap((g) => Object.entries(g.scenes).map(([k, e]) => [`${I}${k}.png`, { ...e, wiki: g.wiki }])),
-);
+/** How big a portal's pin box is (world pixels): about the size of its swirl in the game. */
+export const PORTAL_SIZE = 48;
+const B = 'data/entities/buildings/';
+const portal = (name: string, wiki: string, text?: string): Entry & { wiki: string; w: number; h: number } => ({ name, kind: 'portal', wiki: `${W}${wiki}`, w: PORTAL_SIZE, h: PORTAL_SIZE, ...(text ? { text } : {}) });
+
+/**
+ * Portals, by their entity file (the game spawns them as entities, not scenes). Where they lead is worked out from
+ * each one's TeleportComponent (map.json portalTargets), so the text only says what it is.
+ */
+export const PORTALS: Record<string, Entry & { wiki: string; w: number; h: number }> = {
+  [`${B}teleport_liquid_powered.xml`]: portal('Holy Mountain portal', 'Holy_Mountain', 'At the bottom of each area: it takes you into the Holy Mountain below.'),
+  [`${B}teleport_boss_arena.xml`]: portal('Portal to the Laboratory', 'The_Laboratory'),
+  [`${B}teleport_ending.xml`]: portal('Portal to the Laboratory', 'The_Laboratory', 'The last mountain’s portals lead to the final boss.'),
+  [`${B}teleport_lavalake.xml`]: portal('Lava Lake portal', 'Lava_Lake'),
+  [`${B}teleport_hourglass.xml`]: portal('Hourglass portal', 'Hiisi_Base'),
+  [`${B}teleport_hourglass_return.xml`]: portal('Way back from the Hourglass', 'Hiisi_Base'),
+  [`${B}teleport_meditation_cube.xml`]: portal('Meditation cube portal', 'Coal_Pits'),
+  [`${B}teleport_meditation_cube_return.xml`]: portal('Way back from the Meditation cube', 'Coal_Pits'),
+  [`${B}teleport_snowcave_buried_eye.xml`]: portal('Buried eye portal', 'Snowy_Depths'),
+  [`${B}teleport_snowcave_buried_eye_return.xml`]: portal('Way back from the Buried eye', 'Snowy_Depths'),
+  [`${B}teleport_robot_egg_return.xml`]: portal('Way back from the Robot egg', 'Mysteries_and_Oddities'),
+  [`${B}teleport_bunker_back.xml`]: portal('Bunker portal', 'Lake'),
+  [`${B}teleport_lake.xml`]: portal('Portal to the Lake', 'Desert'),
+  [`${B}teleport_desert.xml`]: portal('Portal to the Desert', 'Lake'),
+  [`${B}teleport_end_wall.xml`]: portal('Portal back to the surface', 'Mysteries_and_Oddities'),
+  [`${B}mystery_teleport.xml`]: portal('Mysterious portal', 'Mysteries_and_Oddities'),
+  [`${B}mystery_teleport_back.xml`]: portal('Way back from the Tower', 'Tower'),
+  ...Object.fromEntries([1, 2, 3, 4, 5, 6].map((n) => [`${B}teleport_teleroom_${n}.xml`, portal(`Portal room: portal ${n}`, 'Mysteries_and_Oddities')])),
+  'data/entities/misc/summon_portal_target.xml': portal('Summon Portal opens here', 'Underground_Jungle', 'Where the Summon Portal spell opens a way, for this seed; hint statues stand around it.'),
+};
+
+/** The table, keyed by the full scene file as the scripts load it (portals by entity file). */
+export const POI_TABLE: Record<string, Entry & { wiki: string; w?: number; h?: number }> = {
+  ...Object.fromEntries(groups.flatMap((g) => Object.entries(g.scenes).map(([k, e]) => [`${I}${k}.png`, { ...e, wiki: g.wiki }]))),
+  ...PORTALS,
+};

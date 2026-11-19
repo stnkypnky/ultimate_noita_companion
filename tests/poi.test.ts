@@ -59,9 +59,25 @@ describe('points of interest for a seed', () => {
     for (const p of pois) expect(data.scenes[p.file], p.file).toBeDefined();
   });
 
+  it("places the seed's portals: where Summon Portal opens, inside the Jungle's bounds", () => {
+    const shown = placedPois(data, pois, map).filter((p) => p.kind === 'portal');
+    const target = shown.filter((p) => p.name === 'Summon Portal opens here');
+    expect(target).toHaveLength(1);
+    // rainforest.lua: inside -2450..1900 × 6700..8000, less its 200 px rim.
+    const c = { x: target[0]!.x + target[0]!.w / 2, y: target[0]!.y + target[0]!.h / 2 };
+    expect(c.x).toBeGreaterThan(-2250);
+    expect(c.x).toBeLessThan(1700);
+    expect(c.y).toBeGreaterThan(6900);
+    expect(c.y).toBeLessThan(7800);
+    // The meditation cube is a 4 % roll at each of its markers: seed 123 has none.
+    expect(shown.filter((p) => p.name === 'Meditation cube portal')).toHaveLength(0);
+  });
+
   it('keeps each room inside its biome', () => {
     for (const p of pois) {
       const info = data.scenes[p.file]!;
+      // Summon Portal's spot is worked out from the Jungle's bounds, and can fall just outside its chunks.
+      if (info.kind === 'portal') continue;
       const b = biomeAt(p.x + info.w / 2, p.y + info.h / 2);
       expect(b.wangTemplate, `${p.file} at ${p.x},${p.y} is in ${b.id}`).toBeDefined();
     }

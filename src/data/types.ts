@@ -515,6 +515,12 @@ export type WorldMap = {
   shops: { x: number; y: number }[];
   /** Patches of cave biomes (chunk bounding boxes, inclusive): one generated layout each. */
   areas: { biome: number; x1: number; y1: number; x2: number; y2: number }[];
+  /** Portals at fixed spots (the entity file, its world position); the seed's own come with its points of interest. */
+  portals?: { entity: string; x: number; y: number }[];
+  /** Where each portal entity sends you (TeleportComponent target): a world coordinate, or an offset from the portal. */
+  portalTargets?: Record<string, { x: number; y: number; absX: boolean; absY: boolean }>;
+  /** Key of the portal picture under game/map/ (the game's teleport_center sprite). */
+  portalImage?: string;
 };
 
 export type GameData = {

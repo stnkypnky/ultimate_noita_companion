@@ -205,7 +205,8 @@ const sized = async (table: typeof POI_TABLE) => {
       console.warn(`points of interest: missing ${file}`);
       continue;
     }
-    out[file] = { ...e, w: m?.width ?? 0, h: m?.height ?? 0 };
+    // A portal (an entity file) brings its own size.
+    out[file] = { ...e, w: m?.width ?? ('w' in e && e.w ? e.w : 0), h: m?.height ?? ('h' in e && e.h ? e.h : 0) };
   }
   return out;
 };

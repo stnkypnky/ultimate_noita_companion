@@ -191,7 +191,37 @@ export const POI_COLOR: Record<PoiKind, string> = {
   treasure: '#f89000',
   secret: '#6cc8ff',
   hazard: '#e2445c',
+  portal: '#b46bff',
 };
+/** The game's portal sprite is 96 × 96 world pixels, centred on the portal. */
+const PORTAL_SPRITE = 96;
+
+/** A portal as the game shows it: its swirl sprite in a violet glow; zoomed out, a small swirl of fixed size. */
+function drawPortal(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number, sprite: HTMLImageElement | null) {
+  const size = PORTAL_SPRITE * scale;
+  const r = Math.max(9, size * 0.55);
+  const glow = ctx.createRadialGradient(x, y, 0, x, y, r);
+  glow.addColorStop(0, 'rgba(190,120,255,0.75)');
+  glow.addColorStop(0.5, 'rgba(120,60,220,0.3)');
+  glow.addColorStop(1, 'rgba(60,20,140,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  if (sprite && size >= 14) {
+    ctx.drawImage(sprite, x - size / 2, y - size / 2, size, size);
+    return;
+  }
+  ctx.fillStyle = '#0a0807';
+  ctx.beginPath();
+  ctx.arc(x, y, 4.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = POI_COLOR.portal;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(x, y, 3, 0.4, Math.PI * 1.9);
+  ctx.stroke();
+  ctx.fillStyle = '#f1e2ff';
+  ctx.fillRect(x - 1, y - 1, 2, 2);
+}
 /** A 7 × 7 pixel diamond (rows as [dx, dy, w, h]), and a 1-pixel rim around it. */
 const DIAMOND: [number, number, number, number][] = [
   [-1, -3, 2, 1],
@@ -509,16 +539,19 @@ export function MapView({
     // overlap an area name or another pin's are left out).
     if (pois?.length) {
       ctx.font = `600 11px ui-sans-serif, system-ui`;
+      const portalSprite = map.portalImage ? image(gameUrl(`map/${map.portalImage}.png`), redraw) : null;
       for (const p of pois) {
         const c = poiCentre(p);
         const k = cellAt(c.x, c.y);
         if (k < 0 || !vis.biome(map.biomes[k]!) || (p.scene && !vis.scene(p.scene))) continue;
         const [fx, fy] = toScreen(c.x, c.y);
-        if (fx < -40 || fy < -40 || fx > size.w + 40 || fy > size.h + 40) continue;
+        const reach = p.kind === 'portal' ? Math.max(40, PORTAL_SPRITE * v.s) : 40;
+        if (fx < -reach || fy < -reach || fx > size.w + reach || fy > size.h + reach) continue;
         const color = POI_COLOR[p.kind];
         const sw = p.w * v.s;
         const sh = p.h * v.s;
-        if (sw >= 28 && sh >= 16) {
+        if (p.kind === 'portal') drawPortal(ctx, fx, fy, v.s, portalSprite);
+        else if (sw >= 28 && sh >= 16) {
           ctx.setLineDash([4, 3]);
           ctx.strokeStyle = color;
           ctx.globalAlpha = 0.7;
@@ -530,24 +563,28 @@ export function MapView({
         // A small pixel diamond: dark rim, the kind's colour, a light glint.
         const sx = Math.round(fx);
         const sy = Math.round(fy);
-        ctx.fillStyle = '#0a0807';
-        for (const [dx, dy, w, h] of DIAMOND_RIM) ctx.fillRect(sx + dx, sy + dy, w, h);
-        ctx.fillStyle = color;
-        for (const [dx, dy, w, h] of DIAMOND) ctx.fillRect(sx + dx, sy + dy, w, h);
-        ctx.fillStyle = 'rgba(255,255,255,0.75)';
-        ctx.fillRect(sx - 1, sy - 3, 2, 2);
+        if (p.kind !== 'portal') {
+          ctx.fillStyle = '#0a0807';
+          for (const [dx, dy, w, h] of DIAMOND_RIM) ctx.fillRect(sx + dx, sy + dy, w, h);
+          ctx.fillStyle = color;
+          for (const [dx, dy, w, h] of DIAMOND) ctx.fillRect(sx + dx, sy + dy, w, h);
+          ctx.fillStyle = 'rgba(255,255,255,0.75)';
+          ctx.fillRect(sx - 1, sy - 3, 2, 2);
+        }
         if (cs >= 150) {
+          // Below the pin, or below a portal's swirl.
+          const below = p.kind === 'portal' ? Math.max(7, Math.round((PORTAL_SPRITE * v.s) / 2)) : 7;
           const half = ctx.measureText(p.name).width / 2 + 3;
-          const box: [number, number, number, number] = [sx - half, sy + 7, sx + half, sy + 21];
+          const box: [number, number, number, number] = [sx - half, sy + below, sx + half, sy + below + 14];
           if (taken.some((t) => box[0] < t[2] && box[2] > t[0] && box[1] < t[3] && box[3] > t[1])) continue;
           taken.push(box);
           ctx.textAlign = 'center';
           ctx.textBaseline = 'top';
           ctx.lineWidth = 3;
           ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-          ctx.strokeText(p.name, sx, sy + 8);
+          ctx.strokeText(p.name, sx, sy + below + 1);
           ctx.fillStyle = color;
-          ctx.fillText(p.name, sx, sy + 8);
+          ctx.fillText(p.name, sx, sy + below + 1);
         }
       }
     }

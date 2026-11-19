@@ -76,6 +76,6 @@ export function useSeedLayers(seed: number | null, map: WorldMap | null): SeedLa
   }, [seed]);
   const fixed = useMemo(() => (map && data ? fixedPois(map, data) : []), [map, data]);
   const mine = placed && placed.seed === seed ? placed.p : null;
-  const pois = useMemo(() => (data && mine ? [...fixed, ...placedPois(data, mine)] : null), [fixed, data, mine]);
+  const pois = useMemo(() => (data && mine && map ? [...fixed, ...placedPois(data, mine, map)] : null), [fixed, data, mine, map]);
   return { layouts: layouts && layouts.seed === seed ? layouts.l : null, wangColors, pois };
 }

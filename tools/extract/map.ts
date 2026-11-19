@@ -21,6 +21,196 @@ function mainMaterial(xml: string) {
   return best?.name;
 }
 
+/** The text of a biome script's init(), up to the next top-level function. */
+export const initBody = (src: string) => /function\s+init\s*\([^)]*\)([\s\S]*?)(?=\nfunction\s|$)/.exec(src)?.[1];
+
+export type SceneCall = { file: string; visual: string; background: string; dx: number; dy: number };
+
+/** "y-40+300" → 260: the literal sum after the coordinate. */
+const offset = (e: string) => [...e.slice(1).replace(/\s/g, '').matchAll(/([+-])(\d+)/g)].reduce((n, m) => n + Number(m[2]) * (m[1] === '-' ? -1 : 1), 0);
+
+export type EntityCall = { file: string; dx: number; dy: number };
+/** A script's functions by name: their parameters and body (up to the next top-level function). */
+export type Helpers = Map<string, { params: string[]; body: string }>;
+
+/** The top-level functions a script defines. */
+export function functionsOf(src: string): Helpers {
+  const out: Helpers = new Map();
+  for (const m of src.matchAll(/(?:^|\n)function\s+([A-Za-z_]\w*)\s*\(([^)]*)\)([\s\S]*?)(?=\nfunction\s|$)/g))
+    out.set(m[1]!, { params: m[2]!.split(',').map((p) => p.trim()).filter(Boolean), body: m[3]! });
+  return out;
+}
+
+/**
+ * What a function body loads at its x/y (plus literal offsets), in order: pixel scenes and entities. Commented-out
+ * lines don't count. Of an if-block, one branch: its else (the usual case: no gamepad, no unlock, the common room),
+ * or with no else, its first branch; a branch on a parameter passed as false is skipped. Calls to the script's own
+ * helpers at x/y (spawn_altar_top(x, y, false)) are followed.
+ */
+export function scriptCalls(
+  body: string,
+  helpers: Helpers = new Map(),
+  falsy: Set<string> = new Set(),
+  depth = 0,
+  /** Where it runs (the chunk's corner): conditions on x and y are then decided. */
+  env?: { x: number; y: number },
+): { scenes: SceneCall[]; entities: EntityCall[] } {
+  type Calls = { scenes: SceneCall[]; entities: EntityCall[] };
+  type Branch = { calls: Calls; cond: boolean | null; isElse: boolean };
+  type Frame = { kind: 'if' | 'block'; branches: Branch[] };
+  const calls = (): Calls => ({ scenes: [], entities: [] });
+  const root = calls();
+  const stack: Frame[] = [];
+  const into = () => stack.at(-1)?.branches.at(-1)?.calls ?? root;
+  const condAfter = (line: string, from: number) => evalCond(/^([\s\S]*?)\bthen\b/.exec(line.slice(from))?.[1] ?? '', env, falsy);
+  // The branch an if-block takes: the first that's surely true; at the first that can't be told, the else (the usual
+  // case), or else the first that isn't surely false.
+  const pick = (bs: Branch[]) => {
+    for (const b of bs) {
+      if (b.cond === true) return b;
+      if (b.cond === null) {
+        const rest = bs.filter((x) => x.cond !== false);
+        return rest.find((x) => x.isElse) ?? rest[0];
+      }
+    }
+    return undefined;
+  };
+  const add = (to: Calls, c: Calls, dx = 0, dy = 0) => {
+    to.scenes.push(...c.scenes.map((s) => ({ ...s, dx: s.dx + dx, dy: s.dy + dy })));
+    to.entities.push(...c.entities.map((e) => ({ ...e, dx: e.dx + dx, dy: e.dy + dy })));
+  };
+  // A picture passed by name: the body's own `local name = "…"`.
+  const locals = new Map([...body.matchAll(/\blocal\s+([A-Za-z_]\w*)\s*=\s*"([^"]*)"/g)].map((m) => [m[1]!, m[2]!]));
+  const str = (a: string) => (a.startsWith('"') ? a.slice(1, -1) : (locals.get(a) ?? ''));
+  const token = new RegExp(
+    [
+      /LoadPixelScene\(\s*"([^"]+)"\s*,\s*("[^"]*"|[A-Za-z_]\w*)\s*,\s*(x[-+\d\s]*)\s*,\s*(y[-+\d\s]*)\s*,\s*("[^"]*"|[A-Za-z_]\w*)[^)]*\)/.source,
+      /EntityLoad\(\s*"([^"]+)"\s*,\s*(x[-+\d\s]*)\s*,\s*(y[-+\d\s]*)\s*\)/.source,
+      /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|--.*$/.source,
+      /\b(if|elseif|else|end|function|do)\b/.source,
+      /\b([A-Za-z_]\w*)\(\s*(x[-+\d\s]*)\s*,\s*(y[-+\d\s]*)\s*((?:,[^()]*)?)\)/.source,
+    ].join('|'),
+    'g',
+  );
+  for (const line of body.split(/\r?\n/)) {
+    for (const m of line.matchAll(token)) {
+      if (m[1] !== undefined) {
+        into().scenes.push({ file: m[1], visual: str(m[2]!), background: str(m[5]!), dx: offset(m[3]!), dy: offset(m[4]!) });
+        continue;
+      }
+      if (m[6] !== undefined) {
+        into().entities.push({ file: m[6], dx: offset(m[7]!), dy: offset(m[8]!) });
+        continue;
+      }
+      const kw = m[9];
+      if (kw === 'if') stack.push({ kind: 'if', branches: [{ calls: calls(), cond: condAfter(line, m.index + 2), isElse: false }] });
+      else if (kw === 'function' || kw === 'do') stack.push({ kind: 'block', branches: [{ calls: calls(), cond: true, isElse: false }] });
+      else if (kw === 'elseif' || kw === 'else') {
+        const f = stack.at(-1);
+        if (f?.kind !== 'if') continue;
+        f.branches.push({ calls: calls(), cond: kw === 'else' ? true : condAfter(line, m.index + 6), isElse: kw === 'else' });
+      } else if (kw === 'end') {
+        // The body's own end has no frame left to close.
+        const f = stack.pop();
+        if (!f) continue;
+        const kept = f.kind === 'block' ? f.branches[0] : pick(f.branches);
+        if (kept) add(into(), kept.calls);
+      } else if (m[10] !== undefined) {
+        // A helper of the script's own, called at the chunk; not its definition.
+        const h = helpers.get(m[10]);
+        if (!h || depth >= 3 || /function\s+$/.test(line.slice(0, m.index)) || h.params[0] !== 'x' || h.params[1] !== 'y') continue;
+        const args = m[13]!.replace(/^,/, '').split(',').map((a) => a.trim());
+        const off = new Set(h.params.slice(2).filter((_, i) => args[i] === 'false' || args[i] === 'nil'));
+        const dx = offset(m[11]!);
+        const dy = offset(m[12]!);
+        add(into(), scriptCalls(h.body, helpers, off, depth + 1, env && { x: env.x + dx, y: env.y + dy }), dx, dy);
+      }
+    }
+  }
+  return root;
+}
+
+/**
+ * A Lua condition, as far as it can be told without running the game: true, false, or null (it depends on
+ * something else). Knows x and y (when given), numbers, comparisons, and/or/not, and parameters passed as false.
+ */
+/** "(a < b)": one pair of brackets around the whole thing. */
+const wrapped = (t: string) => {
+  if (!t.startsWith('(') || !t.endsWith(')')) return false;
+  let depth = 0;
+  for (let i = 0; i < t.length; i++) {
+    depth += t[i] === '(' ? 1 : t[i] === ')' ? -1 : 0;
+    if (depth === 0 && i < t.length - 1) return false;
+  }
+  return true;
+};
+
+export function evalCond(c: string, env: { x: number; y: number } | undefined, falsy: Set<string>): boolean | null {
+  const any = (vs: (boolean | null)[], stop: boolean) => (vs.includes(stop) ? stop : vs.includes(null) ? null : !stop);
+  const num = (e: string) => {
+    const s = e.replace(/\bx\b/g, env ? `(${env.x})` : 'x').replace(/\by\b/g, env ? `(${env.y})` : 'y').trim();
+    return /^[\d\s.+\-*/()]+$/.test(s) ? (Function(`return (${s})`)() as number) : null;
+  };
+  const term = (t: string): boolean | null => {
+    t = t.trim();
+    while (wrapped(t)) t = t.slice(1, -1).trim();
+    const not = /^not\s+([\s\S]+)$/.exec(t);
+    if (not) {
+      const v = term(not[1]!);
+      return v === null ? null : !v;
+    }
+    if (t === 'true') return true;
+    if (t === 'false' || t === 'nil' || falsy.has(t)) return false;
+    const cmp = /^([\s\S]+?)\s*(==|~=|<=|>=|<|>)\s*([\s\S]+)$/.exec(t);
+    if (!cmp) return null;
+    const a = num(cmp[1]!);
+    const b = num(cmp[3]!);
+    if (a === null || b === null) return null;
+    return { '==': a === b, '~=': a !== b, '<=': a <= b, '>=': a >= b, '<': a < b, '>': a > b }[cmp[2] as '=='];
+  };
+  if (!c.trim()) return null;
+  return any(c.split(/\s+or\s+/).map((o) => any(o.split(/\s+and\s+/).map(term), false)), true);
+}
+
+/** The pixel scenes an init() loads (see scriptCalls). */
+export const initSceneCalls = (init: string, helpers?: Helpers) => scriptCalls(init, helpers).scenes;
+
+/** A script with the scripts it pulls in (dofile / dofile_once), as one text: its helpers can come from either. */
+function withIncludes(wak: Wak, script: string, seen = new Set<string>()): string {
+  if (seen.has(script) || !wak.has(script)) return '';
+  seen.add(script);
+  const src = wak.text(script);
+  const inc = [...src.matchAll(/dofile(?:_once)?\(\s*"([^"]+)"\s*\)/g)].map((m) => withIncludes(wak, m[1]!, seen));
+  // The script's own definitions come last, so they win over the included ones (as they do when it runs).
+  return [...inc, src].join('\n');
+}
+
+/** Portal entities: the game's teleports, and where Summon Portal opens. */
+export const isPortal = (file: string) => /entities\/buildings\/(teleport|mystery_teleport)[^/]*\.xml$/.test(file) || file.endsWith('/summon_portal_target.xml');
+
+/**
+ * Spawn colours the engine knows before any script registers its own (as rrggbb): the portal at the foot of each
+ * biome, in every Holy Mountain's top (altar_top*.png), runs biome_scripts.lua's spawn_portal.
+ */
+const ENGINE_SPAWNS: Record<string, string> = { bf26a6: 'spawn_portal' };
+
+/** An entity's TeleportComponent target, its own attributes over its <Base> file's. */
+function teleportTarget(wak: Wak, file: string, depth = 0): { x?: number; y?: number; absX?: boolean; absY?: boolean } {
+  if (depth > 4 || !wak.has(file)) return {};
+  const xml = wak.text(file);
+  const base = /<Base\s+file="([^"]+)"/.exec(xml)?.[1];
+  const inherited = base ? teleportTarget(wak, base, depth + 1) : {};
+  const own = /<TeleportComponent\b([^>]*)>/.exec(xml)?.[1] ?? '';
+  const num = (k: string) => (attr(own, k.replace('.', '\\.')) !== undefined ? Number(attr(own, k.replace('.', '\\.'))) : undefined);
+  const flag = (k: string) => (attr(own, k) !== undefined ? attr(own, k) === '1' : undefined);
+  return {
+    x: num('target.x') ?? inherited.x,
+    y: num('target.y') ?? inherited.y,
+    absX: flag('target_x_is_absolute_position') ?? inherited.absX,
+    absY: flag('target_y_is_absolute_position') ?? inherited.absY,
+  };
+}
+
 export async function buildWorldMap(wak: Wak, t: Translations) {
   const all = wak.text('data/biome/_biomes_all.xml');
   const offsetY = Number(attr(all, 'biome_offset_y') ?? 14);
@@ -113,28 +303,72 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
   };
   // Rooms that draw themselves: a biome script whose init() loads a pixel scene at the chunk (orb rooms, Holy
   // Mountains, secret rooms). Placed at every chunk of that biome, at the script's literal offset.
+  // Portals at fixed spots: a portal-spawning function's colour in one of those rooms' material files (or the engine's
+  // own portal colour), or an EntityLoad in init() itself. Cave biomes' portals come with the seed instead (their
+  // markers are in the generated layout).
+  const portals: NonNullable<WorldMap['portals']> = [];
+  /** Per biome and material file: its portal-spawn marker pixels (each biome's script has its own colours). */
+  const pixels = new Map<string, { w: number; found: { i: number; e: EntityCall[] }[] }>();
+  const spawnersByBiome = new Map<number, Map<string, EntityCall[]>>();
+  const sizes = new Map<string, Awaited<ReturnType<ReturnType<typeof sharp>['metadata']>>>();
+  const chunksOf = (k: number) => cells.flatMap((v, c) => (v === k ? [{ x: (c % info.width) * CHUNK + x0, y: Math.floor(c / info.width) * CHUNK + y0 }] : []));
   for (const [k, script] of roomScripts) {
-    const src = wak.text(script);
-    const init = /function\s+init\s*\([^)]*\)([\s\S]*?)(?=\nfunction\s|$)/.exec(src)?.[1];
+    const src = withIncludes(wak, script);
+    const helpers = functionsOf(src);
+    const init = initBody(wak.text(script));
     if (!init) continue;
-    const call = /LoadPixelScene\(\s*"([^"]+)"\s*,\s*"([^"]*)"\s*,\s*(x[-+\d\s]*)\s*,\s*(y[-+\d\s]*)\s*,\s*"([^"]*)"/.exec(init);
-    if (!call) continue;
-    // "y-40+300" → 260: the literal sum after the coordinate.
-    const offset = (e: string) => [...e.slice(1).replace(/\s/g, '').matchAll(/([+-])(\d+)/g)].reduce((n, m) => n + Number(m[2]) * (m[1] === '-' ? -1 : 1), 0);
-    const dx = offset(call[3]!);
-    const dy = offset(call[4]!);
-    const visual = await imageKey(call[2]);
-    const look = visual ?? (await imageKey(call[1]));
-    const back = await imageKey(call[5]);
-    if (!look) continue;
-    const meta = await sharp(images.get(look)!).metadata();
-    for (let c = 0; c < cells.length; c++) {
-      if (cells[c] !== k) continue;
-      const x = (c % info.width) * CHUNK + x0 + dx;
-      const y = Math.floor(c / info.width) * CHUNK + y0 + dy;
-      scenes.push({ id: biomes[k]!.id, file: call[1]!, from: 'biome', x, y, w: meta.width ?? 0, h: meta.height ?? 0, image: look, ...(back && back !== look ? { background: back } : {}), ...(!visual ? { materials: true } : {}) });
+    // Run at each chunk: what init() loads can depend on where it is (the Lava Lake pit's cracked floor).
+    const placed = chunksOf(k).map((c) => ({ c, calls: scriptCalls(init, helpers, undefined, 0, c) }));
+    for (const { c, calls } of placed) {
+      for (const call of calls.scenes) {
+        const visual = await imageKey(call.visual);
+        const look = visual ?? (await imageKey(call.file));
+        const back = await imageKey(call.background);
+        if (!look) continue;
+        if (!sizes.has(look)) sizes.set(look, await sharp(images.get(look)!).metadata());
+        const meta = sizes.get(look)!;
+        scenes.push({ id: biomes[k]!.id, file: call.file, from: 'biome', x: c.x + call.dx, y: c.y + call.dy, w: meta.width ?? 0, h: meta.height ?? 0, image: look, ...(back && back !== look ? { background: back } : {}), ...(!visual ? { materials: true } : {}) });
+      }
+    }
+    if (biomes[k]!.wangTemplate) continue;
+    for (const { c, calls } of placed) for (const e of calls.entities.filter((e) => isPortal(e.file))) portals.push({ entity: e.file, x: c.x + e.dx, y: c.y + e.dy });
+    // Spawn colour (rrggbb) → the portals its function loads.
+    const spawners = new Map<string, EntityCall[]>();
+    const registered = [...src.matchAll(/^[ \t]*RegisterSpawnFunction\(\s*0x([0-9a-fA-F]{6,8})\s*,\s*"(\w+)"/gm)].map((m) => [m[1]!.slice(-6).toLowerCase(), m[2]!] as const);
+    for (const [color, fn] of [...Object.entries(ENGINE_SPAWNS), ...registered]) {
+      const h = helpers.get(fn);
+      const found = h ? scriptCalls(h.body, helpers).entities.filter((e) => isPortal(e.file)) : [];
+      if (found.length) spawners.set(color, found);
+    }
+    if (!spawners.size) continue;
+    spawnersByBiome.set(k, spawners);
+    for (const { c, calls } of placed) {
+      for (const call of calls.scenes) {
+        if (!call.file.endsWith('.png') || !wak.has(call.file)) continue;
+        const cacheKey = `${k}|${call.file}`;
+        if (!pixels.has(cacheKey)) {
+          const px = await sharp(wak.bytes(call.file)).raw().ensureAlpha().toBuffer({ resolveWithObject: true });
+          const found: { i: number; e: EntityCall[] }[] = [];
+          for (let i = 0; i < px.info.width * px.info.height; i++) {
+            if (!px.data[i * 4 + 3]) continue;
+            const hex = [px.data[i * 4], px.data[i * 4 + 1], px.data[i * 4 + 2]].map((v) => v!.toString(16).padStart(2, '0')).join('');
+            const e = spawners.get(hex);
+            if (e) found.push({ i, e });
+          }
+          pixels.set(cacheKey, { w: px.info.width, found });
+        }
+        const px = pixels.get(cacheKey)!;
+        for (const { i, e: es } of px.found) for (const e of es) portals.push({ entity: e.file, x: c.x + call.dx + (i % px.w) + e.dx, y: c.y + call.dy + Math.floor(i / px.w) + e.dy });
+      }
     }
   }
+  // Where every portal entity leads, the seed's ones included.
+  const portalTargets: NonNullable<WorldMap['portalTargets']> = {};
+  for (const f of [...wak.list('data/entities/buildings/'), 'data/entities/misc/summon_portal_target.xml'].filter(isPortal)) {
+    const t = teleportTarget(wak, f);
+    if (t.x !== undefined && t.y !== undefined) portalTargets[f] = { x: t.x, y: t.y, absX: !!t.absX, absY: !!t.absY };
+  }
+  const portalImage = await imageKey('data/buildings_gfx/teleport_center.png');
   const sceneXml = wak.text('data/biome/_pixel_scenes.xml');
   for (const m of sceneXml.matchAll(/<PixelScene\s[\s\S]*?>/g)) await addScene(m[0], 'pixel_scenes');
   for (const m of sceneXml.matchAll(/<Image\s[\s\S]*?>/g)) await addScene(m[0], 'background_images');
@@ -142,6 +376,41 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
     const f = m[1]!.trim();
     if (!wak.has(f)) continue;
     for (const s of wak.text(f).matchAll(/<PixelScene\s[\s\S]*?>/g)) await addScene(s[0], f.split('/').pop()!.replace(/\.xml$/, ''));
+  }
+  // Portals in the fixed scenes: a marker pixel runs the spawn function of the biome it lands in (the Lava Lake's).
+  const anyColor = new Set([...spawnersByBiome.values()].flatMap((m) => [...m.keys()]));
+  const biomeIndexAt = (x: number, y: number) => {
+    const cx = Math.floor((x - x0) / CHUNK);
+    const cy = Math.floor((y - y0) / CHUNK);
+    return cx < 0 || cy < 0 || cx >= info.width || cy >= info.height ? -1 : cells[cy * info.width + cx]!;
+  };
+  // A spliced scene's pieces are .plz we can't read, but its whole material picture sits beside its list, from the
+  // 512 grid line at or above its first piece (as the Tree's does: 1024 × 2048 from −2048, −1536).
+  const spliced = [...sceneXml.matchAll(/<File>([^<]+)<\/File>/g)].flatMap((m) => {
+    const f = m[1]!.trim();
+    const png = f.replace(/\.xml$/, '.png');
+    if (!wak.has(f) || !wak.has(png)) return [];
+    const xml = wak.text(f);
+    const xs = [...xml.matchAll(/pos_x="(-?\d+)"/g)].map((v) => Number(v[1]));
+    const ys = [...xml.matchAll(/pos_y="(-?\d+)"/g)].map((v) => Number(v[1]));
+    return xs.length ? [{ file: png, x: Math.floor(Math.min(...xs) / CHUNK) * CHUNK, y: Math.floor(Math.min(...ys) / CHUNK) * CHUNK }] : [];
+  });
+  for (const s of [...scenes.filter((s) => s.from !== 'biome'), ...spliced]) {
+    if (!s.file.endsWith('.png') || !wak.has(s.file)) continue;
+    const px = await sharp(wak.bytes(s.file)).raw().ensureAlpha().toBuffer({ resolveWithObject: true });
+    // The biomes under the scene, for a marker whose own chunk's script doesn't know its colour (the Lava Lake portal
+    // sits just outside the pit's chunk that registers it).
+    const under = new Set<number>();
+    for (let y = s.y; y < s.y + px.info.height; y += CHUNK / 2) for (let x = s.x; x < s.x + px.info.width; x += CHUNK / 2) under.add(biomeIndexAt(x, y));
+    for (let i = 0; i < px.info.width * px.info.height; i++) {
+      if (!px.data[i * 4 + 3]) continue;
+      const hex = [px.data[i * 4], px.data[i * 4 + 1], px.data[i * 4 + 2]].map((v) => v!.toString(16).padStart(2, '0')).join('');
+      if (!anyColor.has(hex)) continue;
+      const x = s.x + (i % px.info.width);
+      const y = s.y + Math.floor(i / px.info.width);
+      const k = [biomeIndexAt(x, y), ...under].find((b) => spawnersByBiome.get(b)?.has(hex));
+      for (const e of k === undefined ? [] : spawnersByBiome.get(k)!.get(hex)!) portals.push({ entity: e.file, x: x + e.dx, y: y + e.dy });
+    }
   }
 
   // Holy Mountain shops: temple_altar.lua registers spawn_all_shopitems on pixel colour ff33934c, so each altar
@@ -198,6 +467,6 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
     areas.push({ biome: k, x1, y1, x2, y2 });
   }
 
-  const map: WorldMap = { w: info.width, h: info.height, offsetY, chunk: CHUNK, cells, biomes, scenes, shops, areas };
+  const map: WorldMap = { w: info.width, h: info.height, offsetY, chunk: CHUNK, cells, biomes, scenes, shops, areas, portals, portalTargets, ...(portalImage ? { portalImage } : {}) };
   return { map, images, backgrounds: [...backgrounds], wangImages };
 }

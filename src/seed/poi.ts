@@ -6,9 +6,9 @@ import type { LuaCall } from '@/sim/protocol';
 import type { AreaLayout } from './layout';
 import { widthFromPix } from './wang';
 
-/** A curated point of interest, by the pixel scene file the game loads for it (data/pois.json). */
+/** A curated point of interest, by the pixel scene file the game loads for it, or a portal's entity file (data/pois.json). */
 export type PoiInfo = { name: string; kind: PoiKind; text?: string; wiki?: string; w: number; h: number };
-export type PoiKind = 'room' | 'puzzle' | 'shop' | 'treasure' | 'secret' | 'hazard';
+export type PoiKind = 'room' | 'puzzle' | 'shop' | 'treasure' | 'secret' | 'hazard' | 'portal';
 /** scenes: placed per seed by the biome scripts; fixed: at fixed spots (map.json's scenes), by file or `group:<from>`. */
 export type PoiData = { scenes: Record<string, PoiInfo>; fixed?: Record<string, PoiInfo> };
 /** One placed for a seed: the scene file and its top-left world position. */
@@ -65,11 +65,19 @@ export function placePois(call: LuaCall, map: WorldMap, layouts: AreaLayout[], d
         if (!markers.length && !s.init) continue;
         st.markers += markers.length;
         const r = JSON.parse(call('seed_poi_chunk', gx, gy, map.chunk, markers.join(';')) as string) as {
-          scenes?: { f: string; x: number; y: number; any?: boolean }[] | Record<string, never>;
+          scenes?: ({ f: string; x: number; y: number; any?: boolean } | { e: string; x: number; y: number })[] | Record<string, never>;
           errors: number;
         };
         st.errors += r.errors;
         for (const sc of Array.isArray(r.scenes) ? r.scenes : []) {
+          if ('e' in sc) {
+            // A portal: an entity at its centre, kept with its box's top left like the rooms.
+            const info = data.scenes[sc.e];
+            if (!info) continue;
+            out.push({ file: sc.e, x: Math.round(sc.x - info.w / 2), y: Math.round(sc.y - info.h / 2) });
+            st.placed++;
+            continue;
+          }
           const info = data.scenes[sc.f];
           if (!info) continue;
           // The engine only loads a scene that stays inside its biome (unless the script says to skip that check):

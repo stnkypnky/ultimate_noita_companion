@@ -16,6 +16,20 @@ export type MapPoi = {
   fixed: boolean;
   /** A fixed one's scene (it's a spoiler exactly when the scene is). */
   scene?: MapScene;
+  /** A portal: where it sends you. */
+  to?: { x: number; y: number };
+};
+
+/** Where a portal at (x, y) sends you, from its entity's TeleportComponent. */
+export function portalDestination(map: WorldMap, entity: string, x: number, y: number) {
+  const t = map.portalTargets?.[entity];
+  return t && { x: t.absX ? t.x : x + t.x, y: t.absY ? t.y : y + t.y };
+}
+
+const withDestination = (map: WorldMap | undefined, p: MapPoi, entity: string): MapPoi => {
+  const c = poiCentre(p);
+  const to = map && portalDestination(map, entity, c.x, c.y);
+  return to ? { ...p, to } : p;
 };
 
 /** The fixed points of interest: one per curated scene file, or one over each spliced group's pieces. */
@@ -32,14 +46,21 @@ export function fixedPois(map: WorldMap, data: PoiData): MapPoi[] {
     }
   });
   for (const [from, g] of groups) out.push({ ...make(`group:${from}`, fixed[`group:${from}`]!, g.x1, g.y1, g.x2 - g.x1, g.y2 - g.y1, true), scene: g.scene });
+  // Portals at fixed spots (map.json), named from the table by their entity file.
+  (map.portals ?? []).forEach((p, i) => {
+    const info = data.scenes[p.entity];
+    if (info) out.push(withDestination(map, make(`portal:${i}`, info, p.x - info.w / 2, p.y - info.h / 2, info.w, info.h, true), p.entity));
+  });
   return out;
 }
 
-/** This seed's placed rooms, with what the curated table says about each. */
-export function placedPois(data: PoiData, placed: SeedPoi[]): MapPoi[] {
+/** This seed's placed rooms and portals, with what the curated table says about each. */
+export function placedPois(data: PoiData, placed: SeedPoi[], map?: WorldMap): MapPoi[] {
   return placed.flatMap((p, i) => {
     const info = data.scenes[p.file];
-    return info ? [make(`seed:${i}`, info, p.x, p.y, info.w, info.h, false)] : [];
+    if (!info) return [];
+    const poi = make(`seed:${i}`, info, p.x, p.y, info.w, info.h, false);
+    return [info.kind === 'portal' ? withDestination(map, poi, p.file) : poi];
   });
 }
 

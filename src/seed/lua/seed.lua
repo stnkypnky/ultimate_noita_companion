@@ -359,13 +359,23 @@ local ENGINE_SPAWNS = {
 local poi_spawns = {}
 local poi_rec = nil
 
+--- The game's portals (teleports) and where Summon Portal opens.
+local function is_portal(file)
+  return type(file) == "string" and (string.find(file, "entities/buildings/teleport", 1, true) ~= nil
+    or string.find(file, "mystery_teleport", 1, true) ~= nil or string.find(file, "summon_portal_target", 1, true) ~= nil)
+end
+
 local function poi_hooks(on)
   if on then
     __poi_saved = { LoadPixelScene = LoadPixelScene, EntityLoad = EntityLoad, RegisterSpawnFunction = RegisterSpawnFunction, RaytracePlatforms = RaytracePlatforms }
     LoadPixelScene = function(file, visual, x, y, background, skip_biome_checks)
       if poi_rec then table.insert(poi_rec, { f = file, x = x, y = y, any = skip_biome_checks == true }) end
     end
-    EntityLoad = function() return 0 end
+    -- Portals are entities, not scenes: recorded too (the rest load nothing).
+    EntityLoad = function(file, x, y)
+      if poi_rec and is_portal(file) then table.insert(poi_rec, { e = file, x = x, y = y }) end
+      return 0
+    end
     -- No terrain to trace against: the ray "hits" where it starts (as noita-tools does), so props meant to sit on
     -- the ground (the Jungle's hint statues) stay at their spot, off by at most the ray's length.
     RaytracePlatforms = function(x1, y1) return true, x1, y1 end
@@ -399,7 +409,8 @@ function seed_poi_load(script)
   end
   for _, piece in ipairs(pieces) do
     local name = string.match(piece, "^function%s+([%w_]+)")
-    if name and (string.find(piece, "LoadPixelScene", 1, true) or string.find(piece, "load_random_pixel_scene", 1, true)) then placers[name] = true end
+    if name and (string.find(piece, "LoadPixelScene", 1, true) or string.find(piece, "load_random_pixel_scene", 1, true)
+      or string.find(piece, "teleport", 1, true) or string.find(piece, "summon_portal_target", 1, true)) then placers[name] = true end
   end
   local out = {}
   for c, n in pairs(poi_spawns) do
@@ -409,7 +420,7 @@ function seed_poi_load(script)
 end
 
 --- One chunk of the loaded biome: its init() at the chunk, then each marker "function,x,y;…" in order.
---- Returns the pixel scenes loaded, as JSON [{f, x, y}], and how many calls failed.
+--- Returns the pixel scenes loaded, as JSON [{f, x, y}] (portals as {e, x, y}), and how many calls failed.
 function seed_poi_chunk(cx, cy, size, markers)
   poi_rec = {}
   local errors = 0
