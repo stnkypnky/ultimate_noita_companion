@@ -22,6 +22,8 @@ export const W = 427;
 export const H = 242;
 /** Frames the player lies dead before respawning. */
 const DEATH_FRAMES = 90;
+/** Frames without a hit on the dummy that end a run of hits for the DPS meter (longer than most recharges). */
+const BURST_IDLE = 180;
 /** Frames before a shot made friendly-fire by a modifier can hit its caster (clear of the wand). */
 const SHOT_FRIENDLY_GRACE = 6;
 /**
@@ -1116,10 +1118,28 @@ export class RangeWorld {
     while (this.damageEvents.length && this.damageEvents[0]!.frame < cutoff) this.damageEvents.shift();
   }
 
-  /** Damage per second to the dummy over the last 5 seconds of simulated time. */
+  /**
+   * The dummy's current run of hits: it starts with the first hit and ends after BURST_IDLE frames without one,
+   * so the meter measures from when damage started landing, not from when the range opened.
+   */
+  burst: { start: number; last: number; damage: number } | null = null;
+
+  private noteDummyDamage(amount: number) {
+    this.totalDamage += amount;
+    this.damageEvents.push({ frame: this.frame, amount });
+    if (!this.burst || this.frame - this.burst.last > BURST_IDLE) this.burst = { start: this.frame, last: this.frame, damage: 0 };
+    this.burst.damage += amount;
+    this.burst.last = this.frame;
+  }
+
+  /**
+   * Damage per second to the dummy: everything the current (or last) run of hits dealt, over the time from its
+   * first hit to its last, and at least a second. One shot reads as the damage it does within a second of landing;
+   * steady fire, as its average. It holds after the hits stop.
+   */
   get dps() {
-    const window = Math.min(300, this.frame);
-    return window ? this.damageEvents.reduce((s, e) => s + e.amount, 0) / (window / 60) : 0;
+    const b = this.burst;
+    return b ? b.damage / (Math.max(60, b.last - b.start) / 60) : 0;
   }
 
   private update(p: Proj) {
@@ -1660,8 +1680,7 @@ export class RangeWorld {
     const crit = critChance > 0 && Math.random() * 100 < critChance;
     const dealt = crit ? amount * CRIT_MULT : amount;
     if (a.id === 'dummy') {
-      this.totalDamage += dealt;
-      this.damageEvents.push({ frame: this.frame, amount: dealt });
+      this.noteDummyDamage(dealt);
     } else if (!this.harmPlayer(dealt)) {
       return;
     }
@@ -1717,8 +1736,7 @@ export class RangeWorld {
   private tick(a: Actor, amount: number) {
     if (amount <= 0) return;
     if (a.id === 'dummy') {
-      this.totalDamage += amount;
-      this.damageEvents.push({ frame: this.frame, amount });
+      this.noteDummyDamage(amount);
     } else if (!this.harmPlayer(amount)) {
       return;
     }

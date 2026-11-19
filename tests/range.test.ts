@@ -1,5 +1,5 @@
-﻿// The test range driven by real cast-simulator output (game scripts) and real extracted projectile data.
-import { beforeAll, describe, expect, it } from 'vitest';
+// The test range driven by real cast-simulator output (game scripts) and real extracted projectile data.
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createLuaHost, loadGun, type LuaHost } from '../tools/extract/lua.ts';
@@ -7,9 +7,9 @@ import { AIR, H, RangeWorld, TARGET_SIZE, W, hitAndHeal, patternOffset, targetDa
 import { BIOMES } from '../src/features/range/biomes.ts';
 import { Musician, SongState, noteOf } from '../src/features/range/melody.ts';
 import { WandRuntime } from '../src/features/range/wand.ts';
-import { castWand, resetWand } from '../src/sim/protocol.ts';
-import type { EntityVisual, Material, Projectile, RangeKit, Reaction } from '../src/data/types.ts';
-import { projectileDamage } from '../src/sim/analyze.ts';
+import { castWand, resetWand, runWand } from '../src/sim/protocol.ts';
+import type { EntityVisual, Material, Projectile, RangeKit, Reaction, Spell } from '../src/data/types.ts';
+import { Analyzer, projectileDamage, type ProjectileView } from '../src/sim/analyze.ts';
 import type { SimRequest, SimResult } from '../src/sim/types.ts';
 
 const GAME = join(import.meta.dirname, '../public/game');
@@ -891,5 +891,69 @@ describe('targets and maps', () => {
     const before = loose();
     for (let i = 0; i < 30; i++) w.step();
     expect(Math.abs(loose() - before)).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('DPS meter', () => {
+  // One shot used to read high at first and then sink, divided by the time since the range opened (55 -> 13).
+  it('one shot reads as the damage it deals within a second, and holds', () => {
+    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.99); // no crits
+    try {
+      const w = new RangeWorld(data);
+      w.setDummyDistance(60);
+      for (let i = 0; i < 90; i++) w.step();
+      const d = w.dummy;
+      w.spawn('data/entities/projectiles/deck/light_bullet.xml', d.x - 30, d.y - d.h / 2, 600, 0);
+      for (let i = 0; i < 30; i++) w.step();
+      const hit = w.totalDamage;
+      expect(hit).toBeGreaterThan(0);
+      expect(w.dps).toBeCloseTo(hit);
+      for (let i = 0; i < 400; i++) w.step();
+      expect(w.dps).toBeCloseTo(hit);
+      // Steady fire: two hits two seconds apart are their damage over those two seconds.
+      w.spawn('data/entities/projectiles/deck/light_bullet.xml', d.x - 30, d.y - d.h / 2, 600, 0);
+      for (let i = 0; i < 120; i++) w.step();
+      w.spawn('data/entities/projectiles/deck/light_bullet.xml', d.x - 30, d.y - d.h / 2, 600, 0);
+      for (let i = 0; i < 30; i++) w.step();
+      expect(w.dps).toBeCloseTo((2 * hit) / 2, 0);
+    } finally {
+      rnd.mockRestore();
+    }
+  });
+
+  it('a trigger carrying a multicast payload: one cast lands about what the Casts tab expects of it', () => {
+    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    try {
+      const deck = ['LIGHT_BULLET_TRIGGER', 'BURST_2', 'LIGHT_BULLET', 'LIGHT_BULLET'];
+      const w = new RangeWorld(data);
+      w.setDummyDistance(60);
+      equip(w, deck);
+      // Fire once, then let go of the trigger.
+      let fired = 0;
+      const fire = w.fire.bind(w);
+      w.fire = (c) => {
+        fired++;
+        w.auto = false;
+        return fire(c);
+      };
+      for (let i = 0; i < 400; i++) w.step();
+      expect(fired).toBe(1);
+      const req: SimRequest = {
+        wand: { shuffle: false, spellsPerCast: 1, castDelay: 10, rechargeTime: 20, manaMax: 2000, manaChargeSpeed: 2000, capacity: deck.length, spread: 0, speedMultiplier: 1 },
+        deck: deck.map((id) => ({ id, uses: -1 })),
+        alwaysCasts: [],
+        options: { maxCasts: 1, stopOnReload: true, hp: 100, maxHp: 100, money: 0, frame: 0 },
+      };
+      const call = (fn: string, ...args: unknown[]) => host.call(fn, ...args);
+      const cast = new Analyzer(data.projectiles, json<Spell[]>('data/spells.json')).run(runWand(call, req)).casts[0]!;
+      // Without crits (the range's are switched off here): every projectile's hit, payloads included.
+      const all = (l: ProjectileView[]): ProjectileView[] => l.flatMap((p) => [p, ...all(p.trigger?.children ?? [])]);
+      const expected = all(cast.projectiles).reduce((s, p) => s + p.total, 0);
+      expect(expected).toBeCloseTo(9, 0); // the carrier and two payload bolts, 3 each
+      expect(w.totalDamage).toBeCloseTo(expected, 0);
+      expect(w.dps).toBeCloseTo(expected, 0);
+    } finally {
+      rnd.mockRestore();
+    }
   });
 });

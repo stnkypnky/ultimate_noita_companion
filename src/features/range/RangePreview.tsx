@@ -475,7 +475,12 @@ export function RangePreview({
         <div className="pointer-events-none absolute top-2 left-2 flex gap-1.5 text-[11px] tabular-nums">
           {hud.wallLeft === null ? (
             <>
-              <span className="rounded bg-black/60 px-1.5 py-0.5 text-ember">{fmtNum(hud.dps, 0)} DPS</span>
+              <span
+                className="rounded bg-black/60 px-1.5 py-0.5 text-ember"
+                title="Damage from the first hit to the last (at least 1 s): one shot reads as what it deals within a second, steady fire as its average. Resets after 3 s without a hit."
+              >
+                {fmtNum(hud.dps, 0)} DPS
+              </span>
               <span className="rounded bg-black/60 px-1.5 py-0.5 text-muted">{fmtNum(hud.total, 0)} total</span>
             </>
           ) : (
