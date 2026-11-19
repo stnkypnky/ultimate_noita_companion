@@ -1,11 +1,15 @@
 -- Builds a snapshot of the current run and writes it as JSON. Kept free of Noita globals at load time so
 -- the companion's tests can run it with stubbed API functions.
 
-local EVERY_FRAMES = 30      -- look twice a second
+local EVERY_FRAMES = 15      -- look four times a second
 local HEARTBEAT_SECONDS = 30 -- rewrite at least this often, so the app can tell the game is still running
 
 local last_json = nil
 local last_write = 0
+-- The last state read with a living player, and (once you die) the death as it stays on screen. A new
+-- game reloads the mod, which clears both.
+local last_alive = nil
+local dead_state = nil
 
 -- ---------- JSON ----------
 
@@ -208,13 +212,15 @@ function companion_state(status)
   local p = player()
   local state = {
     v = 1,
-    mod = 2,
+    mod = 3,
     status = status or "alive",
     seed = tonumber(StatsGetValue("world_seed") or "") or 0,
     ngPlus = tonumber(SessionNumbersGetValue("NEW_GAME_PLUS_COUNT") or "") or 0,
   }
   if status == "dead" then
-    state.killedBy = try(StatsGetValue, "killed_by")
+    local by = try(StatsGetValue, "killed_by")
+    if by == nil or by == "" then by = try(StatsGetValue, "killed_by_extra") end
+    if by ~= "" then state.killedBy = by end
   end
   if not p then
     state.status = status or "no_player"
@@ -296,20 +302,54 @@ end
 
 companion_writer = companion_writer or write_file
 
+local function copy(t)
+  local o = {}
+  for k, v in pairs(t) do o[k] = v end
+  return o
+end
+
+-- The death as it stays on screen: where you fell and what you carried (read from the last living state
+-- when the player entity is already gone), no health left, and what killed you.
+local function death_state()
+  local now = companion_state("dead")
+  local state = now
+  if now.x == nil and last_alive and last_alive.seed == now.seed then
+    state = copy(last_alive)
+    state.status = "dead"
+    state.killedBy = now.killedBy
+  end
+  state.hp = 0
+  state.playtime = stat("playtime") or state.playtime
+  state.kills = stat("enemies_killed") or state.kills
+  return state
+end
+
 function companion_write(status, now)
   now = now or os.time()
-  local state = companion_state(status)
+  local state
+  if status == "dead" then
+    dead_state = death_state()
+    state = copy(dead_state)
+  elseif dead_state then
+    -- The death screen: keep reporting the death (a tick must not turn it into "no player"), and pick up
+    -- what killed you if the game only records it after the death callback.
+    if not dead_state.killedBy then dead_state.killedBy = companion_state("dead").killedBy end
+    state = copy(dead_state)
+  else
+    state = companion_state(status)
+    if state.status == "alive" and state.x then last_alive = copy(state) end
+  end
   -- Play time and the fungal countdown tick every second: they ride along with real changes and the
   -- heartbeat instead of forcing a write each time.
   local playtime, ready = state.playtime, state.fungal and state.fungal.readyIn
   state.playtime = nil
   if state.fungal then state.fungal.readyIn = nil end
   local body = companion_json(state)
+  state.playtime = playtime
+  if state.fungal then state.fungal.readyIn = ready end
   if body == last_json and now - last_write < HEARTBEAT_SECONDS then return false end
   last_json = body
   last_write = now
-  state.playtime = playtime
-  if state.fungal then state.fungal.readyIn = ready end
   state.time = now
   companion_writer(save_path(), companion_json(state))
   return true

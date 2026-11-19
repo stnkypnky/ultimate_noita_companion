@@ -6,9 +6,9 @@ function OnWorldPostUpdate()
 end
 
 function OnPlayerDied(player_entity)
-  companion_write("dead")
+  pcall(companion_write, "dead")
 end
 
 function OnPausedChanged(is_paused, is_inventory_pause)
-  if is_paused and not is_inventory_pause then companion_write("paused") end
+  if is_paused and not is_inventory_pause then pcall(companion_write, "paused") end
 end

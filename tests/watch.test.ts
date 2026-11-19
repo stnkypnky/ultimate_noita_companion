@@ -98,4 +98,50 @@ describe('save folder watching', () => {
     await vi.advanceTimersByTimeAsync(500);
     expect(onScan).toHaveBeenCalledTimes(3);
   });
+
+  it('reads the live file while the mod keeps writing it (moving), not only once it stops', async () => {
+    vi.useFakeTimers();
+    let notify: ((records: { relativePathComponents?: string[] }[]) => void) | null = null;
+    const g = globalThis as { FileSystemObserver?: unknown };
+    g.FileSystemObserver = class {
+      constructor(cb: typeof notify) {
+        notify = cb;
+      }
+      observe = async () => {};
+      disconnect = () => {};
+    };
+    try {
+      const s = save();
+      const onScan = vi.fn();
+      const onLive = vi.fn();
+      const w = startSaveWatch(s.asHandle(), { onScan, onLive });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(onScan).toHaveBeenCalledTimes(1);
+      // Four writes a second for two seconds, each followed by its observer record.
+      for (let i = 1; i <= 8; i++) {
+        s.write('companion_live.json', `{"x":${i}}`, 10000 + i);
+        notify!([{ relativePathComponents: ['companion_live.json.tmp'] }, { relativePathComponents: ['companion_live.json'] }]);
+        await vi.advanceTimersByTimeAsync(250);
+      }
+      expect(onLive.mock.calls.length).toBeGreaterThanOrEqual(6);
+      expect(onLive).toHaveBeenLastCalledWith('{"x":8}', 10008);
+      // The live file alone never re-reads the whole save.
+      expect(onScan).toHaveBeenCalledTimes(1);
+      w.stop();
+    } finally {
+      delete g.FileSystemObserver;
+    }
+  });
+
+  it('without an observer, a visible tab still checks the live file about every second', async () => {
+    vi.useFakeTimers();
+    const s = save();
+    const onLive = vi.fn();
+    const w = startSaveWatch(s.asHandle(), { onScan: vi.fn(), onLive }, { pollMs: 60_000 });
+    await vi.advanceTimersByTimeAsync(10);
+    s.write('companion_live.json', '{"x":1}', 20001);
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(onLive).toHaveBeenLastCalledWith('{"x":1}', 20001);
+    w.stop();
+  });
 });

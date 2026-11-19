@@ -57,7 +57,18 @@ export type WatchCallbacks = {
   onError?: (e: Error) => void;
 };
 
-export type WatchOptions = { pollMs?: number; hiddenPollMs?: number; debounceMs?: number };
+export type WatchOptions = {
+  pollMs?: number;
+  hiddenPollMs?: number;
+  debounceMs?: number;
+  /** Without an observer: how often a visible tab checks the mod's live file (just its timestamp). */
+  liveMs?: number;
+  /** With an observer: the live file is read at most this often while the mod keeps writing it. */
+  liveThrottleMs?: number;
+};
+
+/** The mod's live file, or the temp file it writes first and renames. */
+const isLiveRecord = (r: ObserverRecord) => !!r.relativePathComponents?.at(-1)?.startsWith(LIVE_FILE);
 
 export type SaveWatch = { stop: () => void; syncNow: () => Promise<void> };
 
@@ -69,28 +80,67 @@ export function startSaveWatch(root: Dir, cb: WatchCallbacks, opts: WatchOptions
   const pollMs = opts.pollMs ?? 5000;
   const hiddenPollMs = opts.hiddenPollMs ?? 30000;
   const debounceMs = opts.debounceMs ?? 1500;
+  const liveMs = opts.liveMs ?? 1000;
+  const liveThrottleMs = opts.liveThrottleMs ?? 250;
   let stopped = false;
   let last: string | null = null;
   let lastLive = 0;
   let save: Dir | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let debounce: ReturnType<typeof setTimeout> | undefined;
+  let liveTimer: ReturnType<typeof setTimeout> | undefined;
+  let livePoll: ReturnType<typeof setTimeout> | undefined;
+  let lastLiveCheck = -Infinity;
   let running: Promise<void> | null = null;
+  let liveRunning: Promise<void> | null = null;
   let observer: InstanceType<ObserverCtor> | null = null;
+
+  /** Read the mod's live file if it changed since the last read. */
+  const readLive = () =>
+    (liveRunning ??= (async () => {
+      try {
+        if (!cb.onLive || !save) return;
+        const t = await mtime(save, [LIVE_FILE]);
+        if (t && t !== lastLive) {
+          lastLive = t;
+          const f = (await child(save, LIVE_FILE, 'file')) as FileSystemFileHandle;
+          cb.onLive(await (await f.getFile()).text(), t);
+        }
+      } finally {
+        liveRunning = null;
+      }
+    })());
+
+  const checkLive = async () => {
+    try {
+      save ??= await resolveSaveDir(root);
+      await readLive();
+    } catch (e) {
+      if (!stopped) cb.onError?.(e as Error);
+    }
+  };
+
+  /**
+   * The mod rewrites its file up to four times a second while you move: read it right away, then at most
+   * every liveThrottleMs, with a last read after a burst so the newest write is never missed. (A debounce
+   * would wait for the writes to stop, i.e. for you to stand still.)
+   */
+  const liveSoon = () => {
+    if (liveTimer !== undefined || stopped) return;
+    const wait = Math.max(0, lastLiveCheck + liveThrottleMs - Date.now());
+    liveTimer = setTimeout(() => {
+      liveTimer = undefined;
+      lastLiveCheck = Date.now();
+      void checkLive();
+    }, wait);
+  };
 
   const check = (force: boolean) =>
     (running ??= (async () => {
       try {
         save ??= await resolveSaveDir(root);
         if (!save) throw new Error("That folder doesn't look like a Noita save.");
-        if (cb.onLive) {
-          const t = await mtime(save, [LIVE_FILE]);
-          if (t && t !== lastLive) {
-            lastLive = t;
-            const f = (await child(save, LIVE_FILE, 'file')) as FileSystemFileHandle;
-            cb.onLive(await (await f.getFile()).text(), t);
-          }
-        }
+        await readLive();
         const fp = await fingerprint(save);
         if (force || fp !== last) {
           last = fp;
@@ -117,12 +167,23 @@ export function startSaveWatch(root: Dir, cb: WatchCallbacks, opts: WatchOptions
     debounce = setTimeout(() => void check(false), debounceMs);
   };
 
+  // No observer: a visible tab looks at the live file's timestamp every liveMs, so the run stays current.
+  const scheduleLivePoll = () => {
+    clearTimeout(livePoll);
+    if (stopped || !cb.onLive) return;
+    livePoll = setTimeout(() => {
+      const visible = typeof document === 'undefined' || document.visibilityState === 'visible';
+      void (observer || !visible ? Promise.resolve() : checkLive()).then(scheduleLivePoll);
+    }, liveMs);
+  };
+
   const Observer = (globalThis as unknown as { FileSystemObserver?: ObserverCtor }).FileSystemObserver;
   if (Observer) {
     try {
       observer = new Observer((records) => {
+        if (records.some(isLiveRecord)) liveSoon();
         // world/ chunks are rewritten constantly while playing; they don't matter here.
-        if (records.some((r) => !r.relativePathComponents?.some((p) => p === 'world'))) soon();
+        if (records.some((r) => !isLiveRecord(r) && !r.relativePathComponents?.some((p) => p === 'world'))) soon();
       });
       observer.observe(root, { recursive: true }).catch(() => (observer = null));
     } catch {
@@ -137,12 +198,15 @@ export function startSaveWatch(root: Dir, cb: WatchCallbacks, opts: WatchOptions
   if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
 
   void check(true).then(schedule);
+  scheduleLivePoll();
 
   return {
     stop: () => {
       stopped = true;
       clearTimeout(timer);
       clearTimeout(debounce);
+      clearTimeout(liveTimer);
+      clearTimeout(livePoll);
       observer?.disconnect();
       if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible);
     },
