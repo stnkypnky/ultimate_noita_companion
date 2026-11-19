@@ -326,7 +326,6 @@ export function MapView({
   const redraw = useCallback(() => setTick((t) => t + 1), []);
   const spots = useMemo(() => labelSpots(map), [map]);
   const worldW = map.w * map.chunk;
-  const worldH = map.h * map.chunk;
   const left = -(map.w / 2) * map.chunk;
   const top = -map.offsetY * map.chunk;
   /** The biome index at a world position, or -1 outside the map. */
@@ -346,13 +345,16 @@ export function MapView({
       const s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.min(size.w, size.h) / (map.chunk * 3)));
       view.current = { s, x: marker.x - size.w / s / 2, y: marker.y - size.h / s / 2 };
     } else {
-      const s = Math.min(size.w / worldW, size.h / worldH);
-      view.current = { s, x: left - (size.w / s - worldW) / 2, y: top - (size.h / s - worldH) / 2 };
+      // The main world (biome_map.png's rows); Heaven and Hell above and below are a zoom out or a pan away.
+      const mainTop = top + (map.mapTop ?? 0) * map.chunk;
+      const mainH = (map.mapRows ?? map.h) * map.chunk;
+      const s = Math.min(size.w / worldW, size.h / mainH);
+      view.current = { s, x: left - (size.w / s - worldW) / 2, y: mainTop - (size.h / s - mainH) / 2 };
     }
     redraw();
     // The marker only places the first view; following it is the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [size, worldW, worldH, left, top, redraw, follow, map.chunk, !!marker]);
+  }, [size, worldW, left, top, redraw, follow, map.chunk, map.mapTop, map.mapRows, !!marker]);
   const mx = marker?.x;
   const my = marker?.y;
   useEffect(() => {
