@@ -500,6 +500,6 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
     areas.push({ biome: k, x1, y1, x2, y2 });
   }
 
-  const map: WorldMap = { w: info.width, h: H, offsetY: OFFSET_Y, mapTop: rowsAbove, chunk: CHUNK, cells, biomes, scenes, shops, areas, portals, portalTargets, ...(portalImage ? { portalImage } : {}) };
+  const map: WorldMap = { w: info.width, h: H, offsetY: OFFSET_Y, mapTop: rowsAbove, mapRows: info.height, chunk: CHUNK, cells, biomes, scenes, shops, areas, portals, portalTargets, ...(portalImage ? { portalImage } : {}) };
   return { map, images, backgrounds: [...backgrounds], wangImages };
 }

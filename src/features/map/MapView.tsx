@@ -119,9 +119,12 @@ const rgbOfHex = (h: string) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3
  * meets open cave, other layout colours as their materials (materials.xml wang_color), open cave and spawn markers
  * clear, and nothing outside the biome's own chunks.
  */
-function layoutCanvas(map: WorldMap, l: AreaLayout, wangColors: Record<string, string>, materialById: Map<string, Material>) {
+function layoutCanvas(map: WorldMap, l: AreaLayout, wangColors: Record<string, string>, materialById: Map<string, Material>, copy?: { rows: number; biome: number }) {
   const a = map.areas[l.area]!;
-  const biome = map.biomes[a.biome]!;
+  // A copy in Heaven or Hell: the same layout `rows` up or down, shown where that world's biome is `biome`, in its rock.
+  const shift = copy?.rows ?? 0;
+  const own = copy?.biome ?? a.biome;
+  const biome = map.biomes[own]!;
   const lookOf = (m: Material | undefined) => m?.look ?? m?.color;
   const rock = rgbOfHex(lookOf(materialById.get(biome.material ?? '')) ?? '#6b5d52');
   const c = document.createElement('canvas');
@@ -147,7 +150,8 @@ function layoutCanvas(map: WorldMap, l: AreaLayout, wangColors: Record<string, s
     const cy = a.y1 + Math.floor((y * 10) / map.chunk);
     for (let x = 0; x < l.width; x++) {
       const cx = a.x1 + Math.floor((x * 10) / map.chunk);
-      if (cx >= map.w || cy >= map.h || map.cells[cy * map.w + cx] !== a.biome) continue;
+      const ry = cy + shift;
+      if (cx >= map.w || ry < 0 || ry >= map.h || map.cells[ry * map.w + cx] !== own) continue;
       const v = at(x, y);
       const o = (y * l.width + x) * 4;
       // Black and near-black: open cave.
@@ -279,7 +283,30 @@ export function MapView({
     if (layouts && wangColors) for (const l of layouts) out.set(l.area, layoutCanvas(map, l, wangColors, materialById));
     return out;
   }, [layouts, wangColors, map, materialById]);
-  const caveBiomes = useMemo(() => new Set([...caves.keys()].map((i) => map.areas[i]!.biome)), [caves, map]);
+  // Heaven and Hell (the world one map-height up and down) show the main world's caves again, wherever their own
+  // biome is a cave biome (the_sky, the_end, robobase's column), in that biome's rock (as noita-telescope draws them).
+  const copies = useMemo(() => {
+    const out: { area: number; rows: number; biome: number; canvas: HTMLCanvasElement }[] = [];
+    if (!layouts || !wangColors || !map.mapRows) return out;
+    // The world repeats every biome_map.png height (48 rows, 24576 px) up and down.
+    const period = map.mapRows;
+    for (const l of layouts) {
+      const a = map.areas[l.area]!;
+      for (const rows of [-period, period]) {
+        const found = new Set<number>();
+        for (let cy = a.y1 + rows; cy <= a.y2 + rows; cy++) {
+          if (cy < 0 || cy >= map.h) continue;
+          for (let cx = a.x1; cx <= a.x2; cx++) {
+            const k = map.cells[cy * map.w + cx]!;
+            if (map.biomes[k]!.wangTemplate) found.add(k);
+          }
+        }
+        for (const biome of found) out.push({ area: l.area, rows, biome, canvas: layoutCanvas(map, l, wangColors, materialById, { rows, biome }) });
+      }
+    }
+    return out;
+  }, [layouts, wangColors, map, materialById]);
+  const caveBiomes = useMemo(() => new Set([...[...caves.keys()].map((i) => map.areas[i]!.biome), ...copies.map((c) => c.biome)]), [caves, copies, map]);
   // Areas a picture lays out whole (the Lava Lake): drawn as a room, the picture's rock over the backdrop.
   const sceneAreas = useMemo(() => new Set(map.scenes.flatMap((s) => (s.area ? [s.area] : []))), [map]);
   // A material file's key colour → what that material looks like (unknown keys and spawn markers: clear).
@@ -451,6 +478,16 @@ export function MapView({
       const sh = cnv.height * 10 * v.s;
       if (sx > size.w || sy > size.h || sx + sw < 0 || sy + sh < 0) continue;
       ctx.drawImage(cnv, sx, sy, sw, sh);
+    }
+    for (const c of copies) {
+      if (!vis.biome(map.biomes[c.biome]!)) continue;
+      const a = map.areas[c.area]!;
+      const w = chunkWorld(map, a.x1, a.y1 + c.rows);
+      const [sx, sy] = toScreen(w.x, w.y);
+      const sw = c.canvas.width * 10 * v.s;
+      const sh = c.canvas.height * 10 * v.s;
+      if (sx > size.w || sy > size.h || sx + sw < 0 || sy + sh < 0) continue;
+      ctx.drawImage(c.canvas, sx, sy, sw, sh);
     }
     // Shade the plain rock and sky so the areas stand out.
     for (let cy = cy0; cy <= cy1; cy++) {
@@ -631,7 +668,7 @@ export function MapView({
         ctx.fillRect(sx - 2, sy - 2, 2, 2);
       }
     }
-  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, caveBiomes, sceneAreas, wangColors, sceneColor, mx, my, markerKind, pois, cellAt]);
+  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, copies, caveBiomes, sceneAreas, wangColors, sceneColor, mx, my, markerKind, pois, cellAt]);
 
   // Pointer: drag pans, two fingers pinch, a tap selects.
   const pointers = useRef(new Map<number, { x: number; y: number }>());

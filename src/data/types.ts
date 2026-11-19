@@ -514,6 +514,8 @@ export type WorldMap = {
   offsetY: number;
   /** Rows added above biome_map.png for the world past its top edge: the game's own row is cy − mapTop. */
   mapTop?: number;
+  /** biome_map.png's own height in rows (48): Heaven and Hell are the world this far up and down. */
+  mapRows?: number;
   chunk: number;
   /** Biome index per chunk, row by row. */
   cells: number[];
