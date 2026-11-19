@@ -23,6 +23,12 @@ describe('world map', () => {
     expect((map.h - map.offsetY) * map.chunk).toBeGreaterThan(37513);
     expect(map.cells.slice(0, map.w)).toEqual(map.cells.slice(map.mapTop! * map.w, (map.mapTop! + 1) * map.w));
     expect(map.scenes.filter((s) => s.id === 'the_end_shop').map((s) => s.y).sort((a, b) => a - b)).toEqual([-13954, 24576]);
+    // Heaven and Hell are the world one biome_map height up and down: where the Snowy Depths are, the column above
+    // is the_sky (Heaven's caves) and below it the_end (Hell's), which the map draws the main caves into again.
+    expect(map.mapRows).toBe(48);
+    const snow = map.areas.find((a) => map.biomes[a.biome]!.id === 'snowcave' && a.x1 <= 35 && a.x2 >= 35)!;
+    const at = (cy: number) => map.biomes[map.cells[cy * map.w + 35]!]!.id;
+    expect([at(snow.y1 - 48), at(snow.y1 + 48)]).toEqual(['the_sky', 'the_end']);
     expect(map.cells).toHaveLength(map.w * map.h);
     expect(map.cells.every((k) => k >= 0 && k < map.biomes.length)).toBe(true);
     expect(map.biomes.filter((b) => b.id === 'unknown')).toHaveLength(0);
