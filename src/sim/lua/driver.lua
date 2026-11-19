@@ -24,6 +24,10 @@ end
 -- Recording hooks (the engine calls these while a shot is being built)
 ---------------------------------------------------------------------------
 local rec = nil
+-- Cast explanations (see "Explaining a cast" below): on for sim_run, off for live range casts.
+local explain = false
+local steps_by_state = setmetatable({}, { __mode = "k" })
+local frames = {}
 
 local function new_shot() return { projectiles = {}, state = {} } end
 
@@ -58,6 +62,7 @@ function ConfigGunActionInfo_PassToGame(state)
   local shot = rec.stack[#rec.stack]
   shot.state = state_diff(state, DEFAULT_STATE)
   shot.draw = state.action_draw_many_count
+  if explain then shot.steps = steps_by_state[state] end
 end
 
 function ConfigGunShotEffects_PassToGame(effects)
@@ -72,11 +77,80 @@ function OnActionPlayed(id)
   if rec then table.insert(rec.cast.played, id) end
 end
 
+---------------------------------------------------------------------------
+-- Explaining a cast: what each played spell and each perk modifier did to its shot on its own.
+-- Nested plays (a modifier drawing the next spell, a multicast) change the same shot state, so a step's
+-- changes are counted only while it is the innermost one running.
+---------------------------------------------------------------------------
+local function snap(f)
+  local s = {}
+  for _, k in ipairs(STATE_KEYS) do
+    local v = f.tbl[k]
+    if type(v) == "number" then s[k] = v end
+  end
+  f.snap, f.r0, f.m0 = s, current_reload_time or 0, mana or 0
+end
+
+-- Adds what changed since the last snapshot to the step; `child_cost` is mana a nested draw just took for itself.
+local function flush(f, child_cost)
+  for _, k in ipairs(STATE_KEYS) do
+    local v = f.tbl[k]
+    if type(v) == "number" and k ~= "reload_time" then
+      local d = v - (f.snap[k] or 0)
+      if math.abs(d) > 1e-9 then f.step.d[k] = (f.step.d[k] or 0) + d end
+    end
+  end
+  f.step.reload = f.step.reload + (current_reload_time or 0) - f.r0
+  f.step.mana = f.step.mana + (f.m0 - (mana or 0)) - (child_cost or 0)
+end
+
+local function begin_step(step, cost)
+  local parent = frames[#frames]
+  if parent then flush(parent, cost) end
+  step.d, step.reload, step.mana = {}, 0, cost
+  local list = steps_by_state[c]
+  if not list then list = {}; steps_by_state[c] = list end
+  table.insert(list, step)
+  local f = { tbl = c, step = step }
+  snap(f)
+  frames[#frames + 1] = f
+end
+
+local function end_step()
+  local f = frames[#frames]
+  flush(f)
+  frames[#frames] = nil
+  local parent = frames[#frames]
+  if parent then snap(parent) end
+end
+
+-- Mana the draw took for this action (draw_action pays before play_action; an always cast only gains its negative mana).
+local function draw_cost(action)
+  local m = action.mana or ACTION_MANA_DRAIN_DEFAULT or 0
+  if playing_permanent_card then return math.min(0, m) end
+  return m
+end
+
 -- Also note which deck slot each played action came from (-1 = always cast / generated).
 local orig_play_action = play_action
 function play_action(action)
   if rec then table.insert(rec.cast.slots, action.inventoryitem_id or -1) end
-  return orig_play_action(action)
+  if not (rec and explain) then return orig_play_action(action) end
+  begin_step({ id = action.id, slot = action.inventoryitem_id or -1 }, draw_cost(action))
+  local ok, err = pcall(orig_play_action, action)
+  end_step()
+  if not ok then error(err, 0) end
+end
+
+-- Perk modifiers run after each projectile spell; record them as steps of their own.
+for name, fn in pairs(extra_modifiers) do
+  extra_modifiers[name] = function(...)
+    if not (rec and explain) then return fn(...) end
+    begin_step({ mod = name }, 0)
+    local ok, err = pcall(fn, ...)
+    end_step()
+    if not ok then error(err, 0) end
+  end
 end
 
 function OnNotEnoughManaForAction()
@@ -164,6 +238,8 @@ function sim_cast(frame, wand_mana)
   __world.frame = frame
   local cast = { frame = frame, mana_before = wand_mana, played = {}, slots = {}, uses = {}, events = {}, no_mana = 0 }
   rec = { stack = { new_shot() }, proj_stack = {}, cast = cast }
+  frames = {}
+  steps_by_state = setmetatable({}, { __mode = "k" })
 
   _start_shot(wand_mana)
   for _, name in ipairs(sim.mods) do _add_extra_modifier_to_shot(name) end
@@ -210,12 +286,14 @@ end
 
 -- Live play: one cast plus the deck afterwards, as JSON.
 function sim_cast_json(frame, wand_mana)
+  explain = false
   local cast = sim_cast(frame, wand_mana)
   return json_encode({ cast = cast, deck = sim_deck_state(), missing = __world.missing })
 end
 
 -- Fires up to max_casts casts (stopping after the first recharge when stop_on_reload).
 function sim_run(max_casts, stop_on_reload)
+  explain = true
   local casts = {}
   local frame = __world.frame
   local wand_mana = sim.mana

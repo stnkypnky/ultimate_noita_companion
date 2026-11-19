@@ -74,8 +74,24 @@ export function damageMultiplier(perks: Perks | undefined, lowHp = false): numbe
 
 export const critBonus = (perks: Perks | undefined) => stacks(perks, 'CRITICAL_HIT') * PERK_EFFECTS.CRITICAL_HIT!.critPerStack!;
 
+/** Which perk adds a gun_extra_modifiers.lua entry. */
+const MOD_PERK = new Map(Object.entries(PERK_EFFECTS).flatMap(([id, e]) => (e.mods ?? []).map((m) => [m, id] as const)));
+export const perkForModifier = (mod: string) => MOD_PERK.get(mod);
+
+/** One perk's share of the engine-side boost, for showing where damage comes from. */
+export type BoostPart = { perkId: string; mult?: number; crit?: number };
+
 /** The engine-side part of the perks, as projectileDamage() takes it. */
-export const perkBoost = (perks: Perks | undefined, lowHp = false) => ({ mult: damageMultiplier(perks, lowHp), crit: critBonus(perks) });
+export const perkBoost = (perks: Perks | undefined, lowHp = false) => {
+  const parts: BoostPart[] = [];
+  const glass = stacks(perks, 'GLASS_CANNON');
+  if (glass) parts.push({ perkId: 'GLASS_CANNON', mult: 5 ** glass });
+  const edge = lowHp ? Math.min(stacks(perks, 'LOW_HP_DAMAGE_BOOST'), 3 - glass) : 0;
+  if (edge > 0) parts.push({ perkId: 'LOW_HP_DAMAGE_BOOST', mult: 3 ** edge });
+  const crit = critBonus(perks);
+  if (crit) parts.push({ perkId: 'CRITICAL_HIT', crit });
+  return { mult: damageMultiplier(perks, lowHp), crit, parts };
+};
 
 /** Only the perks the simulator knows, with positive whole counts. */
 export function simPerks(list: { id: string; count: number }[]): Perks | undefined {

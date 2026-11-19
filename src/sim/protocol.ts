@@ -12,6 +12,7 @@ function normShot(s: SimShot): SimShot {
   return {
     ...s,
     state: obj(s.state),
+    ...(s.steps ? { steps: s.steps.map((st) => ({ ...st, d: obj(st.d) })) } : {}),
     projectiles: (s.projectiles ?? []).map((p) => (p.trigger ? { ...p, trigger: { ...p.trigger, shot: normShot(p.trigger.shot) } } : p)),
   };
 }

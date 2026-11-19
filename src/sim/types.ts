@@ -7,12 +7,27 @@ export type SimProjectile = {
   trigger?: { kind: 'hit' | 'timer' | 'death'; delay?: number; shot: SimShot };
 };
 
+/**
+ * What one played spell (`id`, from deck card `slot`, -1 = always cast) or one perk modifier (`mod`) did to its shot
+ * on its own: the shot-state changes, recharge frames and mana it took. Recorded by sim_run, not live casts.
+ */
+export type SimStep = {
+  id?: string;
+  slot?: number;
+  mod?: string;
+  d: Record<string, number>;
+  reload: number;
+  mana: number;
+};
+
 export type SimShot = {
   projectiles: SimProjectile[];
   /** Shot state fields that differ from the defaults. */
   state: ShotState;
   /** Spells this shot drew. */
   draw?: number;
+  /** Each spell and perk modifier's own part of `state`, in play order. */
+  steps?: SimStep[];
 };
 
 export type SimCast = {
