@@ -203,6 +203,44 @@ describe('test range basics', () => {
     expect(payloads[0]!.p!.dead).toBe(false);
   });
 
+  it('a statue is solid stone to projectiles (temple_statue_*.xml: a rock_box2d_hard physics body)', () => {
+    // A piercing trigger passes through the training dummy but stops at a statue, releasing its payload once.
+    const shoot = (target: 'statue' | 'dummy') => {
+      const w = new RangeWorld(data);
+      w.setTarget(target);
+      w.setDummyDistance(60);
+      const carriers: Proj[] = [];
+      let payloads = 0;
+      const spawn = w.spawn.bind(w);
+      w.spawn = (file, x, y, vx, vy, s, trigger, rot) => {
+        const p = spawn(file, x, y, vx, vy, s, trigger, rot);
+        if (p && trigger) carriers.push(p);
+        else if (p && w.frame > 0) payloads++;
+        return p;
+      };
+      equip(w, ['PIERCING_SHOT', 'LIGHT_BULLET_TRIGGER', 'LIGHT_BULLET']);
+      for (let i = 0; i < 18; i++) w.step();
+      return { w, carrier: carriers[0]!, payloads };
+    };
+    const statue = shoot('statue');
+    const right = statue.w.dummy.x + statue.w.dummy.w / 2;
+    expect(statue.carrier.x).toBeLessThanOrEqual(right);
+    expect(statue.payloads).toBe(1);
+    expect(shoot('dummy').carrier.x).toBeGreaterThan(right);
+
+    // A bomb thrown at a statue bounces off it instead of rolling through.
+    const w = new RangeWorld(data);
+    w.setTarget('statue');
+    const d = w.dummy;
+    const bomb = w.spawn('data/entities/projectiles/deck/bomb.xml', d.x - 20, d.y - d.h / 2, 300, 0)!;
+    let furthest = bomb.x;
+    for (let i = 0; i < 30 && !bomb.dead; i++) {
+      w.step();
+      furthest = Math.max(furthest, bomb.x);
+    }
+    expect(furthest).toBeLessThan(d.x - d.w / 2 + 1);
+  });
+
   it('homing bends shots into the dummy', () => {
     expect(world(['HOMING', 'BUBBLESHOT'], 300).w.damageEvents.length).toBeGreaterThan(0);
   });

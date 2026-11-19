@@ -1329,8 +1329,12 @@ export class RangeWorld {
     for (let i = 0; i < steps; i++) {
       const nx = p.x + (p.vx * DT) / steps;
       const ny = p.y + (p.vy * DT) / steps;
-      const c = this.cell(nx, ny);
+      let c = this.cell(nx, ny);
       if (p.dieOnLiquid && this.isLiquid(nx, ny)) return this.die(p, 'hit');
+      if (c === AIR && p.collideWorld && !p.penetrateWorld && !p.parent && this.inStatue(nx, ny)) {
+        if (this.hitStatue(p, nx, ny)) return;
+        c = BEDROCK;
+      }
       if (c !== AIR && p.collideWorld) {
         if (c === ROCK && p.groundPen && p.groundPen.maxDurability >= this.durabilityAt(nx, ny)) {
           // Luminous drill: bores through rock it can break.
@@ -1372,6 +1376,39 @@ export class RangeWorld {
   }
 
   /**
+   * The Holy Mountain statues are physics bodies of rock_box2d_hard (temple_statue_01/02.xml) as well as
+   * hittable: to a projectile they're ground that takes damage. Piercing shots, bombs and damage-over-time
+   * projectiles stop against them (and their triggers and timers go off) instead of passing through.
+   */
+  private inStatue(x: number, y: number) {
+    return (this.target === 'statue' || this.target === 'statue_staff') && this.inActor(this.dummy, x, y);
+  }
+
+  /** Solid to a projectile: terrain, or a statue. */
+  private solidAt(x: number, y: number) {
+    return this.cell(x, y) !== AIR || this.inStatue(x, y);
+  }
+
+  /**
+   * A projectile reaching a statue: first the hit on it (damage, effects, a trigger's release), as on any
+   * target, then the stone stops it like a wall. Returns true if the hit already ended the projectile.
+   */
+  private hitStatue(p: Proj, nx: number, ny: number): boolean {
+    if (p.physicsBody || p.damageEveryFrames > 0 || p.parent || p.hitActors.has(this.dummy.id)) return false;
+    const { x, y } = p;
+    const pending = p.trigger;
+    p.x = nx;
+    p.y = ny;
+    if (this.touchActors(p)) return true;
+    p.x = x;
+    p.y = y;
+    // A piercing trigger keeps its payload past a creature, but this hit already released it: no second one
+    // as the carrier ends against the stone.
+    if (pending && p.trigger === pending && pending.kind !== 'death' && p.hitActors.has(this.dummy.id)) delete p.trigger;
+    return p.dead;
+  }
+
+  /**
    * Where a payload goes when its carrier dies against terrain: trigger and timer payloads bounce off the
    * surface (seen in-game); an expiration payload goes in a random direction, because the carrier counts as
    * stopped (wiki: Expiration Trigger).
@@ -1399,7 +1436,7 @@ export class RangeWorld {
     let ny = 0;
     for (let dy = -2; dy <= 2; dy++) {
       for (let dx = -2; dx <= 2; dx++) {
-        if (this.cell(x + dx, y + dy) !== AIR) {
+        if (this.solidAt(x + dx, y + dy)) {
           nx -= dx;
           ny -= dy;
         }
@@ -1418,8 +1455,8 @@ export class RangeWorld {
       p.vy -= 2 * into * n.y;
     } else {
       // Rough or enclosed spot: fall back to flipping the blocked axes.
-      const bx = this.cell(nx, p.y) !== AIR;
-      const by = this.cell(p.x, ny) !== AIR;
+      const bx = this.solidAt(nx, p.y);
+      const by = this.solidAt(p.x, ny);
       if (bx || !by) p.vx = -p.vx;
       if (by || !bx) p.vy = -p.vy;
     }
