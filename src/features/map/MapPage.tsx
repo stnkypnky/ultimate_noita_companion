@@ -73,7 +73,8 @@ export function MapPage() {
   const caveSeed = seed ?? EXAMPLE_SEED;
   const { layouts, wangColors, pois } = useSeedLayers(caveSeed, map);
   const all = mode === 'all' || spoilers;
-  const vis = useMemo(() => (map ? makeVisibility(map, { all, visible, orbs: orbs ?? [] }) : null), [map, all, visible, orbs]);
+  const enemies = useProgress((s) => s.progress?.enemies);
+  const vis = useMemo(() => (map ? makeVisibility(map, { all, visible, orbs: orbs ?? [], enemies }) : null), [map, all, visible, orbs, enemies]);
   const selected = parsePlace(place);
   const close = useCallback(() => navigate('/map'), [navigate]);
   const select = useCallback((cx: number, cy: number) => navigate(`/map/${cx}-${cy}`), [navigate]);

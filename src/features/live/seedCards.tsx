@@ -97,14 +97,15 @@ function MiniMap({ map, x, y, seed, kind, biome }: { map: WorldMap; x: number; y
   const { materialById } = useData();
   const { mode, visible } = useSpoilers();
   const orbs = useProgress((s) => s.progress?.orbs);
+  const enemies = useProgress((s) => s.progress?.enemies);
   const navigate = useNavigate();
   const vis = useMemo(() => {
     // The World Map's own "Show spoilers" switch counts here too, so both maps show the same.
-    const base = makeVisibility(map, { all: mode === 'all' || mapSpoilersShown(), visible, orbs: orbs ?? [] });
+    const base = makeVisibility(map, { all: mode === 'all' || mapSpoilersShown(), visible, orbs: orbs ?? [], enemies });
     const here = base.chunkAt(x, y);
     // Where you're standing isn't a secret.
     return { ...base, biome: (b: Parameters<typeof base.biome>[0]) => b === here || base.biome(b) };
-  }, [map, mode, visible, orbs, x, y]);
+  }, [map, mode, visible, orbs, enemies, x, y]);
   const { layouts, wangColors, pois } = useSeedLayers(seed > 0 ? seed : null, map);
   // The closest points of interest you could see on the map (spoilers stay hidden), nearest first.
   const near = useMemo(() => {

@@ -1,6 +1,6 @@
 // What the world map shows freely, and what stays hidden as a spoiler.
 //
-// Shown: the way down (Mines to the Laboratory, the Holy Mountains between) and the overworld you can see from the
+// Shown: the way down (Mines to the last Holy Mountain; the Laboratory below it once you've reached it) and the overworld you can see from the
 // start. Everything else (side biomes, secret rooms, orb rooms, hidden messages and props) is a spoiler until it is
 // revealed: one at a time, with the page's "Show spoilers" switch, or by the global "show everything" mode. Orb rooms
 // also open once your synced save has that orb.
@@ -34,8 +34,6 @@ const PATH = new Set([
   'temple_altar_right',
   'temple_altar_right_snowcastle',
   'solid_wall_temple',
-  'boss_arena',
-  'boss_arena_top',
 ]);
 
 /** The overworld around the start, and the plain rock between areas. */
@@ -101,7 +99,7 @@ const SKY_ABOVE_GROUND = new Set(['hills', 'hills2', 'hills_flat', 'desert', 'wi
 export const displayMaterial = (b: MapBiome, aboveGround = false) => (aboveGround && SKY_ABOVE_GROUND.has(b.id) ? undefined : (SURFACE_LOOK[b.id] ?? b.material));
 
 /** Pictures that are part of what's always shown, even in the overworld (the rest of the overworld's are secrets). */
-const OPEN_SCENES = new Set(['tree', 'boss_arena']);
+const OPEN_SCENES = new Set(['tree']);
 
 export type Area = { biome: MapBiome; cx: number; cy: number; index: number };
 
@@ -112,7 +110,8 @@ export const sceneKey = (s: MapScene) => `map:scene:${s.id}`;
 export const orbOf = (b: MapBiome) => (/^orbroom_(\d+)$/.exec(b.id) ? Number(/^orbroom_(\d+)$/.exec(b.id)![1]) : null);
 
 export const isOpenBiome = (b: MapBiome) => PATH.has(b.id) || SURFACE.has(b.id);
-export const onPath = (b: MapBiome) => PATH.has(b.id);
+/** On the way down: the descent, and the Laboratory at its end (hidden until reached, but still on the way). */
+export const onPath = (b: MapBiome) => PATH.has(b.id) || b.id in MET_IN;
 
 /** A biome's display name: the game's, capitalised, or ours for the unnamed ones. */
 export function biomeName(b: MapBiome) {
@@ -123,9 +122,20 @@ export function biomeName(b: MapBiome) {
 /** Whether the game names it (the rest are unnamed rooms and filler). */
 export const namedInGame = (b: MapBiome) => !!b.name && b.name !== '_EMPTY_' && b.name !== '???';
 
-export function makeVisibility(map: WorldMap, opts: { all: boolean; visible: (key: string) => boolean; orbs: number[] }) {
+/** Areas your save shows you've reached: the Laboratory once you've met its boss (its stats file). */
+const MET_IN: Record<string, string[]> = { boss_arena: ['boss_centipede'], boss_arena_top: ['boss_centipede'] };
+
+export function makeVisibility(map: WorldMap, opts: { all: boolean; visible: (key: string) => boolean; orbs: number[]; enemies?: string[] }) {
   const orbs = new Set(opts.orbs);
-  const biome = (b: MapBiome) => opts.all || isOpenBiome(b) || opts.visible(biomeKey(b)) || (orbOf(b) !== null && orbs.has(orbOf(b)!));
+  const enemies = new Set(opts.enemies);
+  const areaOfSplice = new Map(
+    map.scenes.flatMap((s) => {
+      const a = s.area ? map.biomes.find((b) => b.id === s.area) : undefined;
+      return a ? [[s.from, a] as const] : [];
+    }),
+  );
+  const met = (b: MapBiome) =>!!MET_IN[b.id]?.some((e) => enemies.has(e));
+  const biome = (b: MapBiome) => opts.all || isOpenBiome(b) || opts.visible(biomeKey(b)) || (orbOf(b) !== null && orbs.has(orbOf(b)!)) || met(b);
   const chunkAt = (x: number, y: number) => {
     const cx = Math.floor(x / map.chunk + map.w / 2);
     const cy = Math.floor(y / map.chunk + map.offsetY);
@@ -140,6 +150,9 @@ export function makeVisibility(map: WorldMap, opts: { all: boolean; visible: (ke
     if (s.from === 'background_images' && !s.file.includes('/hidden/')) return !!home && biome(home);
     if (OPEN_SCENES.has(s.from) || OPEN_SCENES.has(s.id)) return true;
     if (s.file.includes('/temple/')) return true;
+    // The pieces of a room built from a spliced scene (the Laboratory) show with the area its whole picture lays out.
+    const owner = areaOfSplice.get(s.from);
+    if (owner) return biome(owner);
     // A picture that lays out a whole area (the Lava Lake) shows with that area.
     if (s.area) {
       const a = map.biomes.find((b) => b.id === s.area);

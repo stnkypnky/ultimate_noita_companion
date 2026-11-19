@@ -111,9 +111,17 @@ describe('world map', () => {
   });
 
   it('shows the way down and the overworld; side areas, orb rooms and secrets stay hidden', () => {
-    for (const id of ['coalmine', 'excavationsite', 'snowcave', 'snowcastle', 'rainforest', 'vault', 'crypt', 'boss_arena', 'temple_altar', 'hills', 'lake'])
+    for (const id of ['coalmine', 'excavationsite', 'snowcave', 'snowcastle', 'rainforest', 'vault', 'crypt', 'temple_altar', 'hills', 'lake'])
       expect(hidden.biome(byId(id)), id).toBe(true);
-    for (const id of ['wizardcave', 'meat', 'the_end', 'orbroom_07', 'secret_lab', 'pyramid']) expect(hidden.biome(byId(id)), id).toBe(false);
+    for (const id of ['wizardcave', 'meat', 'the_end', 'orbroom_07', 'secret_lab', 'pyramid', 'boss_arena', 'boss_arena_top']) expect(hidden.biome(byId(id)), id).toBe(false);
+    // The Laboratory and every piece of its picture wait until you get there.
+    expect(map.scenes.filter((s) => s.file.includes('spliced/boss_arena')).some((s) => hidden.scene(s))).toBe(false);
+  });
+
+  it('opens the Laboratory once your save has met its boss', () => {
+    const met = makeVisibility(map, { all: false, visible: () => false, orbs: [], enemies: ['boss_centipede'] });
+    expect(met.biome(byId('boss_arena'))).toBe(true);
+    expect(map.scenes.filter((s) => s.file.includes('spliced/boss_arena')).every((s) => met.scene(s))).toBe(true);
     // Holy Mountain altars are always drawn; the eye glyphs are a secret.
     expect(map.scenes.filter((s) => s.id.startsWith('temple_altar')).every((s) => hidden.scene(s))).toBe(true);
     const eyes = map.scenes.filter((s) => s.id === 'eyespot');
