@@ -31,9 +31,10 @@ function image(url: string, onLoad: () => void) {
 
 /** Material-file pictures recoloured as their materials, by URL; null while loading. */
 const recoloured = new Map<string, HTMLCanvasElement | null>();
-function materialPicture(url: string, colorOf: (rgb: number) => readonly [number, number, number, number] | null, onLoad: () => void) {
-  if (recoloured.has(url)) return recoloured.get(url) ?? null;
-  recoloured.set(url, null);
+function materialPicture(url: string, colorOf: (rgb: number) => readonly [number, number, number, number] | null, onLoad: () => void, variant = '') {
+  const key = `${url}#${variant}`;
+  if (recoloured.has(key)) return recoloured.get(key) ?? null;
+  recoloured.set(key, null);
   void fetch(url)
     .then((r) => r.blob())
     // The stored key colours, untouched by colour management.
@@ -55,7 +56,7 @@ function materialPicture(url: string, colorOf: (rgb: number) => readonly [number
         [d[i], d[i + 1], d[i + 2], d[i + 3]] = m;
       }
       ctx.putImageData(img, 0, 0);
-      recoloured.set(url, c);
+      recoloured.set(key, c);
       onLoad();
     })
     .catch(() => {});
@@ -279,10 +280,12 @@ export function MapView({
     return out;
   }, [layouts, wangColors, map, materialById]);
   const caveBiomes = useMemo(() => new Set([...caves.keys()].map((i) => map.areas[i]!.biome)), [caves, map]);
+  // Areas a picture lays out whole (the Lava Lake): drawn as a room, the picture's rock over the backdrop.
+  const sceneAreas = useMemo(() => new Set(map.scenes.flatMap((s) => (s.area ? [s.area] : []))), [map]);
   // A material file's key colour → what that material looks like (unknown keys and spawn markers: clear).
   const sceneColor = useCallback(
-    (rgb: number) => {
-      const m = materialById.get(wangColors?.[rgb.toString(16).padStart(6, '0')] ?? '');
+    (rgb: number, id?: string) => {
+      const m = materialById.get(id ?? wangColors?.[rgb.toString(16).padStart(6, '0')] ?? '');
       if (!m) return null;
       return [...rgbOfHex(m.look ?? m.color), m.state === 'gas' ? 90 : m.state === 'liquid' ? 210 : 255] as const;
     },
@@ -425,7 +428,7 @@ export function MapView({
         }
         // Rooms with no rock of their own (Holy Mountains, secret rooms) underground: just their backdrop. Biomes with
         // a generated layout: the backdrop, dimmed, behind the layout's rock (drawn next).
-        const laidOut = caveBiomes.has(map.cells[cy * map.w + cx]!);
+        const laidOut = caveBiomes.has(map.cells[cy * map.w + cx]!) || sceneAreas.has(b.id);
         const roomOnly = (!b.material && b.background && cy >= map.offsetY) || laidOut;
         const cave = (b.wang || roomOnly) && b.background ? backdropFor(b.background) : null;
         ctx.fillStyle = roomOnly ? '#0b0910' : fillFor(displayMaterial(b, cy < map.offsetY));
@@ -471,7 +474,9 @@ export function MapView({
         if (!key) continue;
         if (key === sc.image && sc.materials) {
           if (!wangColors) continue;
-          const pic = materialPicture(gameUrl(`map/${key}.png`), sceneColor, redraw);
+          // A whole area's picture: its white is that area's rock.
+          const rock = sc.rock ? sceneColor(0, sc.rock) : null;
+          const pic = materialPicture(gameUrl(`map/${key}.png`), (rgb) => (rock && rgb === 0xffffff ? rock : sceneColor(rgb)), redraw, sc.rock ?? '');
           if (pic) ctx.drawImage(pic, sx, sy, sw, sh);
           continue;
         }
@@ -626,7 +631,7 @@ export function MapView({
         ctx.fillRect(sx - 2, sy - 2, 2, 2);
       }
     }
-  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, caveBiomes, wangColors, sceneColor, mx, my, markerKind, pois, cellAt]);
+  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, caveBiomes, sceneAreas, wangColors, sceneColor, mx, my, markerKind, pois, cellAt]);
 
   // Pointer: drag pans, two fingers pinch, a tap selects.
   const pointers = useRef(new Map<number, { x: number; y: number }>());

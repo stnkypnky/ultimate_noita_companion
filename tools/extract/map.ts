@@ -412,6 +412,22 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
       for (const e of k === undefined ? [] : spawnersByBiome.get(k)!.get(hex)!) portals.push({ entity: e.file, x: x + e.dx, y: y + e.dy });
     }
   }
+  // And drawn: the whole material picture over its pieces' backgrounds (the Lava Lake is nothing but this).
+  for (const s of spliced) {
+    if (!inside(s.x, s.y)) continue;
+    const look = await imageKey(s.file);
+    if (!look) continue;
+    const meta = await sharp(images.get(look)!).metadata();
+    const name = s.file.split('/').pop()!.replace(/\.png$/, '');
+    const w = meta.width ?? 0;
+    const h = meta.height ?? 0;
+    // The area it lays out: the one under its middle, when every chunk of that area is inside the picture (the Lava
+    // Lake; not the Tree, a landmark in the open forest).
+    const home = biomeIndexAt(s.x + w / 2, s.y + h / 2);
+    const b = biomes[home];
+    const whole = !!b && !b.wangTemplate && !!b.material && chunksOf(home).every((c) => c.x >= s.x && c.y >= s.y && c.x + CHUNK <= s.x + w + CHUNK / 2 && c.y + CHUNK <= s.y + h + CHUNK / 2);
+    scenes.push({ id: name, file: s.file, from: name, x: s.x, y: s.y, w, h, image: look, materials: true, ...(whole ? { area: b.id, rock: b.material } : {}) });
+  }
 
   // Holy Mountain shops: temple_altar.lua registers spawn_all_shopitems on pixel colour ff33934c, so each altar
   // picture's marker pixel is where its shop spawns. The last mountain (above the Laboratory) is inside a spliced

@@ -96,6 +96,16 @@ describe('world map', () => {
     expect(evalCond('is_solid', undefined, new Set(['is_solid']))).toBe(false);
   });
 
+  it('draws the Lava Lake from its spliced picture, shown when the lake is found', () => {
+    const lake = map.scenes.find((s) => s.id === 'lavalake2')!;
+    expect(lake).toMatchObject({ area: 'lavalake', materials: true, w: 2560, h: 2392 });
+    expect(existsSync(join(GAME, 'map', `${lake.image}.png`))).toBe(true);
+    expect(hidden.scene(lake)).toBe(false);
+    expect(makeVisibility(map, { all: false, visible: (k) => k === 'map:lavalake', orbs: [] }).scene(lake)).toBe(true);
+    // The Tree stands in the open forest: drawn, but it doesn't make the forest a room.
+    expect(map.scenes.find((s) => s.id === 'tree' && s.image)?.area).toBeUndefined();
+  });
+
   it('finds the seven Holy Mountain shops, the same spots the seed tool uses', () => {
     expect(map.shops).toEqual(SHOP_SPOTS);
   });

@@ -140,6 +140,11 @@ export function makeVisibility(map: WorldMap, opts: { all: boolean; visible: (ke
     if (s.from === 'background_images' && !s.file.includes('/hidden/')) return !!home && biome(home);
     if (OPEN_SCENES.has(s.from) || OPEN_SCENES.has(s.id)) return true;
     if (s.file.includes('/temple/')) return true;
+    // A picture that lays out a whole area (the Lava Lake) shows with that area.
+    if (s.area) {
+      const a = map.biomes.find((b) => b.id === s.area);
+      return !!a && biome(a);
+    }
     return opts.visible(sceneKey(s));
   };
   return { biome, scene, chunkAt };

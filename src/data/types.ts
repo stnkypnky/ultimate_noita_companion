@@ -499,6 +499,12 @@ export type MapScene = {
   background?: string;
   /** The image is a material file (wang key colours), not a picture: recolour it as its materials to show it. */
   materials?: boolean;
+  /**
+   * The area (biome id) this picture lays out whole (the Lava Lake's spliced scene): shown with that area, its chunks
+   * drawn as a room (backdrop behind), and the picture's white as `rock`, that area's material.
+   */
+  area?: string;
+  rock?: string;
 };
 
 /** The main world (biome_map.png): w×h chunks of `chunk` px; world x = (cx − w/2)·chunk, y = (cy − offsetY)·chunk. */
