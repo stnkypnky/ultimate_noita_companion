@@ -40,6 +40,9 @@ type WandState = {
   /** Bumped on every refill, so the test range refills its live deck even when the wand was already full. */
   refills: number;
   setOptions: (o: Partial<SimOptions>) => void;
+  /** How many of a perk the wand is simulated with (0 removes it); recorded in undo history. */
+  setPerk: (id: string, n: number) => void;
+  setLowHp: (on: boolean) => void;
   undo: () => void;
   redo: () => void;
 };
@@ -99,6 +102,14 @@ export const useWand = create<WandState>()(
       refillCharges: () => set((s) => ({ wand: { ...s.wand, charges: undefined }, refills: s.refills + 1 })),
       refills: 0,
       setOptions: (o) => set((s) => ({ options: { ...s.options, ...o } })),
+      setPerk: (id, n) =>
+        get().edit((w) => {
+          const perks = { ...w.perks };
+          if (n > 0) perks[id] = Math.min(99, Math.floor(n));
+          else delete perks[id];
+          return { ...w, perks: Object.keys(perks).length ? perks : undefined };
+        }),
+      setLowHp: (on) => get().edit((w) => ({ ...w, lowHp: on || undefined })),
       undo: () =>
         set((s) => {
           const prev = s.past.at(-1);

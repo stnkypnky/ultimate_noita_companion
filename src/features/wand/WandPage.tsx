@@ -33,6 +33,7 @@ import { useSimulation } from './useSimulation';
 import { useOtherWands } from './useOtherWands';
 import { AlwaysCasts, TrashZone, WandSlots, type DragData, type DropData } from './WandSlots';
 import { WandStats } from './WandStats';
+import { WandPerks } from './WandPerks';
 
 export function WandPage() {
   const { spellById } = useData();
@@ -276,6 +277,9 @@ export function WandPage() {
       </Section>
       <Section title="Always cast">
         <AlwaysCasts scale={scale} />
+      </Section>
+      <Section title="Perks">
+        <WandPerks />
       </Section>
     </>
   );

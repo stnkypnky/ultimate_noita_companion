@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useData } from '@/data/store';
 import { Analyzer, type CastView, type Summary } from '@/sim/analyze';
 import { simulate } from '@/sim/client';
+import { perkBoost } from '@/sim/perks';
 import type { SimResult } from '@/sim/types';
 import { useDebounced } from '@/ui/hooks';
 import { toSimRequest, type SimOptions, type Wand } from './model';
@@ -37,7 +38,7 @@ export function useSimulation(wand: Wand, options: SimOptions, otherWands: strin
     simulate(req).then(
       (r: SimResult) => {
         if (cancelled) return;
-        const { casts, summary } = analyzer.run(r);
+        const { casts, summary } = analyzer.run(r, perkBoost(input.wand.perks, input.wand.lowHp));
         setState({ status: 'done', casts, summary, slotOfCard, missing: r.missing });
       },
       (e: Error) => !cancelled && setState((s) => ({ ...s, status: 'error', error: e.message })),

@@ -1,11 +1,14 @@
 // A wand from the run, as the Wand Builder's wand (to simulate it here, or open it in the builder).
 import { resize, type Wand } from '@/features/wand/model';
+import { simPerks } from '@/sim/perks';
 import type { LiveWand } from './parse';
 
 /** Randomized wands use one of the game's numbered sprites; anything else falls back to a sprite by stats. */
 const NUMBERED_SPRITE = /^data\/items_gfx\/wands\/wand_\d{4}\.png$/;
 
-export function toBuilderWand(w: LiveWand): Wand {
+/** `perks`: the run's, so the wand is simulated (and opens in the builder) as it fires in that run. */
+export function toBuilderWand(w: LiveWand, perks: { id: string; count: number }[] = []): Wand {
+  const runPerks = simPerks(perks);
   const capacity = Math.max(1, w.capacity);
   const spells: (string | null)[] = Array(capacity).fill(null);
   const charges: (number | null)[] = Array(capacity).fill(null);
@@ -32,5 +35,6 @@ export function toBuilderWand(w: LiveWand): Wand {
     alwaysCasts: w.alwaysCasts,
     ...(charges.some((c) => c !== null) ? { charges } : {}),
     ...(w.sprite && NUMBERED_SPRITE.test(w.sprite) ? { sprite: w.sprite } : {}),
+    ...(runPerks ? { perks: runPerks } : {}),
   };
 }

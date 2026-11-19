@@ -1,6 +1,7 @@
 import type { Spell } from '@/data/types';
 import type { SimRequest, SimWand } from '@/sim/types';
 import { packJson, unpackJson } from '@/lib/encoding';
+import { isSimPerk, shotModifiers, type Perks } from '@/sim/perks';
 
 export type Wand = SimWand & {
   name: string;
@@ -16,6 +17,10 @@ export type Wand = SimWand & {
   sprite?: string;
   /** A rare wand (gun_procedural's is_rare): it glows purple. Cleared with `sprite`. */
   rare?: boolean;
+  /** Perks that change its casts (src/sim/perks.ts), by id: how many picked. A run's wand brings the run's. */
+  perks?: Perks;
+  /** Living on the Edge counts: health is low. */
+  lowHp?: boolean;
 };
 
 const SPRITE_RE = /^data\/items_gfx\/wands\/wand_(\d{4})\.png$/;
@@ -132,6 +137,7 @@ export function toSimRequest(
       deck,
       alwaysCasts: wand.alwaysCasts.filter((id) => spellById.has(id)),
       otherWands: otherWands.map((w) => w.filter((id) => spellById.has(id))).filter((w) => w.length),
+      ...(wand.perks ? { modifiers: shotModifiers(wand.perks) } : {}),
       options: {
         maxCasts: opts.mode === 'cycle' ? 64 : opts.casts,
         stopOnReload: opts.mode === 'cycle',
@@ -150,6 +156,7 @@ export function toSimRequest(
 /** Compact on-the-wire form: short keys, spells as one comma string. */
 /** `c`: charges left per slot, one comma entry per slot (empty = full), only when any were spent. */
 /** `p`: the randomized sprite's number (wand_0123.png → 123); `r`: 1 for a rare wand. */
+/** `k`: perks, "LOWER_SPREAD,CRITICAL_HIT*2"; `l`: 1 when health is low (Living on the Edge). */
 type Packed = {
   v: 1;
   n?: string;
@@ -159,7 +166,25 @@ type Packed = {
   c?: string;
   p?: number;
   r?: 1;
+  k?: string;
+  l?: 1;
 };
+
+const packPerks = (perks: Perks) =>
+  Object.entries(perks)
+    .filter(([, n]) => n > 0)
+    .map(([id, n]) => (n > 1 ? `${id}*${n}` : id))
+    .join(',');
+
+function unpackPerks(s: string): Perks | undefined {
+  const out: Perks = {};
+  for (const part of s.split(',')) {
+    const [id, n] = part.split('*');
+    const count = n === undefined ? 1 : Math.floor(Number(n));
+    if (id && isSimPerk(id) && Number.isFinite(count) && count > 0) out[id] = Math.min(count, 99);
+  }
+  return Object.keys(out).length ? out : undefined;
+}
 
 export async function encodeWand(w: Wand): Promise<string> {
   const packed: Packed = {
@@ -171,6 +196,8 @@ export async function encodeWand(w: Wand): Promise<string> {
     ...(w.charges?.some((c) => c !== null && c !== undefined) ? { c: resize(w.charges, w.capacity).map((c) => c ?? '').join(',') } : {}),
     ...(spriteNumber(w.sprite) ? { p: Number(spriteNumber(w.sprite)) } : {}),
     ...(w.rare ? { r: 1 as const } : {}),
+    ...(w.perks && packPerks(w.perks) ? { k: packPerks(w.perks) } : {}),
+    ...(w.lowHp ? { l: 1 as const } : {}),
   };
   return packJson(packed);
 }
@@ -199,5 +226,7 @@ export async function decodeWand(code: string): Promise<Wand> {
     ...(p.c ? { charges: resize(p.c.split(',').map((c) => (c === '' || !Number.isFinite(Number(c)) ? null : Math.max(0, Math.round(Number(c))))), cap) } : {}),
     ...(Number.isInteger(p.p) && p.p! >= 0 && p.p! < 10000 ? { sprite: spriteFile(p.p!) } : {}),
     ...(p.r === 1 ? { rare: true } : {}),
+    ...(typeof p.k === 'string' && unpackPerks(p.k) ? { perks: unpackPerks(p.k) } : {}),
+    ...(p.l === 1 ? { lowHp: true } : {}),
   };
 }

@@ -81,6 +81,8 @@ export type SimRequest = {
   alwaysCasts: string[];
   /** Spells (always casts included) of the other wands carried in the quick inventory, which Zeta copies from. */
   otherWands?: string[][];
+  /** Perks' shot modifiers (gun_extra_modifiers.lua names), added to every cast as the engine does. */
+  modifiers?: string[];
   options: {
     maxCasts: number;
     stopOnReload: boolean;

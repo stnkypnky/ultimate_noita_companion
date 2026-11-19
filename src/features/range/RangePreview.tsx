@@ -7,6 +7,7 @@ import { LiveSession } from '@/sim/client';
 import type { LiveCast } from '@/sim/types';
 import { SpellIcon } from '@/ui/GameIcon';
 import { toSimRequest, type SimOptions, type Wand } from '@/features/wand/model';
+import { perkBoost } from '@/sim/perks';
 import { H, RangeWorld, W, type RangeData, type RangeTarget } from './world';
 import { BIOMES, biomeById } from './biomes';
 import { RangeRenderer, SCALE, context2d, loadRangeImages, type RangeImages } from './render';
@@ -217,6 +218,13 @@ export function RangePreview({
     w.clearShots();
     w.wand!.equip(reqRef.current, w.frame);
   }, [ready, shape, session]); // distance, auto and the sprite have their own effects; a new world just starts at the current settings
+
+  // The caster's perks that act beyond the shot state (Glass Cannon, Critical Hit +…).
+  const boostKey = JSON.stringify([wand.perks ?? null, !!wand.lowHp]);
+  useEffect(() => {
+    if (worldRef.current) worldRef.current.boost = perkBoost(wand.perks, wand.lowHp);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, boostKey]);
 
   // Charges changed from outside (edited, or refilled): the wand in hand gets them. Charges this range spent
   // and wrote back already match the live deck, so they change nothing.

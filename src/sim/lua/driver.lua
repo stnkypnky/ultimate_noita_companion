@@ -127,7 +127,16 @@ function sim_reset(actions_per_round, shuffle, reload_time, deck_capacity, fire_
   got_projectiles = false
   playing_permanent_card = false
 
-  sim = { mana_max = mana_max, mana_charge = mana_charge, mana = mana_start, always = {}, next_inv = 1 }
+  sim = { mana_max = mana_max, mana_charge = mana_charge, mana = mana_start, always = {}, next_inv = 1, mods = {} }
+end
+
+-- Perks' shot modifiers ("lower_spread,critical_hit_boost"): the engine hands each perk's ShotEffectComponent
+-- extra_modifier to gun.lua at the start of every cast.
+function sim_set_modifiers(list)
+  sim.mods = {}
+  for name in string.gmatch(list or "", "[^,]+") do
+    if extra_modifiers[name] then table.insert(sim.mods, name) end
+  end
 end
 
 -- uses: remaining charges, or -1 for unlimited. Returns the deck slot's inventory id.
@@ -157,6 +166,7 @@ function sim_cast(frame, wand_mana)
   rec = { stack = { new_shot() }, proj_stack = {}, cast = cast }
 
   _start_shot(wand_mana)
+  for _, name in ipairs(sim.mods) do _add_extra_modifier_to_shot(name) end
   for _, id in ipairs(sim.always) do _play_permanent_card(id) end
   _draw_actions_for_shot(true)
   -- More spells per cast than cards left: the draw that finds the deck empty sets `reloading`, which makes

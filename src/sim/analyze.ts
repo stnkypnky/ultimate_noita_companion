@@ -52,24 +52,31 @@ const DAMAGE_ADD: Partial<Record<DamageType, string>> = {
 
 const n = (s: ShotState, k: string) => (typeof s[k] === 'number' ? (s[k] as number) : 0);
 
+/**
+ * What the caster's perks do to every projectile, beyond what gun.lua already put in the shot (src/sim/perks.ts):
+ * a damage multiplier (Glass Cannon, Living on the Edge) and extra crit chance (Critical Hit +).
+ */
+export type DamageBoost = { mult: number; crit: number };
+export const NO_BOOST: DamageBoost = { mult: 1, crit: 0 };
+
 /** A projectile's hit damage, explosion and crit chance once its shot's modifiers are applied. */
-export function projectileDamage(base: Projectile | undefined, state: ShotState) {
+export function projectileDamage(base: Projectile | undefined, state: ShotState, boost: DamageBoost = NO_BOOST) {
   // Null Shot (damage_null_all) takes every kind of damage away, the blast's included.
   const nulled = n(state, 'damage_null_all') > 0;
   const damage: Partial<Record<DamageType, number>> = {};
   for (const t of DAMAGE_TYPES) {
     const add = DAMAGE_ADD[t] ? n(state, DAMAGE_ADD[t]!) * HP_UNIT : 0;
-    const v = nulled ? 0 : (base?.damage[t] ?? 0) + add;
+    const v = nulled ? 0 : ((base?.damage[t] ?? 0) + add) * boost.mult;
     if (Math.abs(v) > 1e-6) damage[t] = Math.round(v * 100) / 100;
   }
   let explosion: { damage: number; radius: number } | undefined;
   if (base?.explosion) {
-    const ed = nulled ? 0 : base.explosion.damage + n(state, 'damage_explosion_add') * HP_UNIT;
+    const ed = nulled ? 0 : (base.explosion.damage + n(state, 'damage_explosion_add') * HP_UNIT) * boost.mult;
     const er = base.explosion.radius + n(state, 'explosion_radius');
     if (ed > 0 || er > 4) explosion = { damage: Math.round(ed * 100) / 100, radius: Math.round(er) };
   }
   const hit = Object.values(damage).reduce((a, b) => a + Math.max(0, b ?? 0), 0);
-  return { damage, explosion, hit, critChance: Math.max(0, Math.min(100, n(state, 'damage_critical_chance'))) };
+  return { damage, explosion, hit, critChance: Math.max(0, Math.min(100, n(state, 'damage_critical_chance') + boost.crit)) };
 }
 
 export { CRIT_MULT };
@@ -94,8 +101,11 @@ export class Analyzer {
     return c.find((s) => played.has(s.id) && matches(s)) ?? c.find((s) => played.has(s.id)) ?? c.find(matches) ?? c[0];
   }
 
+  /** The caster's perk boost for the result being analysed (set by run()). */
+  private boost: DamageBoost = NO_BOOST;
+
   private view(p: SimProjectile, state: ShotState, played: Set<string>): ProjectileView {
-    const { damage, explosion, hit, critChance } = projectileDamage(this.projectiles[p.file], state);
+    const { damage, explosion, hit, critChance } = projectileDamage(this.projectiles[p.file], state, this.boost);
     return {
       file: p.file,
       spell: this.spellFor(p.file, played, !!p.trigger),
@@ -128,8 +138,10 @@ export class Analyzer {
     return { cast: c, projectiles, projectileCount: count, damage, manaUsed: c.mana_before - c.mana_after };
   }
 
-  run(r: SimResult): { casts: CastView[]; summary: Summary } {
+  run(r: SimResult, boost: DamageBoost = NO_BOOST): { casts: CastView[]; summary: Summary } {
+    this.boost = boost;
     const casts = r.casts.map((c) => this.cast(c));
+    this.boost = NO_BOOST;
     const first = r.casts[0];
     const last = r.casts.at(-1);
     const cycleFrames = first && last ? last.next_frame - first.frame : 0;

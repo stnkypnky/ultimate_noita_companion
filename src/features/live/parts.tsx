@@ -36,19 +36,33 @@ export function Wands({ run, onOpen, past }: { run: LiveRun; onOpen: OpenDetail;
   return (
     <div className="space-y-3">
       {ordered.map((w) => (
-        <WandCard key={run.wands.indexOf(w)} wand={w} all={run.wands} options={options} onOpen={onOpen} past={past} />
+        <WandCard key={run.wands.indexOf(w)} wand={w} all={run.wands} perks={run.perks} options={options} onOpen={onOpen} past={past} />
       ))}
     </div>
   );
 }
 
-function WandCard({ wand, all, options, onOpen, past }: { wand: LiveWand; all: LiveWand[]; options: SimOptions; onOpen: OpenDetail; past?: boolean }) {
+function WandCard({
+  wand,
+  all,
+  perks,
+  options,
+  onOpen,
+  past,
+}: {
+  wand: LiveWand;
+  all: LiveWand[];
+  perks: LiveRun['perks'];
+  options: SimOptions;
+  onOpen: OpenDetail;
+  past?: boolean;
+}) {
   const navigate = useNavigate();
   const desktop = useIsDesktop();
   const [showStats, setShowStats] = useState(false);
-  const key = wandKey(wand);
+  const key = wandKey(wand) + JSON.stringify(perks);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const built = useMemo(() => toBuilderWand(wand), [key]);
+  const built = useMemo(() => toBuilderWand(wand, perks), [key]);
   const othersKey = all.filter((w) => w !== wand).map(wandKey).join('|');
   const others = useMemo(
     () => all.filter((w) => w !== wand).map((w) => w.spells.map((s) => s.id)),

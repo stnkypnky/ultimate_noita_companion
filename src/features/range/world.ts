@@ -9,7 +9,7 @@ import type { EntityVisual, ExplosionVisual, Material, Projectile, RangeKit, Rea
 import { Cells, K_GAS, K_LIQUID, K_POWDER, K_STATIC } from './cells';
 import { BIOMES, biomeById, biomeNoise, biomePolka, noiseValue, type Biome } from './biomes';
 import { emitterStates, layerFrames, runEmitters, simpleParticle, stepParticles, type EmitterState, type Particle } from './particles';
-import { CRIT_MULT, projectileDamage } from '@/sim/analyze';
+import { CRIT_MULT, NO_BOOST, projectileDamage, type DamageBoost } from '@/sim/analyze';
 import { HP_UNIT } from '@/data/format';
 import type { ShotState, SimCast, SimShot } from '@/sim/types';
 import { DEFAULT_FLIGHT, DEFAULT_MOVE, newPlayerState, stepPlayer, wandPose, type Controls, type PlayerState } from './player';
@@ -380,6 +380,8 @@ export class RangeWorld {
   particleBudget = MAX_PARTICLES;
   damageEvents: { frame: number; amount: number }[] = [];
   totalDamage = 0;
+  /** The caster's perks beyond the shot state: damage multiplier and extra crit (src/sim/perks.ts). */
+  boost: DamageBoost = NO_BOOST;
   selfDamage = 0;
   /** Health your own spells gave back (Healing bolt). */
   healed = 0;
@@ -938,7 +940,7 @@ export class RangeWorld {
     if (note && Math.hypot(x - this.player.x, y - this.player.y) <= NOTE_REACH) this.hearNote(note.instrument, note.note, x, y);
     const base = this.data.projectiles[file];
     const vis = this.data.visuals[file];
-    const dmg = projectileDamage(base, s);
+    const dmg = projectileDamage(base, s, this.boost);
     const { hit, heal } = hitAndHeal(dmg.damage, dmg.hit);
     const life = !base || base.lifetime < 0 ? -1 : Math.max(1, base.lifetime + num(s, 'lifetime_add') + randInt(-base.lifetimeRandom, base.lifetimeRandom));
     const extras = String(s.extra_entities ?? '')
