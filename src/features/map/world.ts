@@ -154,4 +154,12 @@ export function holyMountains(map: WorldMap) {
   return new Map([...rows].sort((a, b) => a - b).map((r, i) => [r, i + 1]));
 }
 
-export const chunkWorld = (map: WorldMap, cx: number, cy: number) => ({ x: (cx - map.w / 2) * map.chunk, y: (cy - map.offsetY) * map.chunk });
+/** The spoiler key of the hidden area at a world position (null: open ground, or off the map's main world). */
+export function hiddenAreaAt(map: WorldMap, x: number, y: number): string | null {
+  const { cx, cy } = chunkOf(map, x, y);
+  if (cx < 0 || cy < 0 || cx >= map.w || cy >= map.h) return null;
+  const b = map.biomes[map.cells[cy * map.w + cx]!]!;
+  return isOpenBiome(b) ? null : biomeKey(b);
+}
+
+export const chunkWorld =(map: WorldMap, cx: number, cy: number) => ({ x: (cx - map.w / 2) * map.chunk, y: (cy - map.offsetY) * map.chunk });

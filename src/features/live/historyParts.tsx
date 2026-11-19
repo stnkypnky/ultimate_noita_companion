@@ -14,6 +14,8 @@ import type { LiveRun } from './parse';
 import type { OpenDetail } from './parts';
 import { clock, killedByText } from './runMath';
 import { useRuns } from './runs';
+import { useWorldMap } from './seedCards';
+import { biomeKey, biomeName } from '@/features/map/world';
 
 /** The history record of the run on screen (synced from the PC on other devices). */
 export function useRunRecord(run: LiveRun | null): RunRecord | undefined {
@@ -23,9 +25,10 @@ export function useRunRecord(run: LiveRun | null): RunRecord | undefined {
 
 type Named = { name: string; icon: ReactNode; to?: string; detail?: Parameters<OpenDetail>[0] };
 
-/** A spoiler key ("action_bomb", "enemy:zombie", "item:moon"…) as something to show. */
+/** A spoiler key ("action_bomb", "enemy:zombie", "item:moon", "map:lavalake"…) as something to show. */
 function useNamer() {
   const { spells, perks, enemyById, items, materialById } = useData();
+  const map = useWorldMap();
   return useMemo(() => {
     const spellByFlag = new Map(spells.map((s) => [s.discoverFlag, s]));
     const perkByFlag = new Map(perks.map((p) => [p.discoverFlag, p]));
@@ -47,9 +50,15 @@ function useNamer() {
         const m = materialById.get(key.slice(9));
         return m ? { name: titleCase(m.name), icon: <MaterialSwatch material={m} size={16} />, detail: { kind: 'material', id: m.id } } : null;
       }
+      if (key.startsWith('map:') && map) {
+        const k = map.biomes.findIndex((b) => biomeKey(b) === key);
+        const at = map.cells.indexOf(k);
+        if (k < 0 || at < 0) return null;
+        return { name: biomeName(map.biomes[k]!), icon: <MapPin size={14} className="text-ember" />, to: `/map/${at % map.w}-${Math.floor(at / map.w)}` };
+      }
       return null;
     };
-  }, [spells, perks, enemyById, items, materialById]);
+  }, [spells, perks, enemyById, items, materialById, map]);
 }
 
 function FoundChip({ k, onOpen }: { k: string; onOpen?: OpenDetail }) {
@@ -75,6 +84,7 @@ const GROUPS: { label: string; test: (k: string) => boolean }[] = [
   { label: 'Creatures', test: (k) => k.startsWith('enemy:') },
   { label: 'Items', test: (k) => k.startsWith('item:') || k.startsWith('essence_') },
   { label: 'Materials', test: (k) => k.startsWith('material:') },
+  { label: 'Areas', test: (k) => k.startsWith('map:') },
 ];
 
 /** Everything this run found for the first time: now unlocked across the app. */
@@ -88,7 +98,7 @@ export function FoundThisRun({ rec, onOpen }: { rec: RunRecord | undefined; onOp
   return (
     <CollapsibleSection id="run-found" title="Found this run" summary={<span className={rec?.found.length ? 'text-toxic' : ''}>{summary}</span>}>
       {!rec?.found.length ? (
-        <p className="text-sm text-muted">Nothing new yet. Spells, perks, creatures and secret items you find for the first time show up here, and open up across the companion.</p>
+        <p className="text-sm text-muted">Nothing new yet. Spells, perks, creatures, secret items and hidden areas you find for the first time show up here, and open up across the companion.</p>
       ) : (
         <div className="space-y-2">
           {GROUPS.map((g) => {

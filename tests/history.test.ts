@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { addFound, foldSnapshot, foundKeys, mergeRuns, parseRunRecord, snapshotOf, MAX_RUNS, type RunRecord } from '../src/features/live/history.ts';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { addFound, foldSnapshot, foundKeys, isDiscovery, mergeRuns, parseRunRecord, snapshotOf, MAX_RUNS, type RunRecord } from '../src/features/live/history.ts';
 import { parseLiveRun, parseLiveWand } from '../src/features/live/parse.ts';
+import { chunkWorld, hiddenAreaAt } from '../src/features/map/world.ts';
+import type { WorldMap } from '../src/data/types.ts';
 
 const wand = (spells: string[]) => ({
   name: 'Wand',
@@ -86,6 +90,32 @@ describe('run history', () => {
     expect(rec.found).toEqual(['action_nuke', 'material:midas', 'item:moon']);
     expect(addFound(rec, ['action_nuke'], 6, ctx.known)).toBe(false);
     expect(foundKeys([rec, { ...rec, id: 'b', found: ['enemy:zombie', 'action_nuke'] }]).sort()).toEqual(['action_nuke', 'enemy:zombie', 'item:moon', 'material:midas']);
+  });
+
+  it('counts a hidden map area you walk into as a discovery, once; its secret rooms stay secret', () => {
+    expect(isDiscovery('map:lavalake')).toBe(true);
+    expect(isDiscovery('map:scene:eyespot')).toBe(false);
+    const first = foldSnapshot(null, snap({}), 1, { ...ctx, extra: ['map:lavalake'] }).current!;
+    expect(first.found).toEqual(['map:lavalake']);
+    const again = foldSnapshot(first, snap({}), 2, { ...ctx, extra: ['map:lavalake'] }).current!;
+    expect(again.found).toEqual(['map:lavalake']);
+    expect(again.events.filter((e) => e.k === 'found')).toHaveLength(1);
+    // Known from an earlier run: not news.
+    expect(foldSnapshot(null, snap({}), 1, { ...ctx, known: known(['action_light_bullet', 'map:lavalake']), extra: ['map:lavalake'] }).current!.found).toEqual([]);
+    expect(parseRunRecord(JSON.parse(JSON.stringify(first)), parseLiveWand)!.found).toEqual(['map:lavalake']);
+  });
+
+  it('knows which hidden area a position is in', () => {
+    const map = JSON.parse(readFileSync(join(import.meta.dirname, '../public/game/data/map.json'), 'utf8')) as WorldMap;
+    const centre = (id: string) => {
+      const i = map.cells.findIndex((k) => map.biomes[k]!.id === id);
+      const w = chunkWorld(map, i % map.w, Math.floor(i / map.w));
+      return [w.x + map.chunk / 2, w.y + map.chunk / 2] as const;
+    };
+    expect(hiddenAreaAt(map, ...centre('lavalake'))).toBe('map:lavalake');
+    // The way down isn't a secret, and neither is off the map.
+    expect(hiddenAreaAt(map, ...centre('coalmine'))).toBeNull();
+    expect(hiddenAreaAt(map, 1e6, 0)).toBeNull();
   });
 
   it('accepts records from other devices only when well-formed, and merges by newest', () => {

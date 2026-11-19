@@ -123,7 +123,8 @@ function MiniMap({ map, x, y, seed, kind, biome }: { map: WorldMap; x: number; y
   const summary = near[0] ? `${near[0].p.name} · ${poiDirection({ x, y }, near[0].p)}` : biome;
   return (
     <CollapsibleSection id="run-map" title={MARKER_TITLE[kind]} summary={summary}>
-      <div className="h-[300px]">
+      {/* As tall as the map's own minimum height, so it doesn't spill over the list below. */}
+      <div className="h-[320px]">
         <MapView
           map={map}
           vis={vis}

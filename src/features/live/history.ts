@@ -56,9 +56,13 @@ const HP_SAMPLE_MS = 30_000;
 /** What the save (not the live run) already knew before: flags, creatures, and earlier runs' discoveries. */
 export type Known = (key: string) => boolean;
 
-/** Discoveries worth listing: spells, perks, creatures, and the secret items and materials (the rest are never hidden). */
+/**
+ * Discoveries worth listing: spells, perks, creatures, the secret items and materials (the rest are never hidden), and
+ * the hidden map areas you walk into (map:<biome>; a secret room inside one, map:scene:…, stays a secret).
+ */
 export function isDiscovery(key: string) {
   if (key.startsWith('action_') || key.startsWith('perk_picked_') || key.startsWith('enemy:')) return true;
+  if (key.startsWith('map:')) return !key.startsWith('map:scene:');
   if (key.startsWith('item:')) return SECRET_ITEMS.has(key.slice(5));
   if (key.startsWith('essence_')) return SECRET_ITEMS.has(key);
   if (key.startsWith('material:')) return SECRET_MATERIALS.has(key.slice(9));
@@ -115,7 +119,8 @@ export function foldSnapshot(
   prev: RunRecord | null,
   run: LiveRun,
   at: number,
-  ctx: { known: Known; device: string },
+  /** extra: spoiler keys found that the snapshot itself can't say (the hidden map area you're standing in). */
+  ctx: { known: Known; device: string; extra?: string[] },
 ): { current: RunRecord | null; closed?: RunRecord; changed: boolean } {
   if (run.status === 'no_player' || !run.seed) return { current: prev, changed: false };
   const open = prev?.outcome === 'ongoing' ? prev : null;
@@ -155,7 +160,7 @@ export function foldSnapshot(
       if (rec.hp.length > MAX_HP_SAMPLES) rec.hp = rec.hp.filter((_, i) => i % 2 === 0 || i >= rec.hp.length - 20);
     }
   }
-  addFound(rec, liveFlags(run), at, ctx.known);
+  addFound(rec, [...liveFlags(run), ...(ctx.extra ?? [])], at, ctx.known);
 
   // The run's numbers.
   const depth = run.depth ?? 0;

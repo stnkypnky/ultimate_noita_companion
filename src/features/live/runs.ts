@@ -7,6 +7,8 @@ import { registerRuns, runsChanged } from '@/features/sync/sync';
 import { MAX_RUNS, addFound, foldSnapshot, foundKeys, mergeRuns, parseRunRecord, type Known, type RunRecord } from './history';
 import { parseLiveRun, parseLiveWand, type LiveRun } from './parse';
 import { useLiveRun } from './state';
+import type { WorldMap } from '@/data/types';
+import { hiddenAreaAt, loadMap } from '@/features/map/world';
 
 /** Paired devices hear about an ongoing run at most this often (and at once when it starts or ends). */
 const PUSH_EVERY_MS = 30_000;
@@ -57,6 +59,16 @@ function knownBefore(except?: string): Known {
   return (key) => flags.has(key) || enemies.has(key) || earlier.has(key);
 }
 
+/** The world map, once loaded: to tell which area a snapshot's position is in. */
+let worldMap: WorldMap | null = null;
+
+/** Walking into a hidden map area discovers it. */
+function areaFound(map: WorldMap, run: LiveRun): string[] {
+  if (run.x === undefined || run.y === undefined || (run.status !== 'alive' && run.status !== 'paused')) return [];
+  const key = hiddenAreaAt(map, run.x, run.y);
+  return key ? [key] : [];
+}
+
 /** A snapshot read from the mod's file on this device. */
 export function recordSnapshot(run: LiveRun, at: number) {
   if (!useRuns.getState().loaded) {
@@ -64,7 +76,8 @@ export function recordSnapshot(run: LiveRun, at: number) {
     pending = { run, at };
     return;
   }
-  const { current: next, closed, changed } = foldSnapshot(current, run, at, { known: knownBefore(current?.id), device: deviceName() });
+  const extra = worldMap ? areaFound(worldMap, run) : [];
+  const { current: next, closed, changed } = foldSnapshot(current, run, at, { known: knownBefore(current?.id), device: deviceName(), extra });
   if (!changed) return;
   const started = !!next && next.id !== current?.id;
   const ended = !!closed || (next?.outcome !== 'ongoing' && current?.outcome === 'ongoing');
@@ -105,6 +118,10 @@ export async function startRunHistory() {
     },
   );
   watchNewFlags();
+  void loadMap().then(
+    (m) => (worldMap = m),
+    () => {},
+  );
   const { db } = await dexie();
   const records = (await db.runs.toArray()).sort((a, b) => b.startedAt - a.startedAt).slice(0, MAX_RUNS);
   const me = deviceName();
