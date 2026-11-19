@@ -16,8 +16,13 @@ const hidden = makeVisibility(map, { all: false, visible: () => false, orbs: [] 
 const byIdAt = (x: number, y: number) => hidden.chunkAt(x, y)?.id;
 
 describe('world map', () => {
-  it('has a biome for every chunk of the 70 × 48 map', () => {
-    expect([map.w, map.h, map.chunk]).toEqual([70, 48, 512]);
+  it('has a biome for every chunk of the 70 × 48 map, and the world past it above and below', () => {
+    expect([map.w, map.chunk, map.offsetY - map.mapTop!]).toEqual([70, 512, 14]);
+    // The edge rows carry on: up past the Moon and the Work's Heaven, down past Hell and the dark Moon.
+    expect(-map.offsetY * map.chunk).toBeLessThanOrEqual(-26104);
+    expect((map.h - map.offsetY) * map.chunk).toBeGreaterThan(37513);
+    expect(map.cells.slice(0, map.w)).toEqual(map.cells.slice(map.mapTop! * map.w, (map.mapTop! + 1) * map.w));
+    expect(map.scenes.filter((s) => s.id === 'the_end_shop').map((s) => s.y).sort((a, b) => a - b)).toEqual([-13954, 24576]);
     expect(map.cells).toHaveLength(map.w * map.h);
     expect(map.cells.every((k) => k >= 0 && k < map.biomes.length)).toBe(true);
     expect(map.biomes.filter((b) => b.id === 'unknown')).toHaveLength(0);

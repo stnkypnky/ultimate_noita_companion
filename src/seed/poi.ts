@@ -46,9 +46,11 @@ export function placePois(call: LuaCall, map: WorldMap, layouts: AreaLayout[], d
         if (map.cells[cy * map.w + cx] !== a.biome) continue;
         // This chunk's part of the layout: 51 or 52 layout pixels each way, 10 world pixels per pixel.
         const dw = widthFromPix(a.x1, cx);
-        const dh = widthFromPix(a.y1, cy);
+        // Rows as the game numbers them (biome_map.png's), which the layout's sizes are cut by.
+        const top = map.mapTop ?? 0;
+        const dh = widthFromPix(a.y1 - top, cy - top);
         const cw = widthFromPix(cx, cx + 1);
-        const ch = widthFromPix(cy, cy + 1);
+        const ch = widthFromPix(cy - top, cy + 1 - top);
         const gx = chunkX(cx);
         const gy = chunkY(cy);
         const markers: string[] = [];

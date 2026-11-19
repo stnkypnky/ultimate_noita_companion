@@ -512,6 +512,8 @@ export type WorldMap = {
   w: number;
   h: number;
   offsetY: number;
+  /** Rows added above biome_map.png for the world past its top edge: the game's own row is cy − mapTop. */
+  mapTop?: number;
   chunk: number;
   /** Biome index per chunk, row by row. */
   cells: number[];

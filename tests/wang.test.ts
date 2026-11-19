@@ -29,8 +29,8 @@ beforeAll(async () => {
   overlay = (await rgb(join(GAME, 'wang/coalmine_overlay.png'))).data;
 });
 
-/** The area holding chunk (x, y), as noita-tools' map tests pick them. */
-const areaAt = (x: number, y: number) => map.areas.findIndex((a) => a.x1 <= x && a.x2 >= x && a.y1 <= y && a.y2 >= y && map.cells[y * map.w + x] === a.biome);
+/** The area holding chunk (x, y), as noita-tools' map tests pick them (y in biome_map.png's rows). */
+const areaAt = (x: number, gy: number, y = gy + (map.mapTop ?? 0)) => map.areas.findIndex((a) => a.x1 <= x && a.x2 >= x && a.y1 <= y && a.y2 >= y && map.cells[y * map.w + x] === a.biome);
 
 describe('cave layouts (herringbone wang tiles, as the game generates them)', () => {
   const cases: [string, number, number][] = [

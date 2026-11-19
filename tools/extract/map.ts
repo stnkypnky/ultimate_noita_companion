@@ -274,10 +274,26 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
     cells.push(k);
   }
 
+  // The world goes on past biome_map.png: above it the top row's biomes carry on (sky, and the Work's Heaven at the
+  // top of the_sky), below it the bottom row's (Hell). Rows repeating the edge rows, far enough to hold every scene the
+  // game places out there (the Work's shops, the two moons).
+  const sceneXml = wak.text('data/biome/_pixel_scenes.xml');
+  const sceneYs = [sceneXml, ...[...sceneXml.matchAll(/<File>([^<]+)<\/File>/g)].map((m) => m[1]!.trim()).filter((f) => wak.has(f)).map((f) => wak.text(f))].flatMap((t) =>
+    [...t.matchAll(/pos_y="(-?\d+)"/g)].map((m) => Number(m[1])),
+  );
+  const rowsAbove = Math.max(0, Math.ceil(-Math.min(...sceneYs) / CHUNK) - offsetY);
+  const rowsBelow = Math.max(0, Math.ceil((Math.max(...sceneYs) + CHUNK) / CHUNK) - (info.height - offsetY));
+  const firstRow = cells.slice(0, info.width);
+  const lastRow = cells.slice(-info.width);
+  cells.unshift(...Array.from({ length: rowsAbove }, () => firstRow).flat());
+  cells.push(...Array.from({ length: rowsBelow }, () => lastRow).flat());
+  const H = info.height + rowsAbove + rowsBelow;
+  const OFFSET_Y = offsetY + rowsAbove;
+
   // Pixel scenes at fixed spots, inside the drawn world. Spliced scenes (.plz pieces) show by their PNG backgrounds.
   const x0 = -(info.width / 2) * CHUNK;
-  const y0 = -offsetY * CHUNK;
-  const inside = (x: number, y: number) => x >= x0 && x < x0 + info.width * CHUNK && y >= y0 && y < y0 + info.height * CHUNK;
+  const y0 = -OFFSET_Y * CHUNK;
+  const inside = (x: number, y: number) => x >= x0 && x < x0 + info.width * CHUNK && y >= y0 && y < y0 + H * CHUNK;
   const images = new Map<string, Buffer>();
   const scenes: MapScene[] = [];
   const imageKey = async (file: string | undefined) => {
@@ -369,7 +385,6 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
     if (t.x !== undefined && t.y !== undefined) portalTargets[f] = { x: t.x, y: t.y, absX: !!t.absX, absY: !!t.absY };
   }
   const portalImage = await imageKey('data/buildings_gfx/teleport_center.png');
-  const sceneXml = wak.text('data/biome/_pixel_scenes.xml');
   for (const m of sceneXml.matchAll(/<PixelScene\s[\s\S]*?>/g)) await addScene(m[0], 'pixel_scenes');
   for (const m of sceneXml.matchAll(/<Image\s[\s\S]*?>/g)) await addScene(m[0], 'background_images');
   for (const m of sceneXml.matchAll(/<File>([^<]+)<\/File>/g)) {
@@ -382,7 +397,7 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
   const biomeIndexAt = (x: number, y: number) => {
     const cx = Math.floor((x - x0) / CHUNK);
     const cy = Math.floor((y - y0) / CHUNK);
-    return cx < 0 || cy < 0 || cx >= info.width || cy >= info.height ? -1 : cells[cy * info.width + cx]!;
+    return cx < 0 || cy < 0 || cx >= info.width || cy >= H ? -1 : cells[cy * info.width + cx]!;
   };
   // A spliced scene's pieces are .plz we can't read, but its whole material picture sits beside its list, from the
   // 512 grid line at or above its first piece (as the Tree's does: 1024 × 2048 from −2048, −1536).
@@ -451,10 +466,12 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
   shops.push({ x: 2560 - 299, y: 13181 - 15 });
 
   // Areas: each 4-connected patch of a cave biome, by its bounding box. The game generates a biome's layout once per
-  // patch, over the whole box (checked against noita-tools' areas and its generated-map fixtures).
+  // patch, over the whole box (checked against noita-tools' areas and its generated-map fixtures). Only within
+  // biome_map.png: past it the layout isn't known, so those rows are drawn plain.
   const areas: WorldMap['areas'] = [];
   const seen = new Uint8Array(cells.length);
-  for (let i = 0; i < cells.length; i++) {
+  const mapRows = (y: number) => y >= rowsAbove && y < rowsAbove + info.height;
+  for (let i = rowsAbove * info.width; i < (rowsAbove + info.height) * info.width; i++) {
     if (seen[i] || !biomes[cells[i]!]!.wangTemplate) continue;
     const k = cells[i]!;
     const stack = [i];
@@ -472,7 +489,7 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
       y1 = Math.min(y1, y);
       y2 = Math.max(y2, y);
       for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]] as const) {
-        if (nx < 0 || ny < 0 || nx >= info.width || ny >= info.height) continue;
+        if (nx < 0 || nx >= info.width || !mapRows(ny)) continue;
         const m = ny * info.width + nx;
         if (!seen[m] && cells[m] === k) {
           seen[m] = 1;
@@ -483,6 +500,6 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
     areas.push({ biome: k, x1, y1, x2, y2 });
   }
 
-  const map: WorldMap = { w: info.width, h: info.height, offsetY, chunk: CHUNK, cells, biomes, scenes, shops, areas, portals, portalTargets, ...(portalImage ? { portalImage } : {}) };
+  const map: WorldMap = { w: info.width, h: H, offsetY: OFFSET_Y, mapTop: rowsAbove, chunk: CHUNK, cells, biomes, scenes, shops, areas, portals, portalTargets, ...(portalImage ? { portalImage } : {}) };
   return { map, images, backgrounds: [...backgrounds], wangImages };
 }

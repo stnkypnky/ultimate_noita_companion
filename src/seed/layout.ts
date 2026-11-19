@@ -16,13 +16,15 @@ export function areaParams(map: WorldMap, index: number, seed: number, overlay?:
   const b = map.biomes[a.biome]!;
   if (!b.wangTemplate) return null;
   const coal = COAL_MINE.has(b.id);
+  // The generator works in the game's biome-map rows, not the map's (which has the world past it added on top).
+  const top = map.mapTop ?? 0;
   return {
     template: b.wangTemplate,
     seed: seed >>> 0,
     width: widthFromPix(a.x1, a.x2 + 1),
-    height: widthFromPix(a.y1, a.y2 + 1),
+    height: widthFromPix(a.y1 - top, a.y2 + 1 - top),
     chunkX: a.x1,
-    chunkY: a.y1,
+    chunkY: a.y1 - top,
     coalMine: coal,
     blockOutRooms: BLOCK_OUT_ROOMS.has(b.id),
     randomMaterials: (b.randomMaterials ?? []).map((r) => ({ from: hex(r.from), to: r.to.map(hex) })),
