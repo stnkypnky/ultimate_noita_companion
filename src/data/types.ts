@@ -482,6 +482,10 @@ export type MapBiome = {
   randomMaterials?: { from: string; to: string[] }[];
   /** A cave biome's lua_script: where its rooms are placed (seed/poi.ts). */
   luaScript?: string;
+  /** A noise biome's depth layers (<MaterialComponent> noise bands, low = surface), read along `gradient`. */
+  layers?: { material: string; min: number; max: number }[];
+  /** World y where the layers' noise value is 0 and 1 (Topology mGradientStartY / mGradientEndY). */
+  gradient?: [number, number];
 };
 
 /** A pixel scene placed at a fixed world position. */

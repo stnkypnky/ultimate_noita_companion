@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Maximize, Minus, Plus } from 'lucide-react';
 import { gameUrl } from '@/data/store';
 import type { Material, WorldMap } from '@/data/types';
-import { biomeName, chunkWorld, displayMaterial, namedInGame, type makeVisibility } from './world';
+import { biomeName, chunkWorld, displayMaterial, groundBands, isLayered, namedInGame, surfaceWave, type makeVisibility } from './world';
 import type { AreaLayout } from '@/seed/layout';
 import type { PoiKind } from '@/seed/poi';
 import { poiCentre, type MapPoi } from './pois';
@@ -325,6 +325,8 @@ export function MapView({
   const [tick, setTick] = useState(0);
   const redraw = useCallback(() => setTick((t) => t + 1), []);
   const spots = useMemo(() => labelSpots(map), [map]);
+  /** By biome index: drawn in ground layers (the overworld). */
+  const layered = useMemo(() => map.biomes.map(isLayered), [map]);
   const worldW = map.w * map.chunk;
   const left = -(map.w / 2) * map.chunk;
   const top = -map.offsetY * map.chunk;
@@ -457,6 +459,40 @@ export function MapView({
         }
         // Rooms with no rock of their own (Holy Mountains, secret rooms) underground: just their backdrop. Biomes with
         // a generated layout: the backdrop, dimmed, behind the layout's rock (drawn next).
+        if (isLayered(b)) {
+          // The overworld: sky, then its ground layers by depth, the top one with a rolling edge.
+          ctx.fillStyle = SKY;
+          ctx.fillRect(rx, ry, rs, rs);
+          const wy0 = w.y;
+          const wy1 = w.y + map.chunk;
+          // Each layer from its (rolling) top edge down to the chunk's bottom; the next layer paints over the rest. The
+          // whole column rolls together, so thin surface layers keep their thickness.
+          const step = Math.max(32, 4 / v.s);
+          for (const band of groundBands(b)) {
+            // The roll is at most ±80 px; a layer the next one fully covers, or one still below the chunk, is skipped.
+            if (band.y1 + 80 <= wy0 || band.y0 - 80 >= wy1) continue;
+            ctx.fillStyle = fillFor(band.material);
+            const flat = band.y0 + 80 <= wy0;
+            if (flat) {
+              ctx.fillRect(rx, ry, rs, rs);
+              continue;
+            }
+            // Sampled every 32 world px, and at least every 4 screen px.
+            ctx.beginPath();
+            ctx.moveTo(rx, ry + rs);
+            for (let x = w.x; ; x += step) {
+              const xx = Math.min(x, w.x + map.chunk);
+              const edge = Math.min(wy1, Math.max(wy0, band.y0 - surfaceWave(xx)));
+              const [px, py] = toScreen(xx, edge);
+              ctx.lineTo(xx === w.x ? rx : xx >= w.x + map.chunk ? rx + rs : px, edge <= wy0 ? ry : py);
+              if (xx >= w.x + map.chunk) break;
+            }
+            ctx.lineTo(rx + rs, ry + rs);
+            ctx.closePath();
+            ctx.fill();
+          }
+          continue;
+        }
         const laidOut = caveBiomes.has(map.cells[cy * map.w + cx]!) || sceneAreas.has(b.id);
         const roomOnly = (!b.material && b.background && cy >= map.offsetY) || laidOut;
         const cave = (b.wang || roomOnly) && b.background ? backdropFor(b.background) : null;
@@ -495,7 +531,7 @@ export function MapView({
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) {
         const b = map.biomes[map.cells[cy * map.w + cx]!]!;
-        if (!vis.biome(b) || namedInGame(b) || !displayMaterial(b, cy < map.offsetY)) continue;
+        if (!vis.biome(b) || namedInGame(b) || isLayered(b) || !displayMaterial(b, cy < map.offsetY)) continue;
         const w = chunkWorld(map, cx, cy);
         const [sx, sy] = toScreen(w.x, w.y);
         ctx.fillStyle = 'rgba(0,0,0,0.45)';
@@ -532,11 +568,14 @@ export function MapView({
         const k = map.cells[cy * map.w + cx]!;
         const w = chunkWorld(map, cx, cy);
         const [sx, sy] = toScreen(w.x, w.y);
-        if (cx + 1 < map.w && map.cells[cy * map.w + cx + 1] !== k) {
+        // The overworld's pieces read as one landscape: no lines between them.
+        const scenery = (i: number, row: number) => layered[i]! || (row < map.offsetY && !map.biomes[i]!.wang && !displayMaterial(map.biomes[i]!, true));
+        const open = (j: number) => scenery(k, cy) && scenery(map.cells[j]!, Math.floor(j / map.w));
+        if (cx + 1 < map.w && map.cells[cy * map.w + cx + 1] !== k && !open(cy * map.w + cx + 1)) {
           ctx.moveTo(Math.round(sx + cs) + 0.5, sy);
           ctx.lineTo(Math.round(sx + cs) + 0.5, sy + cs);
         }
-        if (cy + 1 < map.h && map.cells[(cy + 1) * map.w + cx] !== k) {
+        if (cy + 1 < map.h && map.cells[(cy + 1) * map.w + cx] !== k && !open((cy + 1) * map.w + cx)) {
           ctx.moveTo(sx, Math.round(sy + cs) + 0.5);
           ctx.lineTo(sx + cs, Math.round(sy + cs) + 0.5);
         }
@@ -670,7 +709,7 @@ export function MapView({
         ctx.fillRect(sx - 2, sy - 2, 2, 2);
       }
     }
-  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, copies, caveBiomes, sceneAreas, wangColors, sceneColor, mx, my, markerKind, pois, cellAt]);
+  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, copies, caveBiomes, sceneAreas, wangColors, sceneColor, mx, my, markerKind, pois, cellAt, layered]);
 
   // Pointer: drag pans, two fingers pinch, a tap selects.
   const pointers = useRef(new Map<number, { x: number; y: number }>());

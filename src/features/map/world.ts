@@ -79,24 +79,81 @@ const NAMES: Record<string, string> = {
 };
 
 /**
- * The overworld biomes are procedural (noise, not wang tiles) and the map can't lay them out; it fills them with the
- * layer you see from the surface (from each biome's own <Materials>) rather than the rock that lies deep under it.
+ * The overworld biomes are procedural (noise, not wang tiles). The map draws them in their depth layers instead: open
+ * sky, then the surface (soil, sand, snow), the layer under it, and deep rock (see groundBands). Their pictures (the
+ * mountain, the pyramid, the stubs) are drawn over that.
  */
-const SURFACE_LOOK: Record<string, string> = {
-  desert: 'sand_surface',
-  scale: 'sand_surface',
-  pyramid_right: 'sandstone_surface',
-  winter: 'snow_static',
-  hills: 'soil',
-  hills2: 'soil',
-  hills_flat: 'soil',
-};
+const OVERWORLD_LAYERED = new Set([
+  'hills',
+  'hills2',
+  'hills_flat',
+  'desert',
+  'scale',
+  'winter',
+  'mountain_left_entrance',
+  'mountain_left_stub',
+  'mountain_right',
+  'mountain_right_stub',
+  'mountain_hall',
+  'mountain_top',
+  'mountain_tree',
+  'mountain_lake',
+  'mountain_floating_island',
+  'pyramid_top',
+  'pyramid_left',
+  'pyramid_right',
+  'pyramid_entrance',
+]);
+export { OVERWORLD_LAYERED };
 
-/** Above the ground line (y < 0) these overworld columns are open sky; the biome map marks them all the way up. */
-const SKY_ABOVE_GROUND = new Set(['hills', 'hills2', 'hills_flat', 'desert', 'winter', 'lake', 'scale']);
+/** Whether the map draws this biome in its depth layers. */
+export const isLayered = (b: MapBiome) => OVERWORLD_LAYERED.has(b.id) && !!b.layers?.length;
 
-/** The material a chunk is filled with on the map (undefined: sky). */
-export const displayMaterial = (b: MapBiome, aboveGround = false) => (aboveGround && SKY_ABOVE_GROUND.has(b.id) ? undefined : (SURFACE_LOOK[b.id] ?? b.material));
+export type GroundBand = { y0: number; y1: number; material: string };
+
+const bandCache = new WeakMap<MapBiome, GroundBand[]>();
+/**
+ * A layered biome's materials by world depth: the noise value climbs linearly from 0 at the gradient's start to 1 at
+ * its end, and at each value the matching layer that starts deepest wins (so the deep rock takes over from the sand
+ * above it where their ranges overlap). Above the first layer: open sky (no band).
+ */
+export function groundBands(b: MapBiome): GroundBand[] {
+  const have = bandCache.get(b);
+  if (have) return have;
+  const layers = b.layers ?? [];
+  const [start, end] = b.gradient ?? [-1024, 1024];
+  const yOf = (v: number) => start + v * (end - start);
+  // Every edge where the winning layer can change.
+  const cuts = [...new Set(layers.flatMap((l) => [l.min, l.max]))].sort((a, b) => a - b);
+  const out: GroundBand[] = [];
+  for (let i = 0; i + 1 < cuts.length; i++) {
+    const mid = (cuts[i]! + cuts[i + 1]!) / 2;
+    let win: (typeof layers)[number] | undefined;
+    for (const l of layers) if (l.min <= mid && mid < l.max && (!win || l.min >= win.min)) win = l;
+    if (!win) continue;
+    const y0 = yOf(cuts[i]!);
+    const y1 = yOf(cuts[i + 1]!);
+    const last = out.at(-1);
+    if (last && last.material === win.material && last.y1 === y0) last.y1 = y1;
+    else out.push({ y0, y1, material: win.material });
+  }
+  // The deepest layer carries on below its range.
+  if (out.length) out.at(-1)!.y1 = Infinity;
+  bandCache.set(b, out);
+  return out;
+}
+
+/** A gentle roll on the ground's top edge (world px, up to about ±80): only a look, not the seed's real terrain. */
+export const surfaceWave = (x: number) => 55 * Math.sin(x / 610) + 25 * Math.sin(x / 173 + 1.3);
+
+/**
+ * Above the ground line (y < 0) these are open sky: the lake's column, which the biome map marks all the way up, and the
+ * roadblock, solid rock everywhere by its noise but in the game just the rock its picture draws.
+ */
+const SKY_ABOVE_GROUND = new Set(['lake', 'roadblock']);
+
+/** The material a chunk is filled with on the map (undefined: sky). Layered biomes are drawn by groundBands. */
+export const displayMaterial = (b: MapBiome, aboveGround = false) => (aboveGround && SKY_ABOVE_GROUND.has(b.id) ? undefined : b.material);
 
 /** Pictures that are part of what's always shown, even in the overworld (the rest of the overworld's are secrets). */
 const OPEN_SCENES = new Set(['tree']);

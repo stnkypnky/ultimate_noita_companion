@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Material, WorldMap } from '../src/data/types.ts';
-import { biomeKey, biomeName, holyMountains, makeVisibility, orbOf, sceneKey } from '../src/features/map/world.ts';
+import { biomeKey, biomeName, groundBands, holyMountains, isLayered, makeVisibility, orbOf, OVERWORLD_LAYERED, sceneKey } from '../src/features/map/world.ts';
 import { SHOP_SPOTS } from '../src/seed/seed.ts';
 import { evalCond, initSceneCalls } from '../tools/extract/map.ts';
 import { portalDestination } from '../src/features/map/pois.ts';
@@ -150,5 +150,32 @@ describe('world map', () => {
     expect(makeVisibility(map, { all: false, visible: (k) => k === sceneKey(eye), orbs: [] }).scene(eye)).toBe(true);
     const all = makeVisibility(map, { all: true, visible: () => false, orbs: [] });
     expect(map.biomes.every((b) => all.biome(b)) && map.scenes.every((s) => all.scene(s))).toBe(true);
+  });
+});
+
+describe('overworld ground layers', () => {
+  const at = (id: string, y: number) => groundBands(byId(id)).find((b) => b.y0 <= y && y < b.y1)?.material;
+  it('draws the forest as sky, a thin soil surface, the olive sand under it, then rock', () => {
+    expect(at('hills', -300)).toBeUndefined();
+    expect(at('hills', -50)).toBe('soil');
+    expect(at('hills', 300)).toBe('sand_static');
+    expect(at('hills', 1000)).toBe('rock_static');
+    expect(at('hills', 20000)).toBe('rock_static');
+  });
+  it('draws the desert as a sand surface over sandstone, with rock deepest', () => {
+    const bands = groundBands(byId('desert'));
+    expect(bands[0]!.material).toBe('sand_surface');
+    expect(bands.map((b) => b.material)).toContain('sandstone_surface');
+    expect(bands.at(-1)!.material).toBe('rock_static');
+    expect(at('winter', -500)).toBeUndefined();
+    expect(at('winter', 2000)).toBe('snowrock_static');
+  });
+  it('has layers for every overworld biome it draws that way (so no stone boxes in the sky)', () => {
+    for (const id of OVERWORLD_LAYERED) {
+      const b = map.biomes.find((x) => x.id === id);
+      if (b) expect(isLayered(b), id).toBe(true);
+    }
+    expect(at('mountain_lake', -1000)).toBeUndefined();
+    expect(at('mountain_left_entrance', -400)).toBeUndefined();
   });
 });

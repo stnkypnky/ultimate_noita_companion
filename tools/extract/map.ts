@@ -21,6 +21,28 @@ function mainMaterial(xml: string) {
   return best?.name;
 }
 
+/**
+ * A procedural (noise) biome's depth layers: its enabled, common <MaterialComponent> noise bands, and the Topology's
+ * vertical gradient they are read along (the noise value climbs from 0 at mGradientStartY to 1 at mGradientEndY, so
+ * the low bands are the surface and the high ones the deep rock).
+ */
+export function layersOf(xml: string): { layers: { material: string; min: number; max: number }[]; gradient: [number, number] } | undefined {
+  const layers: { material: string; min: number; max: number }[] = [];
+  for (const m of xml.matchAll(/<MaterialComponent[\s\S]*?(?:<\/MaterialComponent>|\/>)/g)) {
+    const name = attr(m[0], 'material_name');
+    if (!name || attr(m[0], '_enabled') === '0' || attr(m[0], 'is_rare') === '1') continue;
+    const min = Number(attr(m[0], 'material_min'));
+    const max = Number(attr(m[0], 'material_max'));
+    if (Number.isFinite(min) && Number.isFinite(max) && max > min) layers.push({ material: name, min, max });
+  }
+  if (!layers.length) return undefined;
+  layers.sort((a, b) => a.min - b.min);
+  const top = /<Topology[\s\S]*?>/.exec(xml)?.[0] ?? '';
+  const start = Number(attr(top, 'mGradientStartY') ?? -1024);
+  const end = Number(attr(top, 'mGradientEndY') ?? 1024);
+  return { layers, gradient: [Number.isFinite(start) ? start : -1024, Number.isFinite(end) && end !== start ? end : 1024] };
+}
+
 /** The text of a biome script's init(), up to the next top-level function. */
 export const initBody = (src: string) => /function\s+init\s*\([^)]*\)([\s\S]*?)(?=\nfunction\s|$)/.exec(src)?.[1];
 
@@ -250,6 +272,7 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
         ...(mainMaterial(xml) ? { material: mainMaterial(xml)! } : {}),
         ...(bg ? { background: bg } : {}),
         wang: !!attr(xml, 'wang_template_file'),
+        ...(!attr(xml, 'wang_template_file') && layersOf(xml) ? layersOf(xml) : {}),
       });
       const script = attr(xml, 'lua_script');
       if (script && wak.has(script)) roomScripts.push([k, script]);
