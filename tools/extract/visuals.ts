@@ -28,10 +28,10 @@ const variant = (f: string) => f.replace(/\$\[(\d+)-\d+\]/g, '$1');
  * Every frame of a sprite's animation (the named one, else its default), as atlas images under stable keys,
  * so two entities using the same sprite share frames.
  */
-async function spriteLayer(
+export async function spriteLayer(
   wak: Wak,
   imageFile: string,
-  opts: { anim?: string; ox?: number; oy?: number; additive?: boolean; emissive?: boolean; alpha?: number; sx?: number; sy?: number },
+  opts: { anim?: string; ox?: number; oy?: number; additive?: boolean; emissive?: boolean; alpha?: number; sx?: number; sy?: number; maxFrames?: number; maxFrame?: number },
   images: Map<string, Buffer>,
 ): Promise<LayerOut | null> {
   const file = variant(imageFile);
@@ -60,7 +60,7 @@ async function spriteLayer(
       const fw = num(rect.attrs.frame_width, meta.width ?? 1);
       const fh = num(rect.attrs.frame_height, meta.height ?? 1);
       const shrink = rect.attrs.shrink_by_one_pixel === '1' ? 1 : 0;
-      const count = Math.min(MAX_FRAMES, Math.max(1, num(rect.attrs.frame_count, 1)));
+      const count = Math.min(opts.maxFrames ?? MAX_FRAMES, Math.max(1, num(rect.attrs.frame_count, 1)));
       const perRow = Math.max(1, num(rect.attrs.frames_per_row, count));
       const px = num(rect.attrs.pos_x, 0);
       const py = num(rect.attrs.pos_y, 0);
@@ -86,7 +86,8 @@ async function spriteLayer(
   if (!pngs.length) return null;
   const meta = await sharp(pngs[0]).metadata();
   const big = Math.max(meta.width ?? 1, meta.height ?? 1);
-  const k = big > MAX_FRAME ? MAX_FRAME / big : 1;
+  const maxFrame = opts.maxFrame ?? MAX_FRAME;
+  const k = big > maxFrame ? maxFrame / big : 1;
   const frames: string[] = [];
   for (let i = 0; i < pngs.length; i++) {
     const key = `${keyBase}|${i}`;

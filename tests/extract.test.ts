@@ -99,4 +99,32 @@ describe('bestiary', () => {
     expect(hurtta.attacks?.find((a) => a.kind === 'dash')?.damage).toEqual([6.25, 6.25]);
     expect(enemies.filter((e) => e.portrait).length).toBeGreaterThan(150);
   });
+
+  it('animates creatures from their sprite files', () => {
+    const hiisi = byId.get('shotgunner_weak')!;
+    expect(hiisi.anims?.map((a) => a.name).slice(0, 2)).toEqual(['stand', 'walk']);
+    expect(hiisi.anims![0]!.layers[0]!.frames).toHaveLength(6);
+    // Kalmamato: the head with body parts trailing behind it.
+    const worm = byId.get('worm_skull')!;
+    expect(worm.anims?.[0]?.layers.length).toBeGreaterThan(2);
+    expect(enemies.filter((e) => e.anims).length).toBeGreaterThan(160);
+  });
+
+  it('knows where creatures live, from the biome spawn tables', () => {
+    const where = (id: string) => byId.get(id)!.spawns?.map((s) => s.biome) ?? [];
+    expect(where('zombie_weak')).toContain('coalmine');
+    // Spawned as the Temple of the Art's own copy (animals/crypt/worm_skull.xml).
+    expect(where('worm_skull')).toContain('crypt');
+    const share = byId.get('firemage_weak')!.spawns!.find((s) => s.biome === 'coalmine')!.share;
+    expect(share).toBeGreaterThan(0.3);
+  });
+
+  it('links families and reads behavior', () => {
+    expect(byId.get('shotgunner_weak')!.variants).toContain('shotgunner');
+    expect(byId.get('shotgunner')!.variants).toContain('shotgunner_weak');
+    expect(byId.get('boss_centipede')!.variants).toBeUndefined();
+    expect(byId.get('shotgunner_weak')!.behavior).toMatchObject({ sight: 400, flees: 40, picksUp: true });
+    expect(byId.get('worm_skull')!.behavior?.aura).toEqual({ damage: 2.5, type: 'curse', radius: 16 });
+    expect(byId.get('shotgunner_weak')!.relations?.foes).toContain('zombie');
+  });
 });

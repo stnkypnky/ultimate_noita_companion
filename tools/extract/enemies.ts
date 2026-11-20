@@ -1,11 +1,13 @@
 import { basename } from 'node:path';
-import type { DamageType, Enemy } from '../../src/data/types.ts';
+import type { DamageType, Enemy, EnemyBehavior } from '../../src/data/types.ts';
 import { comp, comps, num, type El, type EntityLoader } from './entity.ts';
 import { humanize, tr, type Translations } from './translations.ts';
 import { buildProjectile } from './spells.ts';
-import { spriteFrame } from './visuals.ts';
+import { spriteFrame, spriteLayer, type LayerOut } from './visuals.ts';
+import { parseXml } from './entity.ts';
 import type { AtlasInput } from './sprites.ts';
 import type { Wak } from './wak.ts';
+import type { BiomeSpawns } from './spawns.ts';
 
 const HP = 25;
 
@@ -63,7 +65,9 @@ const PROTECTION: Record<string, string> = {
   PROTECTION_ALL: 'All damage',
 };
 
-export type EnemyBuild = { enemies: Enemy[]; portraits: AtlasInput[] };
+/** An enemy as built here: its animation frames are still image keys (packed into the atlas afterwards). */
+export type EnemyOut = Omit<Enemy, 'anims'> & { anims?: { name: string; layers: LayerOut[] }[] };
+export type EnemyBuild = { enemies: EnemyOut[]; portraits: AtlasInput[]; images: Map<string, Buffer>; scripts: Map<string, string[]> };
 
 export async function buildEnemies(
   iconFiles: string[],
@@ -74,7 +78,9 @@ export async function buildEnemies(
   spellNameByFile: Map<string, string>,
 ): Promise<EnemyBuild> {
   const portraits: AtlasInput[] = [];
-  const enemies: Enemy[] = [];
+  const enemies: EnemyOut[] = [];
+  const images = new Map<string, Buffer>();
+  const scripts = new Map<string, string[]>();
   for (const icon of iconFiles) {
     const id = basename(icon, '.png');
     const file = entityFile(wak, id);
@@ -84,7 +90,7 @@ export async function buildEnemies(
     const tags = (e?.attrs.tags ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     const hp = dm ? num(dm.attrs.max_hp, num(dm.attrs.hp, 0)) : 0;
 
-    const enemy: Enemy = {
+    const enemy: EnemyOut = {
       id,
       name: tr(t, e?.attrs.name, humanize(id)),
       icon: icons.get(icon) ?? { x: 0, y: 0, w: 0, h: 0 },
@@ -174,9 +180,133 @@ export async function buildEnemies(
     const frame = sprite ? await spriteFrame(wak, sprite) : null;
     if (frame) portraits.push({ key: id, png: frame.png });
     if (file) enemy.file = file;
+
+    const anims = sprite ? await animations(wak, e!, sprite, images) : [];
+    if (anims.length) enemy.anims = anims;
+    const behavior = behaviorOf(e, ai, loader);
+    if (Object.keys(behavior).length) enemy.behavior = behavior;
+    // Lua the creature runs (for finding the ones whose tricks live in scripts).
+    const lua = comps(e, 'LuaComponent').flatMap((l) => Object.entries(l.attrs).filter(([k, v]) => k.startsWith('script_') && v).map(([k, v]) => `${k}=${v}`));
+    if (lua.length) scripts.set(id, lua);
     enemies.push(enemy);
   }
-  return { enemies, portraits };
+  return { enemies, portraits, images, scripts };
+}
+
+/** Animations worth showing, in this order after the default one. */
+const ANIM_ORDER = ['stand', 'idle', 'walk', 'run', 'move', 'fly', 'swim', 'jump', 'attack', 'attack_ranged', 'attack_melee', 'attack_dash', 'throw', 'fire', 'shoot', 'charge', 'eat', 'open'];
+const ANIM_SKIP = /death|dead|die|corpse|ragdoll|hurt|damage|test|_old|^empty$|^none$/i;
+const MAX_ANIMS = 5;
+const ANIM_FRAMES = 16;
+const ANIM_SIZE = 96;
+
+/** Named animations in a <Sprite> file (default first). */
+function animNames(wak: Wak, file: string): string[] {
+  if (!file.endsWith('.xml') || !wak.has(file)) return [];
+  const sprite = parseXml(wak.text(file)).find((x) => x.tag === 'Sprite');
+  if (!sprite) return [];
+  const names = comps(sprite, 'RectAnimation').map((a) => a.attrs.name ?? '').filter((n) => n && !ANIM_SKIP.test(n));
+  const uniq = [...new Set(names)];
+  const def = sprite.attrs.default_animation;
+  const rank = (n: string) => (n === def ? -1 : ANIM_ORDER.indexOf(n) >= 0 ? ANIM_ORDER.indexOf(n) : 100);
+  return uniq.sort((a, b) => rank(a) - rank(b)).slice(0, MAX_ANIMS);
+}
+
+/**
+ * The creature's animations: its main sprite's named ones, each drawn with the entity's other visible sprites
+ * that share the animation (or are still images). A worm is drawn as its head with a few body parts behind it.
+ */
+async function animations(wak: Wak, e: El, main: El, images: Map<string, Buffer>): Promise<{ name: string; layers: LayerOut[] }[]> {
+  const file = String(main.attrs.image_file ?? '');
+  const names = animNames(wak, file);
+  const sprites = comps(e, 'SpriteComponent').filter(
+    (s) => s.attrs._enabled !== '0' && s.attrs.image_file && !s.attrs.image_file.includes('/ui_gfx/') && !SPRITE_SKIP.test(s.attrs.image_file) && !SPRITE_SKIP.test(s.attrs._tags ?? ''),
+  );
+  const worm = comp(e, 'WormComponent');
+  // Noita draws lower z_index in front: draw back to front.
+  const z = (s: El) => num(s.attrs.z_index, 0);
+  const opts = (s: El, anim?: string) => ({
+    ...(anim ? { anim } : {}),
+    ox: num(s.attrs.offset_x, 0),
+    oy: num(s.attrs.offset_y, 0),
+    additive: s.attrs.additive === '1',
+    emissive: s.attrs.emissive === '1',
+    alpha: num(s.attrs.alpha, 1),
+    maxFrames: ANIM_FRAMES,
+    maxFrame: ANIM_SIZE,
+  });
+  const out: { name: string; layers: LayerOut[] }[] = [];
+  for (const name of names.length ? names : ['']) {
+    const layers: LayerOut[] = [];
+    if (worm) {
+      // Head, then body parts and the tail trailing to the left, part_distance apart.
+      const gap = num(worm.attrs.part_distance, 10);
+      const parts = sprites.filter((s) => s !== main);
+      const body = parts.filter((s) => !/tail/.test(s.attrs.image_file!)).slice(0, 3);
+      const tail = parts.find((s) => /tail/.test(s.attrs.image_file!));
+      const chain = [...(tail ? [tail] : []), ...body.reverse()];
+      for (let i = 0; i < chain.length; i++) {
+        const s = chain[i]!;
+        const shift = gap * (chain.length - i);
+        const l = await spriteLayer(wak, s.attrs.image_file!, opts(s, name || undefined), images);
+        // spriteLayer takes the pivot from the sprite file; push it along the chain.
+        if (l) layers.push({ ...l, ox: l.ox + shift });
+      }
+      const head = await spriteLayer(wak, file, opts(main, name || undefined), images);
+      if (head) layers.push(head);
+    } else {
+      for (const s of [...sprites].sort((a, b) => z(b) - z(a))) {
+        const f = String(s.attrs.image_file);
+        const isMain = s === main;
+        // Other layers join only if they're still images or animate with the same name.
+        if (!isMain && f.endsWith('.xml') && name && !animNames(wak, f).includes(name)) continue;
+        const l = await spriteLayer(wak, f, opts(s, isMain || f.endsWith('.xml') ? name || undefined : undefined), images);
+        if (l) layers.push(l);
+      }
+    }
+    if (layers.length) out.push({ name: name || 'still', layers });
+  }
+  return out;
+}
+
+const SPRITE_SKIP = /health_bar|shield|glow|light|outline|aura|_emissive|hotspot/;
+
+/** Plain facts from its AI and parts; the app turns them into sentences. */
+function behaviorOf(e: El | null, ai: El | undefined, loader: EntityLoader): EnemyBehavior {
+  const b: EnemyBehavior = {};
+  const a = ai?.attrs ?? {};
+  if (ai) {
+    if (a.sense_creatures !== '0') b.sight = num(a.creature_detection_range_x, 50);
+    if (a.sense_creatures_through_walls === '1') b.throughWalls = true;
+    if (a.hide_from_prey === '1') b.hides = true;
+    const canFly = a.can_fly !== '0';
+    const flee = num(a.escape_if_damaged_probability, 30);
+    if (!canFly && flee > 0) b.flees = flee;
+    if (a.attack_ranged_enabled === '1') {
+      if (a.attack_ranged_predict === '1') b.predicts = true;
+      const min = num(a.attack_ranged_min_distance, 10);
+      if (min > 20) b.minRange = min;
+      if (a.attack_ranged_use_message === '1') b.wand = true;
+      const proj = buildProjectile(a.attack_ranged_entity_file || 'data/entities/projectiles/spear.xml', loader);
+      const fx = (proj?.effects ?? []).map((x) => x.replace(/\.xml$/, ''));
+      if (fx.length) b.inflicts = [...new Set(fx)];
+    }
+    if (a.tries_to_ranged_attack_friends === '1') b.helpsFriends = true;
+    if (a.can_fly === '0' && a.can_walk === '0') b.immobile = true;
+  }
+  if (comp(e, 'AdvancedFishAIComponent') || comp(e, 'FishAIComponent')) b.swims = true;
+  if (comp(e, 'TeleportComponent') || comps(e, 'LuaComponent').some((l) => /teleport/i.test(Object.values(l.attrs).join(' ')))) b.teleports = true;
+  if (comp(e, 'ItemPickUpperComponent')) b.picksUp = true;
+  if (comp(e, 'EnergyShieldComponent')) b.shield = true;
+  if (comp(e, 'PhysicsAIComponent')) b.physics = true;
+  if (comps(e, 'GameEffectComponent').some((g) => g.attrs.effect === 'INVISIBILITY' && num(g.attrs.frames, 0) < 0)) b.invisible = true;
+  if (comp(e, 'CellEaterComponent') || comp(e, 'WormComponent')) b.eats = true;
+  const near = comp(e, 'DamageNearbyEntitiesComponent');
+  if (near) b.aura = { damage: round(num(near.attrs.damage, 0.1) * HP), type: (near.attrs.damage_type ?? 'DAMAGE_MELEE').replace(/^DAMAGE_/, '').toLowerCase(), radius: num(near.attrs.radius, 10) };
+  const deathScripts = comps(e, 'LuaComponent').map((l) => String(l.attrs.script_death ?? '')).filter(Boolean);
+  if (comp(e, 'ExplodeOnDamageComponent') || deathScripts.some((s) => /explo/i.test(s))) b.explodes = true;
+
+  return b;
 }
 
 /** The sprite that shows the creature itself (not its health bar, shield or glow). */
@@ -188,3 +318,58 @@ function mainSprite(e: El | null): El | undefined {
 
 /** Two decimals: the wiki quotes 12.5 health and 6.25 damage. */
 const round = (n: number) => Math.round(n * 100) / 100;
+
+/** Not a family: every boss starts with boss_, and these words are shared by unrelated creatures. */
+const NOT_FAMILY = new Set(['boss', 'chest', 'effect', 'giant', 'big', 'mage', 'ghost', 'statue', 'friend']);
+
+/**
+ * What ties creatures together: the biomes that spawn them, their family (same first word in the id:
+ * shotgunner/shotgunner_weak, the scavenger_* Hiisi, the worms), and how their herds get along.
+ */
+export function linkEnemies(enemies: EnemyOut[], biomes: BiomeSpawns[], relationsCsv: string) {
+  const byFile = new Map(enemies.filter((e) => e.file).map((e) => [e.file!, e]));
+  const byId = new Map(enemies.map((e) => [e.id, e]));
+  // Biomes also spawn their own copies (animals/crypt/worm_skull.xml): the creature of the same name.
+  const enemyOf = (file: string) => byFile.get(file) ?? (file.includes('/animals/') ? byId.get(basename(file, '.xml')) : undefined);
+  const SHOWN_SHARE = 0.001;
+  for (const b of biomes) {
+    const best = new Map<EnemyOut, { share: number; count: [number, number] }>();
+    for (const x of b.entries) {
+      const e = enemyOf(x.file);
+      if (!e || x.share < SHOWN_SHARE) continue;
+      const was = best.get(e);
+      best.set(e, was ? { share: Math.max(was.share, x.share), count: [Math.min(was.count[0], x.count[0]), Math.max(was.count[1], x.count[1])] } : { share: x.share, count: [...x.count] });
+    }
+    for (const [e, s] of best) (e.spawns ??= []).push({ biome: b.id, name: b.name, share: Math.round(s.share * 1000) / 1000, count: [Math.max(1, s.count[0]), Math.max(1, s.count[1])] });
+  }
+  for (const e of enemies) e.spawns?.sort((a, b) => b.share - a.share);
+
+  const family = (id: string) => (id.includes('_') ? id.split('_')[0]! : id);
+  const groups = new Map<string, string[]>();
+  for (const e of enemies) {
+    const f = family(e.id);
+    if (!NOT_FAMILY.has(f)) groups.set(f, [...(groups.get(f) ?? []), e.id]);
+  }
+  for (const e of enemies) {
+    const g = groups.get(family(e.id));
+    if (g && g.length > 1) e.variants = g.filter((x) => x !== e.id);
+  }
+
+  // genome_relations.csv: row herd's feeling towards each column herd, 0 (hostile) to 100 (friendly).
+  const rows = relationsCsv.trim().split(/\r?\n/).map((l) => l.split(',').map((s) => s.trim()));
+  const head = rows[0]!.slice(1);
+  const feel = new Map(rows.slice(1).map((r) => [r[0]!, new Map(head.map((h, i) => [h, Number(r[i + 1])]))]));
+  const herds = new Set(enemies.map((e) => e.herd).filter(Boolean));
+  for (const e of enemies) {
+    const mine = e.herd ? feel.get(e.herd) : undefined;
+    if (!mine) continue;
+    const allies: string[] = [];
+    const foes: string[] = [];
+    for (const [h, v] of mine) {
+      if (h === e.herd || !herds.has(h) || !Number.isFinite(v)) continue;
+      if (v >= 80) allies.push(h);
+      else if (v <= 0) foes.push(h);
+    }
+    e.relations = { allies, foes };
+  }
+}

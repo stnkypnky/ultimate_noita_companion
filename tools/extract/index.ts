@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import sharp from 'sharp';
-import type { EntityVisual, GameVersion, Item, Projectile, RangeProp, SpriteLayer } from '../../src/data/types.ts';
+import type { Enemy, EntityVisual, GameVersion, Item, Projectile, RangeProp, SpriteLayer } from '../../src/data/types.ts';
 import { collectItems } from './items.ts';
 import { collectVisuals, rangeProps, type LayerOut } from './visuals.ts';
 import { rangeKit } from './kit.ts';
@@ -17,7 +17,8 @@ import { parseTranslations } from './translations.ts';
 import { buildProjectile, buildSpells, type RawAction } from './spells.ts';
 import { buildPerks, type RawPerk } from './perks.ts';
 import { buildMaterials } from './materials.ts';
-import { buildEnemies, enemyIconFiles } from './enemies.ts';
+import { buildEnemies, enemyIconFiles, linkEnemies } from './enemies.ts';
+import { biomeSpawns } from './spawns.ts';
 import { EntityLoader } from './entity.ts';
 import { buildAtlas, buildPackedAtlas, firstFrame } from './sprites.ts';
 import { bitmapFont } from './fonts.ts';
@@ -91,9 +92,17 @@ const enemyAtlas = await buildAtlas(await Promise.all(enemyIcons.map(async (f) =
 const spellNameByFile = new Map<string, string>();
 for (const s of spells) for (const f of s.projectiles) if (!spellNameByFile.has(f)) spellNameByFile.set(f, s.name);
 const bestiary = await buildEnemies(enemyIcons, wak, loader, t, enemyAtlas.rects, spellNameByFile);
-const portraitAtlas = await buildPackedAtlas(bestiary.portraits, 1024);
-const enemies = bestiary.enemies.map((e) => ({ ...e, ...(portraitAtlas.rects.has(e.id) ? { portrait: portraitAtlas.rects.get(e.id)! } : {}) }));
-console.log(`enemies: ${enemies.length}, ${bestiary.portraits.length} portraits`);
+linkEnemies(bestiary.enemies, await biomeSpawns(wak, t), wak.text('data/genome_relations.csv'));
+// Portraits and every animation frame share one atlas.
+const portraitAtlas = await buildPackedAtlas([...bestiary.portraits, ...[...bestiary.images].map(([key, png]) => ({ key: `f:${key}`, png }))], 2048);
+const frameIcon = (k: string) => portraitAtlas.rects.get(`f:${k}`) ?? { x: 0, y: 0, w: 0, h: 0 };
+const enemies: Enemy[] = bestiary.enemies.map(({ anims, ...e }) => ({
+  ...e,
+  ...(portraitAtlas.rects.has(e.id) ? { portrait: portraitAtlas.rects.get(e.id)! } : {}),
+  ...(anims ? { anims: anims.map((a) => ({ name: a.name, layers: a.layers.map((l) => ({ ...l, frames: l.frames.map(frameIcon) })) })) } : {}),
+}));
+console.log(`enemies: ${enemies.length}, ${bestiary.portraits.length} portraits, ${bestiary.images.size} frames, atlas ${portraitAtlas.size.join('x')}`);
+if (process.env.ENEMY_SCRIPTS) for (const [id, s] of bestiary.scripts) console.log(`  ${id}: ${s.join(' ')}`);
 
 // ---------- Items (world pickups) ----------
 const itemData = await collectItems(wak, loader, t);

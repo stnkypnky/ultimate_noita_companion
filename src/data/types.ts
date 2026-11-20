@@ -149,6 +149,54 @@ export type Enemy = {
   moves?: { speed?: number; flies?: boolean; digs?: boolean };
   /** GenomeDataComponent herd (who it fights alongside). */
   herd?: string;
+  /** Its sprite's animations (bestiary atlas), the default one first; layers draw back to front. */
+  anims?: { name: string; layers: SpriteLayer[] }[];
+  behavior?: EnemyBehavior;
+  /** Biomes whose spawn tables hold it: `share` is its chance among that table's creatures. */
+  spawns?: { biome: string; name: string; share: number; count: [number, number] }[];
+  /** Weaker, stronger or otherwise related versions (enemy ids). */
+  variants?: string[];
+  /** Herds (genome_relations.csv) it gets along with, and ones it goes after. */
+  relations?: { allies: string[]; foes: string[] };
+};
+
+/** What its game files say about how it behaves (the app words it). */
+export type EnemyBehavior = {
+  /** creature_detection_range_x: how far it looks for prey, px. */
+  sight?: number;
+  /** Sees through walls. */
+  throughWalls?: boolean;
+  /** Retreats and hides after hitting you (hide_from_prey). */
+  hides?: boolean;
+  /** Chance (%) it runs away when hurt instead of fighting back (walkers only). */
+  flees?: number;
+  /** Aims ahead of a moving target. */
+  predicts?: boolean;
+  /** Closest it will shoot from, px. */
+  minRange?: number;
+  /** Shoots its friends: healers and buffers. */
+  helpsFriends?: boolean;
+  /** Has a wand (fires by "using an item"). */
+  wand?: boolean;
+  swims?: boolean;
+  teleports?: boolean;
+  /** Picks up wands and items it finds. */
+  picksUp?: boolean;
+  shield?: boolean;
+  /** Physics body steered by forces (drones, eyes). */
+  physics?: boolean;
+  /** Can't move. */
+  immobile?: boolean;
+  invisible?: boolean;
+  /** Hurts whoever stands close (DamageNearbyEntitiesComponent): damage per hit and its type. */
+  aura?: { damage: number; type: string; radius: number };
+  /** Explodes when it dies or when hit (ExplodeOnDamageComponent / death scripts). */
+  explodes?: boolean;
+
+  /** Status effects its attacks put on you (effect entity names, e.g. "effect_frozen"). */
+  inflicts?: string[];
+  /** It eats material (cell eater, worms). */
+  eats?: boolean;
 };
 
 /** One SpriteComponent: its animation frames in the projectile atlas, played from the entity's birth. */
