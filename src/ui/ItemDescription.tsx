@@ -34,7 +34,7 @@ function CompanionNote({ info, quiet }: { info: ItemInfo; quiet: boolean }) {
 }
 
 /** "(companion note)" with where it came from: a wiki link or the script path. */
-function Source({ source }: { source: string }) {
+export function Source({ source }: { source: string }) {
   if (source.startsWith('http'))
     return (
       <a href={source} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-[11px] whitespace-nowrap text-faint hover:text-gold">

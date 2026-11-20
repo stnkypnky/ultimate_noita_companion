@@ -131,7 +131,7 @@ export async function buildEnemies(
 
     const immune = [
       ...tags.map((tag) => IMMUNE_TAGS[tag]),
-      ...comps(e, 'GameEffectComponent').map((g) => (num(g.attrs.frames, 0) < 0 ? PROTECTION[g.attrs.effect ?? ''] : undefined)),
+      ...effects(e).map((g) => (num(g.attrs.frames, 0) < 0 ? PROTECTION[g.attrs.effect ?? ''] : undefined)),
     ].filter((x): x is string => !!x);
     if (immune.length) enemy.immune = [...new Set(immune)];
 
@@ -269,6 +269,9 @@ async function animations(wak: Wak, e: El, main: El, images: Map<string, Buffer>
   return out;
 }
 
+/** Its lasting effects, including those on child entities (Kalmamato's freeze protection sits on one). */
+const effects = (e: El | null) => [...comps(e, 'GameEffectComponent'), ...comps(e, 'Entity').flatMap((c) => comps(c, 'GameEffectComponent'))];
+
 const SPRITE_SKIP = /health_bar|shield|glow|light|outline|aura|_emissive|hotspot/;
 
 /** Plain facts from its AI and parts; the app turns them into sentences. */
@@ -299,7 +302,7 @@ function behaviorOf(e: El | null, ai: El | undefined, loader: EntityLoader): Ene
   if (comp(e, 'ItemPickUpperComponent')) b.picksUp = true;
   if (comp(e, 'EnergyShieldComponent')) b.shield = true;
   if (comp(e, 'PhysicsAIComponent')) b.physics = true;
-  if (comps(e, 'GameEffectComponent').some((g) => g.attrs.effect === 'INVISIBILITY' && num(g.attrs.frames, 0) < 0)) b.invisible = true;
+  if (effects(e).some((g) => g.attrs.effect === 'INVISIBILITY' && num(g.attrs.frames, 0) < 0)) b.invisible = true;
   if (comp(e, 'CellEaterComponent') || comp(e, 'WormComponent')) b.eats = true;
   const near = comp(e, 'DamageNearbyEntitiesComponent');
   if (near) b.aura = { damage: round(num(near.attrs.damage, 0.1) * HP), type: (near.attrs.damage_type ?? 'DAMAGE_MELEE').replace(/^DAMAGE_/, '').toLowerCase(), radius: num(near.attrs.radius, 10) };
