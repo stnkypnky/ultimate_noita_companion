@@ -220,7 +220,9 @@ async function animations(wak: Wak, e: El, main: El, images: Map<string, Buffer>
   const file = String(main.attrs.image_file ?? '');
   const names = animNames(wak, file);
   const sprites = comps(e, 'SpriteComponent').filter(
-    (s) => s.attrs._enabled !== '0' && s.attrs.image_file && !s.attrs.image_file.includes('/ui_gfx/') && !SPRITE_SKIP.test(s.attrs.image_file) && !SPRITE_SKIP.test(s.attrs._tags ?? ''),
+    (s) =>
+      s === main ||
+      (s.attrs._enabled !== '0' && s.attrs.image_file && !s.attrs.image_file.includes('/ui_gfx/') && !notBody(s) && !SPRITE_SKIP.test(s.attrs.image_file) && !SPRITE_SKIP.test(s.attrs._tags ?? '')),
   );
   const worm = comp(e, 'WormComponent');
   // Noita draws lower z_index in front: draw back to front.
@@ -247,7 +249,8 @@ async function animations(wak: Wak, e: El, main: El, images: Map<string, Buffer>
       const chain = [...(tail ? [tail] : []), ...body.reverse()];
       for (let i = 0; i < chain.length; i++) {
         const s = chain[i]!;
-        const shift = gap * (chain.length - i);
+        // The first body part sits on the head's pivot (the head is drawn over it), so the chain stays joined.
+        const shift = gap * (chain.length - 1 - i);
         const l = await spriteLayer(wak, s.attrs.image_file!, opts(s, name || undefined), images);
         // spriteLayer takes the pivot from the sprite file; push it along the chain.
         if (l) layers.push({ ...l, ox: l.ox + shift });
@@ -264,7 +267,16 @@ async function animations(wak: Wak, e: El, main: El, images: Map<string, Buffer>
         if (l) layers.push(l);
       }
     }
-    if (layers.length) out.push({ name: name || 'still', layers });
+    if (!layers.length) continue;
+    // Many sheets copy one pose under every name (Hohtava hyypiö, Pikkumato's "eat"): keep the first.
+    const pixels = (ls: LayerOut[]) => ls.flatMap((l) => l.frames.map((k) => images.get(k)));
+    const same = (a: LayerOut[], b: LayerOut[]) => {
+      const pa = pixels(a);
+      const pb = pixels(b);
+      return pa.length === pb.length && pa.every((x, i) => !!x && !!pb[i] && x.equals(pb[i]!));
+    };
+    if (out.some((o) => same(o.layers, layers))) continue;
+    out.push({ name: name || 'still', layers });
   }
   return out;
 }
@@ -272,7 +284,10 @@ async function animations(wak: Wak, e: El, main: El, images: Map<string, Buffer>
 /** Its lasting effects, including those on child entities (Kalmamato's freeze protection sits on one). */
 const effects = (e: El | null) => [...comps(e, 'GameEffectComponent'), ...comps(e, 'Entity').flatMap((c) => comps(c, 'GameEffectComponent'))];
 
-const SPRITE_SKIP = /health_bar|shield|glow|light|outline|aura|_emissive|hotspot/;
+// glow/light but not wraith_glowing or a lightning mage: those are the creature.
+const SPRITE_SKIP = /health_bar|shield|glow(?!ing)|light(?!ning)|outline|aura|_emissive|hotspot|fog_of_war/;
+/** Sprites that aren't the creature: the hole it punches in the fog of war, and the like. */
+const notBody = (s: El) => s.attrs.fog_of_war_hole === '1' || /fog_of_war/.test(s.attrs.image_file ?? '');
 
 /** Plain facts from its AI and parts; the app turns them into sentences. */
 function behaviorOf(e: El | null, ai: El | undefined, loader: EntityLoader): EnemyBehavior {
@@ -314,8 +329,8 @@ function behaviorOf(e: El | null, ai: El | undefined, loader: EntityLoader): Ene
 
 /** The sprite that shows the creature itself (not its health bar, shield or glow). */
 function mainSprite(e: El | null): El | undefined {
-  const sprites = comps(e, 'SpriteComponent').filter((s) => s.attrs._enabled !== '0' && s.attrs.image_file && !s.attrs.image_file.includes('/ui_gfx/'));
-  const skip = /health_bar|shield|glow|light|emissive|_emissive|outline|aura/;
+  const sprites = comps(e, 'SpriteComponent').filter((s) => s.attrs._enabled !== '0' && s.attrs.image_file && !s.attrs.image_file.includes('/ui_gfx/') && !notBody(s));
+  const skip = /health_bar|shield|glow(?!ing)|light(?!ning)|emissive|outline|aura/;
   return sprites.find((s) => !skip.test(s.attrs.image_file!) && !skip.test(s.attrs._tags ?? '')) ?? sprites[0];
 }
 
