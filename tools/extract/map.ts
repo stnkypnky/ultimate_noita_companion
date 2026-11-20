@@ -366,7 +366,10 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
         if (!look) continue;
         if (!sizes.has(look)) sizes.set(look, await sharp(images.get(look)!).metadata());
         const meta = sizes.get(look)!;
-        scenes.push({ id: biomes[k]!.id, file: call.file, from: 'biome', x: c.x + call.dx, y: c.y + call.dy, w: meta.width ?? 0, h: meta.height ?? 0, image: look, ...(back && back !== look ? { background: back } : {}), ...(!visual ? { materials: true } : {}) });
+        // A noise biome's room with a drawn visual: its material picture too, which holds the solid body the visual
+        // only outlines (the mountain's rock is white there). Only up on the surface, where the map draws no rock behind it.
+        const mask = visual && c.y <= 0 && biomes[k]!.layers && !biomes[k]!.wang ? await imageKey(call.file) : undefined;
+        scenes.push({ id: biomes[k]!.id, file: call.file, from: 'biome', x: c.x + call.dx, y: c.y + call.dy, w: meta.width ?? 0, h: meta.height ?? 0, image: look, ...(back && back !== look ? { background: back } : {}), ...(!visual ? { materials: true } : {}), ...(mask ? { mask } : {}) });
       }
     }
     if (biomes[k]!.wangTemplate) continue;

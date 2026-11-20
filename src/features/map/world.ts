@@ -143,6 +143,13 @@ export function groundBands(b: MapBiome): GroundBand[] {
   return out;
 }
 
+/**
+ * What a layered biome's pictures are made of where their material file is white: the layer under the surface (the
+ * mountain's hard rock, the pyramid's sandstone, the forest's sand). In the game that white keeps the ground already
+ * there; the map's flat layers have open sky up there, so it draws the body the wiki maps show.
+ */
+export const bodyMaterial = (b: MapBiome) => (isLayered(b) ? (groundBands(b)[1] ?? groundBands(b)[0])?.material : undefined);
+
 /** A gentle roll on the ground's top edge (world px, up to about ±80): only a look, not the seed's real terrain. */
 export const surfaceWave = (x: number) => 55 * Math.sin(x / 610) + 25 * Math.sin(x / 173 + 1.3);
 

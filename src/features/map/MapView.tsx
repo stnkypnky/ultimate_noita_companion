@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Maximize, Minus, Plus } from 'lucide-react';
 import { gameUrl } from '@/data/store';
 import type { Material, WorldMap } from '@/data/types';
-import { biomeName, chunkWorld, displayMaterial, groundBands, isLayered, namedInGame, surfaceWave, type makeVisibility } from './world';
+import { biomeName, bodyMaterial, chunkWorld, displayMaterial, groundBands, isLayered, namedInGame, surfaceWave, type makeVisibility } from './world';
 import type { AreaLayout } from '@/seed/layout';
 import type { PoiKind } from '@/seed/poi';
 import { poiCentre, type MapPoi } from './pois';
@@ -31,7 +31,36 @@ function image(url: string, onLoad: () => void) {
 
 /** Material-file pictures recoloured as their materials, by URL; null while loading. */
 const recoloured = new Map<string, HTMLCanvasElement | null>();
-function materialPicture(url: string, colorOf: (rgb: number) => readonly [number, number, number, number] | null, onLoad: () => void, variant = '') {
+/** A material texture's pixels by URL (null: failed). */
+const texturePixels = new Map<string, Promise<ImageData | null>>();
+function texture(url: string) {
+  let p = texturePixels.get(url);
+  if (!p) {
+    p = fetch(url)
+      .then((r) => r.blob())
+      .then((b) => createImageBitmap(b))
+      .then((bmp) => {
+        const c = document.createElement('canvas');
+        c.width = bmp.width;
+        c.height = bmp.height;
+        const ctx = c.getContext('2d', { willReadFrequently: true })!;
+        ctx.drawImage(bmp, 0, 0);
+        return ctx.getImageData(0, 0, c.width, c.height);
+      })
+      .catch(() => null);
+    texturePixels.set(url, p);
+  }
+  return p;
+}
+
+function materialPicture(
+  url: string,
+  colorOf: (rgb: number) => readonly [number, number, number, number] | null,
+  onLoad: () => void,
+  variant = '',
+  /** Solid materials drawn with their texture (as the game does), aligned to the world at the picture's corner. */
+  textured?: { textureOf: (rgb: number) => string | undefined; x: number; y: number },
+) {
   const key = `${url}#${variant}`;
   if (recoloured.has(key)) return recoloured.get(key) ?? null;
   recoloured.set(key, null);
@@ -39,7 +68,7 @@ function materialPicture(url: string, colorOf: (rgb: number) => readonly [number
     .then((r) => r.blob())
     // The stored key colours, untouched by colour management.
     .then((b) => createImageBitmap(b, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' }))
-    .then((bmp) => {
+    .then(async (bmp) => {
       const c = document.createElement('canvas');
       c.width = bmp.width;
       c.height = bmp.height;
@@ -47,10 +76,30 @@ function materialPicture(url: string, colorOf: (rgb: number) => readonly [number
       ctx.drawImage(bmp, 0, 0);
       const img = ctx.getImageData(0, 0, c.width, c.height);
       const d = img.data;
+      // The textures this picture uses, by key colour.
+      const tex = new Map<number, ImageData | null>();
+      if (textured) {
+        for (let i = 0; i < d.length; i += 4) {
+          const rgb = (d[i]! << 16) | (d[i + 1]! << 8) | d[i + 2]!;
+          if (!d[i + 3] || tex.has(rgb)) continue;
+          const t = textured.textureOf(rgb);
+          tex.set(rgb, t ? await texture(t) : null);
+        }
+      }
       for (let i = 0; i < d.length; i += 4) {
-        const m = d[i + 3] ? colorOf((d[i]! << 16) | (d[i + 1]! << 8) | d[i + 2]!) : null;
+        const rgb = (d[i]! << 16) | (d[i + 1]! << 8) | d[i + 2]!;
+        const m = d[i + 3] ? colorOf(rgb) : null;
         if (!m) {
           d[i + 3] = 0;
+          continue;
+        }
+        const t = tex.get(rgb);
+        if (t && textured) {
+          const p = i / 4;
+          const tx = (((textured.x + (p % c.width)) % t.width) + t.width) % t.width;
+          const ty = (((textured.y + Math.floor(p / c.width)) % t.height) + t.height) % t.height;
+          const o = (ty * t.width + tx) * 4;
+          [d[i], d[i + 1], d[i + 2], d[i + 3]] = [t.data[o]!, t.data[o + 1]!, t.data[o + 2]!, m[3]];
           continue;
         }
         [d[i], d[i + 1], d[i + 2], d[i + 3]] = m;
@@ -313,7 +362,8 @@ export function MapView({
   const sceneColor = useCallback(
     (rgb: number, id?: string) => {
       const m = materialById.get(id ?? wangColors?.[rgb.toString(16).padStart(6, '0')] ?? '');
-      if (!m) return null;
+      // Air is empty, not a dark liquid.
+      if (!m || m.id === 'air') return null;
       return [...rgbOfHex(m.look ?? m.color), m.state === 'gas' ? 90 : m.state === 'liquid' ? 210 : 255] as const;
     },
     [materialById, wangColors],
@@ -327,6 +377,7 @@ export function MapView({
   const spots = useMemo(() => labelSpots(map), [map]);
   /** By biome index: drawn in ground layers (the overworld). */
   const layered = useMemo(() => map.biomes.map(isLayered), [map]);
+  const biomeById = useMemo(() => new Map(map.biomes.map((b) => [b.id, b])), [map]);
   const worldW = map.w * map.chunk;
   const left = -(map.w / 2) * map.chunk;
   const top = -map.offsetY * map.chunk;
@@ -545,13 +596,26 @@ export function MapView({
       const sw = sc.w * v.s;
       const sh = sc.h * v.s;
       if (sx > size.w || sy > size.h || sx + sw < 0 || sy + sh < 0 || sw < 1) continue;
-      for (const key of [sc.background, sc.image]) {
+      // An overworld room's white is its biome's body rock (the mountain); a whole area's picture's, that area's rock.
+      const body = sc.rock ? undefined : sc.from === 'biome' ? bodyMaterial(biomeById.get(sc.id)!) : undefined;
+      const rockId = sc.rock ?? body;
+      // The overworld's rooms show their solid materials' textures (the mountain's speckled rock).
+      const textured = body
+        ? {
+            x: sc.x,
+            y: sc.y,
+            textureOf: (rgb: number) => {
+              const m = materialById.get(rgb === 0xffffff ? body : (wangColors?.[rgb.toString(16).padStart(6, '0')] ?? ''));
+              return m?.texture && m.state === 'solid' ? gameUrl(`materials/${m.texture.split('/').pop()}`) : undefined;
+            },
+          }
+        : undefined;
+      for (const key of [sc.background, sc.mask, sc.image]) {
         if (!key) continue;
-        if (key === sc.image && sc.materials) {
+        if (key === sc.mask || (key === sc.image && sc.materials)) {
           if (!wangColors) continue;
-          // A whole area's picture: its white is that area's rock.
-          const rock = sc.rock ? sceneColor(0, sc.rock) : null;
-          const pic = materialPicture(gameUrl(`map/${key}.png`), (rgb) => (rock && rgb === 0xffffff ? rock : sceneColor(rgb)), redraw, sc.rock ?? '');
+          const rock = rockId ? sceneColor(0, rockId) : null;
+          const pic = materialPicture(gameUrl(`map/${key}.png`), (rgb) => (rock && rgb === 0xffffff ? rock : sceneColor(rgb)), redraw, `${rockId ?? ''}|${textured ? `${sc.x},${sc.y}` : ''}`, textured);
           if (pic) ctx.drawImage(pic, sx, sy, sw, sh);
           continue;
         }
@@ -709,7 +773,7 @@ export function MapView({
         ctx.fillRect(sx - 2, sy - 2, 2, 2);
       }
     }
-  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, copies, caveBiomes, sceneAreas, wangColors, sceneColor, mx, my, markerKind, pois, cellAt, layered]);
+  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, copies, caveBiomes, sceneAreas, wangColors, sceneColor, mx, my, markerKind, pois, cellAt, layered, biomeById]);
 
   // Pointer: drag pans, two fingers pinch, a tap selects.
   const pointers = useRef(new Map<number, { x: number; y: number }>());

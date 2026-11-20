@@ -509,6 +509,8 @@ export type MapScene = {
    */
   area?: string;
   rock?: string;
+  /** Key of the room's material picture, drawn (recoloured) under its visual `image`: the body the visual outlines. */
+  mask?: string;
 };
 
 /** The main world (biome_map.png): w×h chunks of `chunk` px; world x = (cx − w/2)·chunk, y = (cy − offsetY)·chunk. */
