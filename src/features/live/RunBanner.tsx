@@ -5,7 +5,8 @@ import { ArrowRight, Coins, MapPin, Skull } from 'lucide-react';
 import { HudBar } from '@/ui/game';
 import { LiveCrystal } from '@/ui/LiveCrystal';
 import { timeAgo, useNow } from '@/ui/time';
-import { clock, killedByText } from './runMath';
+import { clock } from './runMath';
+import { KilledBy } from './KilledBy';
 import { useRuns } from './runs';
 import { useLiveRun } from './state';
 
@@ -56,7 +57,7 @@ function LastRunBanner() {
         <span className="min-w-0 flex-1">
           <span className="font-game block text-[16px]">
             Last run · {died ? <span className="text-blood">Died</span> : last.outcome === 'ended' ? 'Ended' : 'Game closed'}
-            {died && last.killedBy && <span className="ml-1 text-xs text-muted">killed by {killedByText(last.killedBy)}</span>}
+            {died && last.killedBy && <span className="ml-1 text-xs text-muted">killed by <KilledBy plain text={last.killedBy} seed={last.seed} at={last.endedAt ?? last.startedAt} /></span>}
           </span>
           <span className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-muted">
             {last.deepest && (

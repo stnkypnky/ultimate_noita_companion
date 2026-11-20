@@ -22,7 +22,12 @@ type Payload = {
   r?: RunSummary;
   /** Creature history: [index in the enemies list, how many died, times it killed you]. */
   k?: [number, number, number][];
+  /** Deaths to a creature, newest first: [date, seed, index in the enemies list, cause]. */
+  d?: [string, number, number, string][];
 };
+
+/** How many creature deaths a code carries (they're what the Run page and Bestiary need). */
+const CODE_DEATHS = 20;
 
 // ---------- bitsets ----------
 
@@ -63,6 +68,12 @@ export async function encodeProgress(progress: Progress, lists: Lists, gameHash:
     const k = lists.enemies.flatMap((e, i) => (stats[e.id] ? [[i, stats[e.id]!.died, stats[e.id]!.killedYou] as [number, number, number]] : []));
     if (k.length) payload.k = k;
   }
+  const index = new Map(lists.enemies.map((e, i) => [e.id, i]));
+  const d = (progress.deaths ?? [])
+    .filter((x) => x.killer && index.has(x.killer))
+    .slice(0, CODE_DEATHS)
+    .map((x) => [x.date, x.seed, index.get(x.killer!)!, (x.cause ?? '').slice(0, 60)] as [string, number, number, string]);
+  if (d.length) payload.d = d;
   return packJson(payload);
 }
 
@@ -100,7 +111,10 @@ export async function decodeProgress(code: string, lists: Lists, gameHash: strin
     (payload.a === undefined || typeof payload.a === 'string') &&
     (payload.n === undefined || typeof payload.n === 'string') &&
     (payload.k === undefined || (Array.isArray(payload.k) && payload.k.every((x) => Array.isArray(x) && x.length === 3 && x.every(Number.isFinite)))) &&
-    (payload.r === undefined || validRuns(payload.r));
+    (payload.r === undefined || validRuns(payload.r)) &&
+    (payload.d === undefined ||
+      (Array.isArray(payload.d) &&
+        payload.d.every((x) => Array.isArray(x) && x.length === 4 && typeof x[0] === 'string' && Number.isFinite(x[1]) && Number.isInteger(x[2]) && typeof x[3] === 'string')));
   if (!ok) throw new SyncCodeError("That sync code couldn't be read. Make sure you copied all of it.");
   const flags = [
     ...readBits(payload.s, lists.spells.length).map((i) => lists.spells[i]!.discoverFlag),
@@ -119,6 +133,13 @@ export async function decodeProgress(code: string, lists: Lists, gameHash: strin
         : {}),
       orbs: payload.o,
       ...(payload.r ? { runs: payload.r } : {}),
+      ...(payload.d?.length
+        ? {
+            deaths: payload.d
+              .filter(([, , i]) => lists.enemies[i])
+              .map(([date, seed, i, cause]) => ({ date, seed, killer: lists.enemies[i]!.id, ...(cause ? { cause } : {}) })),
+          }
+        : {}),
     },
     versionMismatch: payload.g !== gameHash.slice(0, 8),
   };

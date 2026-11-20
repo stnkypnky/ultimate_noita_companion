@@ -14,6 +14,31 @@ export type RunSummary = {
   recent: { seed: number; date: string; playtimeSec: number; killedBy?: string }[];
 };
 
+/** One creature's history from save00/stats/stats_<id>.xml (the maps are only in local progress, not sync codes). */
+export type EnemyStat = {
+  died: number;
+  killedYou: number;
+  /** Killed by you, per damage cause ("$damage_projectile" → 14). */
+  byYou?: Record<string, number>;
+  /** Killed by other creatures (their ids). */
+  byOthers?: Record<string, number>;
+  /** Killed by the world: fire, drowning, materials… */
+  byWorld?: Record<string, number>;
+  /** What it has killed (creature ids, not you). */
+  victims?: Record<string, number>;
+};
+
+/** A run that ended in death, from stats/sessions/<stamp>_kills.xml and _stats.xml. */
+export type DeathRecord = {
+  /** "2026-11-19T18:49:13", the session's start. */
+  date: string;
+  seed: number;
+  /** The creature that killed you (enemy id), when one did. */
+  killer?: string;
+  /** "bite", "$damage_explosion", "damage from material: acid". */
+  cause?: string;
+};
+
 export type Progress = {
   syncedAt: string;
   /** When the save itself last changed (newest file time). Missing on older syncs; see `saveTime`. */
@@ -25,9 +50,11 @@ export type Progress = {
   /** Enemy ids seen, from save00/stats/stats_<enemy>.xml. */
   enemies: string[];
   /** From the same files: how many of each have died, and how many times one killed you. */
-  enemyStats?: Record<string, { died: number; killedYou: number }>;
+  enemyStats?: Record<string, EnemyStat>;
   orbs: number[];
   runs?: RunSummary;
+  /** Deaths, newest first (capped), with what killed you. */
+  deaths?: DeathRecord[];
 };
 
 /** How recent this save is, for picking the newest between devices (ms; 0 if unknown). */

@@ -5,6 +5,10 @@ function OnWorldPostUpdate()
   companion_tick(GameGetFrameNum())
 end
 
+function OnPlayerSpawned(player_entity)
+  pcall(companion_watch_damage, player_entity)
+end
+
 function OnPlayerDied(player_entity)
   pcall(companion_write, "dead")
 end

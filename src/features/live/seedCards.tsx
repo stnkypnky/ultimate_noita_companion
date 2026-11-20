@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { Clock, Crosshair, Hand, Loader2, Package, Skull } from 'lucide-react';
 import { useData } from '@/data/store';
+import { KilledBy } from './KilledBy';
 import type { WorldMap } from '@/data/types';
 import { useProgress, useSpoilers } from '@/store/progress';
 import { CollapsibleSection } from '@/ui/controls';
@@ -297,7 +298,7 @@ export function RunStats({ run, at, active }: { run: LiveRun; at: number; active
       </div>
       {run.status === 'dead' && run.killedBy && (
         <p className="mt-2 flex items-center gap-1.5 text-sm text-blood">
-          <Skull size={14} /> Killed by {run.killedBy.replace(/^\$animal_/, '').replace(/_/g, ' ')}
+          <Skull size={14} /> Killed by <KilledBy text={run.killedBy} seed={run.seed} at={at} />
         </p>
       )}
       {run.items && run.items.length > 0 && (

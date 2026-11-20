@@ -111,7 +111,7 @@ describe('companion mod export', () => {
   it('copes with no player (main menu, between runs)', async () => {
     const lua = await host();
     const raw = JSON.parse((await lua.doString('E[1].tags = {}; return companion_json(companion_state())')) as string);
-    expect(raw).toEqual({ v: 1, mod: 3, status: 'no_player', seed: 123456, ngPlus: 1 });
+    expect(raw).toEqual({ v: 1, mod: 4, status: 'no_player', seed: 123456, ngPlus: 1 });
     lua.global.close();
   });
 
@@ -135,6 +135,47 @@ describe('companion mod export', () => {
     expect((await lua.doString('return #written')) as number).toBe(n);
     await lua.doString('companion_tick(60, 1040)'); // heartbeat
     expect(await last()).toMatchObject({ status: 'dead', time: 1040 });
+    lua.global.close();
+  });
+
+  it('names the creature that just hurt you when the game leaves it out of killed_by', async () => {
+    const lua = await host();
+    const damageLua = readFileSync(join(import.meta.dirname, '../mod/noita_companion/files/damage.lua'), 'utf8');
+    await lua.doString(`
+      FRAME = 500
+      function GameGetFrameNum() return FRAME end
+      local G2 = {}
+      function GlobalsSetValue(k, v) G2[k] = v end
+      function GlobalsGetValue(k, d) return G2[k] or d end
+      function GetUpdatedEntityID() return 1 end
+      E[50] = { name = "worm", tags = {}, comps = {}, children = {} }
+      function EntityGetFilename(id) if id == 50 then return "data/entities/animals/worm_skull.xml" end return "data/entities/player.xml" end
+      function StatsGetValue(k) if k == "world_seed" then return "123456" end if k == "killed_by" then return " | bite" end end
+    `);
+    await lua.doString(damageLua);
+    await lua.doString('damage_received(1.2, "", 1, false, 0)'); // your own damage doesn't count
+    await lua.doString('damage_received(4, "", 50, true, 0)');
+    const dead = JSON.parse((await lua.doString('return companion_json(companion_state("dead"))')) as string);
+    expect(dead.killedBy).toBe('worm_skull | bite');
+    // Long after the last hit, it isn't blamed.
+    await lua.doString('FRAME = 5000');
+    const later = JSON.parse((await lua.doString('return companion_json(companion_state("dead"))')) as string);
+    expect(later.killedBy).toBe(' | bite');
+    lua.global.close();
+  });
+
+  it('gives the player the damage watcher once', async () => {
+    const lua = await host();
+    await lua.doString(`
+      ADDED = 0
+      LUA = {}
+      function EntityGetComponentIncludingDisabled(id, name) return LUA end
+      function EntityAddComponent2(id, name, values) ADDED = ADDED + 1; C[900 + ADDED] = { values = values, objects = {} }; LUA[#LUA + 1] = 900 + ADDED end
+      companion_watch_damage(1)
+      companion_watch_damage(1)
+    `);
+    expect(await lua.doString('return ADDED')).toBe(1);
+    expect(await lua.doString('return C[901].values.script_damage_received')).toBe('mods/noita_companion/files/damage.lua');
     lua.global.close();
   });
 
@@ -172,7 +213,7 @@ describe('companion mod export', () => {
       C[12].values.mActiveItem = 50
     `);
     const raw = JSON.parse((await lua.doString('return companion_json(companion_state())')) as string);
-    expect(raw).toMatchObject({ mod: 3, x: 100, y: 2400, playtime: 321.5, kills: 17, orbs: 2, seen: ['zombie', 'longleg'] });
+    expect(raw).toMatchObject({ mod: 4, x: 100, y: 2400, playtime: 321.5, kills: 17, orbs: 2, seen: ['zombie', 'longleg'] });
     expect(raw.items).toEqual([{ id: 'evil_eye', name: '$item_evil_eye', held: true }]);
     // Shifted at frame 3000; the 5-minute cooldown (18000 frames) ends at frame 21000, 250 s after frame 6000.
     expect(raw.fungal).toEqual({ count: 1, readyIn: 250 });

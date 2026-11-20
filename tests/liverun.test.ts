@@ -3,7 +3,7 @@ import { parseLiveRun } from '../src/features/live/parse.ts';
 import { STALE_MS, liveFlags, setLiveRun, useLiveRun } from '../src/features/live/state.ts';
 import { toBuilderWand } from '../src/features/live/toBuilder.ts';
 import { bottomItems, railItems } from '../src/app/nav.ts';
-import { clock, nextMountain, picksBefore } from '../src/features/live/runMath.ts';
+import { clock, killerLabel, nextMountain, picksBefore, resolveKiller } from '../src/features/live/runMath.ts';
 import type { WorldMap } from '../src/data/types.ts';
 
 describe('run page helpers', () => {
@@ -154,5 +154,28 @@ describe('a game is running', () => {
     expect(railItems(true).map((n) => n.to).slice(0, 2)).toEqual(['/', '/run']);
     expect(bottomItems(false).map((n) => n.to)).toEqual(['/', '/wand', '/spells', '/materials']);
     expect(bottomItems(true).map((n) => n.to)).toEqual(['/', '/wand', '/spells', '/run']);
+  });
+});
+
+describe('resolveKiller', () => {
+  const enemies = [
+    { id: 'worm_skull', name: 'Kalmamato' },
+    { id: 'shotgunner', name: 'Haulikkohiisi' },
+  ];
+  const deaths = [
+    { date: '2026-11-19T18:49:13', seed: 7, killer: 'worm_skull', cause: 'bite' },
+    { date: '2026-11-18T10:00:00', seed: 8, cause: '$damage_explosion' },
+  ];
+  it('finds an unnamed killer in the save deaths by seed', () => {
+    expect(killerLabel(resolveKiller(' | bite', enemies, { seed: 7, deaths }))).toBe('Kalmamato (bite)');
+  });
+  it('reads ids, $animal_ keys and translated names', () => {
+    expect(resolveKiller('$animal_shotgunner | melee', enemies).enemy?.id).toBe('shotgunner');
+    expect(resolveKiller('Haulikkohiisi | melee', enemies).enemy?.id).toBe('shotgunner');
+    expect(killerLabel(resolveKiller('worm_skull | bite', enemies))).toBe('Kalmamato (bite)');
+  });
+  it('falls back to the cause', () => {
+    expect(killerLabel(resolveKiller(' | $damage_explosion', enemies, { seed: 8, deaths }))).toBe('explosion');
+    expect(killerLabel(resolveKiller(' | damage from material: acid', enemies))).toBe('acid');
   });
 });

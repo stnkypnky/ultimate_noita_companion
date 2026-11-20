@@ -30,6 +30,36 @@ describe('parseSave', () => {
     expect(p.runs!.recent[0]).toMatchObject({ seed: 1492787966, killedBy: 'Haulikkohiisi', date: '2025-03-30T17:50:39' });
   });
 
+  it('finds the creature that killed you in the session kills file', async () => {
+    const s = 'Nolla_Games_Noita/save00/stats/';
+    const p = await parseSave([
+      file('Nolla_Games_Noita/save00/persistent/flags/action_bomb'),
+      file(
+        `${s}stats_acidshooter.xml`,
+        '<Stats deaths="38" kills="4" player_kills="1" ><death_map><E key="NULL | $damage_fire" value="3" ></E><E key="player | $damage_projectile" value="14" ></E><E key="skullfly | $damage_fire" value="1" ></E></death_map><kill_map><E key="player" value="1" ></E><E key="rat" value="2" ></E></kill_map></Stats>',
+      ),
+      file(`${s}sessions/20261119-184913_stats.xml`, '<Stats><stats dead="1" killed_by=" | bite" playtime="10" world_seed="2046258427" ></stats></Stats>'),
+      file(`${s}sessions/20261119-184913_kills.xml`, '<Stats deaths="1"><death_map><E key="worm_skull | bite" value="1" ></E></death_map><kill_map></kill_map></Stats>'),
+      file(`${s}sessions/20261118-201824_stats.xml`, '<Stats><stats dead="1" killed_by=" | explosion" world_seed="5" ></stats></Stats>'),
+      file(`${s}sessions/20261118-201824_kills.xml`, '<Stats><death_map><E key="NULL | $damage_explosion" value="1" ></E></death_map></Stats>'),
+    ]);
+    expect(p.enemies).toContain('worm_skull');
+    expect(p.enemyStats!.worm_skull).toEqual({ died: 0, killedYou: 1 });
+    expect(p.enemyStats!.acidshooter).toEqual({
+      died: 38,
+      killedYou: 1,
+      byWorld: { $damage_fire: 3 },
+      byYou: { $damage_projectile: 14 },
+      byOthers: { skullfly: 1 },
+      victims: { rat: 2 },
+    });
+    expect(p.deaths).toEqual([
+      { date: '2026-11-19T18:49:13', seed: 2046258427, killer: 'worm_skull', cause: 'bite' },
+      { date: '2026-11-18T20:18:24', seed: 5, cause: 'explosion' },
+    ]);
+    expect(p.runs!.recent[0]!.killedBy).toBe('worm_skull');
+  });
+
   it('rejects folders that are not saves', async () => {
     await expect(parseSave([file('Desktop/notes.txt')])).rejects.toThrow(/save/);
   });
@@ -70,6 +100,18 @@ describe('sync codec', () => {
     // Still fits a QR code comfortably.
     expect(code.length).toBeLessThan(1500);
     expect((await decodeProgress(code, lists, 'abcdef1234')).progress.enemyStats).toEqual(enemyStats);
+  });
+
+  it('carries the creatures that killed you, but not the per-creature maps', async () => {
+    const enemyStats = { e1: { died: 3, killedYou: 1, byYou: { $damage_fire: 3 } } };
+    const deaths = [
+      { date: '2026-11-19T18:49:13', seed: 7, killer: 'e1', cause: 'bite' },
+      { date: '2026-11-18T10:00:00', seed: 8, cause: 'explosion' },
+    ];
+    const code = await encodeProgress({ syncedAt: '', flags: [], enemies: ['e1'], enemyStats, deaths, orbs: [] }, lists, 'abcdef1234');
+    const { progress } = await decodeProgress(code, lists, 'abcdef1234');
+    expect(progress.deaths).toEqual([deaths[0]]);
+    expect(progress.enemyStats).toEqual({ e1: { died: 3, killedYou: 1 } });
   });
 
   it('flags codes from a different game build', async () => {

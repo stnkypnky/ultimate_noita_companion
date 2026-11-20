@@ -179,6 +179,18 @@ local function file_id(e)
   return type(file) == "string" and file:match("([%w_]+)%.xml$") or nil
 end
 
+local ATTACKER_FRAMES = 120 -- a hit this recent is what killed you
+local DAMAGE_SCRIPT = "mods/noita_companion/files/damage.lua"
+
+-- Gives the player the script that remembers who last hurt them (once per player entity).
+function companion_watch_damage(p)
+  if not p or p == 0 then return end
+  for _, c in ipairs(try(EntityGetComponentIncludingDisabled, p, "LuaComponent") or {}) do
+    if ComponentGetValue2(c, "script_damage_received") == DAMAGE_SCRIPT then return end
+  end
+  EntityAddComponent2(p, "LuaComponent", { script_damage_received = DAMAGE_SCRIPT, execute_every_n_frame = -1 })
+end
+
 local SEEN_RADIUS = 260 -- about half a screen: creatures you can actually see
 local SEEN_MAX = 400
 local FUNGAL_COOLDOWN = 60 * 60 * 5 -- data/scripts/magic/fungal_shift.lua
@@ -212,7 +224,7 @@ function companion_state(status)
   local p = player()
   local state = {
     v = 1,
-    mod = 3,
+    mod = 4,
     status = status or "alive",
     seed = tonumber(StatsGetValue("world_seed") or "") or 0,
     ngPlus = tonumber(SessionNumbersGetValue("NEW_GAME_PLUS_COUNT") or "") or 0,
@@ -220,6 +232,16 @@ function companion_state(status)
   if status == "dead" then
     local by = try(StatsGetValue, "killed_by")
     if by == nil or by == "" then by = try(StatsGetValue, "killed_by_extra") end
+    by = by or ""
+    -- The game leaves the creature out (" | bite"): name the one that last hurt you, if that was just now.
+    if by:match("^%s*|") then
+      local id = GlobalsGetValue("companion_last_attacker", "")
+      local at = tonumber(GlobalsGetValue("companion_last_attacker_frame", "")) or -1000000
+      if id ~= "" and (try(GameGetFrameNum) or 0) - at <= ATTACKER_FRAMES then
+        local cause = by:match("|%s*(.-)%s*$") or ""
+        by = id .. " | " .. cause
+      end
+    end
     if by ~= "" then state.killedBy = by end
   end
   if not p then

@@ -1,5 +1,5 @@
 // Reads a Noita save folder (save00, or the Nolla_Games_Noita folder above it) entirely on-device.
-import type { Progress, RunSummary } from '@/store/progress';
+import type { DeathRecord, EnemyStat, Progress, RunSummary } from '@/store/progress';
 
 /** `lastModified` (ms) dates the save itself, not the scan; sources that can't tell leave it out. */
 export type SaveFile = { path: string; text: () => Promise<string>; lastModified?: number };
@@ -59,24 +59,55 @@ export async function parseSave(files: SaveFile[]): Promise<Progress> {
     .filter((x): x is typeof x & { id: string } => !!x.id);
   const enemies = statFiles.map((x) => x.id);
   // <Stats deaths="…" kills="…" player_kills="…">: how many have died, and how many times one killed the player.
+  // Its <death_map> says what killed them ("player | $damage_projectile"), its <kill_map> what they killed.
   const enemyStats: NonNullable<Progress['enemyStats']> = {};
   await Promise.all(
     statFiles.map(async ({ file, id }) => {
-      const head = (await file.text()).match(/<Stats\s[^>]*>/)?.[0] ?? '';
+      const xml = await file.text();
+      const head = xml.match(/<Stats\s[^>]*>/)?.[0] ?? '';
       const died = Number(attr(head, 'deaths') ?? 0);
       const killedYou = Number(attr(head, 'player_kills') ?? 0);
-      if (died || killedYou) enemyStats[id] = { died, killedYou };
+      if (!died && !killedYou) return;
+      const stat: EnemyStat = { died, killedYou };
+      for (const [key, n] of mapEntries(xml, 'death_map')) {
+        const [who, cause] = splitKiller(key);
+        const bucket = who === 'player' ? (stat.byYou ??= {}) : who ? (stat.byOthers ??= {}) : (stat.byWorld ??= {});
+        const k = who === 'player' || !who ? cause || '?' : who;
+        bucket[k] = (bucket[k] ?? 0) + n;
+      }
+      for (const [victim, n] of mapEntries(xml, 'kill_map')) {
+        if (victim !== 'player' && victim) (stat.victims ??= {})[victim] = (stat.victims?.[victim] ?? 0) + n;
+      }
+      enemyStats[id] = stat;
     }),
+  );
+
+  // The game leaves the killer's name out of killed_by (" | bite"), but each session's _kills.xml keeps it in
+  // its death_map ("worm_skull | bite"). That's also the only record when no stats_<id>.xml was written.
+  const killsBySession = new Map<string, { killer?: string; cause?: string }>();
+  await Promise.all(
+    under('stats/sessions/')
+      .filter((x) => x.name.endsWith('_kills.xml'))
+      .map(async ({ file, name }) => {
+        const xml = await file.text();
+        const first = mapEntries(xml, 'death_map')[0];
+        if (!first) return;
+        const [who, cause] = splitKiller(first[0]);
+        killsBySession.set(name.replace(/_kills\.xml$/, ''), { ...(who && who !== 'player' ? { killer: who } : {}), ...(cause ? { cause } : {}) });
+      }),
   );
 
   const sessions = under('stats/sessions/').filter((x) => x.name.endsWith('_stats.xml'));
   let runs: RunSummary | undefined;
+  let deaths: DeathRecord[] | undefined;
   if (sessions.length) {
     const parsed = await Promise.all(
       sessions.map(async ({ file, name }) => {
         const xml = await file.text();
         const stats = xml.match(/<stats\s[^>]*>/)?.[0] ?? '';
         const stamp = name.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/);
+        const [who, cause] = splitKiller(attr(stats, 'killed_by') ?? '');
+        const kills = killsBySession.get(name.replace(/_stats\.xml$/, ''));
         return {
           date: stamp ? `${stamp[1]}-${stamp[2]}-${stamp[3]}T${stamp[4]}:${stamp[5]}:${stamp[6]}` : name,
           seed: Number(attr(stats, 'world_seed') ?? 0),
@@ -84,11 +115,25 @@ export async function parseSave(files: SaveFile[]): Promise<Progress> {
           playtimeSec: Math.round(Number(attr(stats, 'playtime') ?? 0)),
           kills: Number(attr(stats, 'enemies_killed') ?? 0),
           gold: Number(attr(stats, 'gold_all') ?? 0),
-          killedBy: attr(stats, 'killed_by')?.split('|')[0]?.trim() || undefined,
+          killer: kills?.killer,
+          cause: cause || kills?.cause,
+          killedBy: who || kills?.killer || undefined,
         };
       }),
     );
     parsed.sort((a, b) => b.date.localeCompare(a.date));
+    // Whatever killed you, you've met; and count the deaths even where its own stats file missed them.
+    const byKiller = new Map<string, number>();
+    for (const r of parsed) if (r.dead && r.killer) byKiller.set(r.killer, (byKiller.get(r.killer) ?? 0) + 1);
+    for (const [id, n] of byKiller) {
+      if (!enemies.includes(id)) enemies.push(id);
+      const s = (enemyStats[id] ??= { died: 0, killedYou: 0 });
+      s.killedYou = Math.max(s.killedYou, n);
+    }
+    deaths = parsed
+      .filter((r) => r.dead)
+      .slice(0, MAX_DEATHS)
+      .map((r) => ({ date: r.date, seed: r.seed, ...(r.killer ? { killer: r.killer } : {}), ...(r.cause ? { cause: r.cause } : {}) }));
     runs = {
       runs: parsed.length,
       deaths: parsed.filter((r) => r.dead).length,
@@ -109,7 +154,24 @@ export async function parseSave(files: SaveFile[]): Promise<Progress> {
     enemyStats,
     orbs,
     ...(runs ? { runs } : {}),
+    ...(deaths?.length ? { deaths } : {}),
   };
+}
+
+const MAX_DEATHS = 60;
+
+/** `<map><E key="…" value="3">…</map>` entries, in file order. */
+function mapEntries(xml: string, map: string): [string, number][] {
+  const body = xml.match(new RegExp(`<${map}>([\\s\\S]*?)</${map}>`))?.[1] ?? '';
+  return [...body.matchAll(/<E\s+key="([^"]*)"\s+value="([^"]*)"/g)].map((m) => [m[1]!, Number(m[2]) || 0]);
+}
+
+/** "worm_skull | bite" → ["worm_skull", "bite"]; "NULL | …" and " | …" have no killer (""). */
+export function splitKiller(s: string): [string, string] {
+  const i = s.indexOf('|');
+  const who = (i < 0 ? s : s.slice(0, i)).trim();
+  const cause = i < 0 ? '' : s.slice(i + 1).trim();
+  return [who === 'NULL' ? '' : who, cause];
 }
 
 // ---------- Sources ----------

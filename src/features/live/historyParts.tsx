@@ -3,6 +3,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { Flag, Gem, HeartCrack, MapPin, Package, Play, Skull, Sparkles, Star, Wand2 } from 'lucide-react';
 import { useData } from '@/data/store';
+import { useProgress } from '@/store/progress';
 import { CollapsibleSection } from '@/ui/controls';
 import { AtlasIcon, SpellIcon } from '@/ui/GameIcon';
 import { LiveCrystal } from '@/ui/LiveCrystal';
@@ -12,7 +13,7 @@ import { titleCase } from '@/features/materials/MaterialsPage';
 import type { RunEvent, RunRecord } from './history';
 import type { LiveRun } from './parse';
 import type { OpenDetail } from './parts';
-import { clock, killedByText } from './runMath';
+import { clock, killerLabel, resolveKiller } from './runMath';
 import { useRuns } from './runs';
 import { useWorldMap } from './seedCards';
 import { biomeKey, biomeName } from '@/features/map/world';
@@ -122,8 +123,10 @@ export function FoundThisRun({ rec, onOpen }: { rec: RunRecord | undefined; onOp
   );
 }
 
-function useEventText() {
-  const { spellById, perkById } = useData();
+function useEventText(rec?: RunRecord) {
+  const { spellById, perkById, enemies } = useData();
+  const deaths = useProgress((s) => s.progress?.deaths);
+  const killer = (s: string) => killerLabel(resolveKiller(s, enemies, { seed: rec?.seed, at: rec?.endedAt ?? rec?.startedAt, deaths }));
   const namer = useNamer();
   return (e: RunEvent): { icon: ReactNode; text: string; tone?: string } => {
     switch (e.k) {
@@ -149,7 +152,6 @@ function useEventText() {
   };
 }
 
-const killer = killedByText;
 
 /** Health over the run, as a thin line. */
 function HpLine({ hp }: { hp: RunRecord['hp'] }) {
@@ -165,7 +167,7 @@ function HpLine({ hp }: { hp: RunRecord['hp'] }) {
 }
 
 export function Timeline({ rec, limit = 40 }: { rec: RunRecord | undefined; limit?: number }) {
-  const text = useEventText();
+  const text = useEventText(rec);
   const [all, setAll] = useState(false);
   if (!rec) return null;
   const events = [...rec.events].reverse();

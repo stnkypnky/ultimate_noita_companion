@@ -19,7 +19,8 @@ import { RunStats, useSeedCards } from './seedCards';
 import { FoundThisRun, RunSwitcher, Timeline, useRunRecord } from './historyParts';
 import { DetailSheet, FlaskSummary, Flasks, PerkSummary, Perks, SpellButton, SpellSummary, Wands, type Detail } from './parts';
 import { MAX_RUNS, snapshotOf, type RunRecord } from './history';
-import { clock, killedByText } from './runMath';
+import { clock } from './runMath';
+import { KilledBy } from './KilledBy';
 import type { LiveRun } from './parse';
 import { useRuns } from './runs';
 import { useLiveRun } from './state';
@@ -184,14 +185,22 @@ function PastStatus({ rec }: { rec: RunRecord }) {
   const now = useNow(60_000);
   const label =
     rec.outcome === 'died'
-      ? `Died${rec.killedBy ? ` · killed by ${killedByText(rec.killedBy)}` : ''}`
+      ? 'Died'
       : rec.outcome === 'ended'
         ? 'Ended'
         : `Game closed · last seen ${timeAgo(rec.updatedAt, now)}`;
   return (
     <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
       {rec.outcome === 'died' ? <Skull size={15} className="text-blood" /> : <LiveCrystal size={16} off />}
-      <span className={rec.outcome === 'died' ? 'text-blood' : ''}>{label}</span>
+      <span className={rec.outcome === 'died' ? 'text-blood' : ''}>
+        {label}
+        {rec.outcome === 'died' && rec.killedBy && (
+          <>
+            {' · killed by '}
+            <KilledBy text={rec.killedBy} seed={rec.seed} at={rec.endedAt ?? rec.startedAt} />
+          </>
+        )}
+      </span>
       <span className="text-faint">
         · {new Date(rec.startedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
         {rec.playtime !== undefined && ` · ${clock(rec.playtime)}`}
