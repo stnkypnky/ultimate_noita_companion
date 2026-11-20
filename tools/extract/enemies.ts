@@ -1,4 +1,5 @@
 import { basename } from 'node:path';
+import sharp from 'sharp';
 import type { DamageType, Enemy, EnemyBehavior } from '../../src/data/types.ts';
 import { comp, comps, num, type El, type EntityLoader } from './entity.ts';
 import { humanize, tr, type Translations } from './translations.ts';
@@ -16,7 +17,8 @@ const HP = 25;
  * The same ids name the save's stats/stats_<id>.xml files.
  */
 export function enemyIconFiles(wak: Wak): string[] {
-  return wak.list('data/ui_gfx/animal_icons/').filter((f) => f.endsWith('.png') && !f.includes('/_'));
+  // player.png is you (named DEBUG_NAME:player), not a creature.
+  return wak.list('data/ui_gfx/animal_icons/').filter((f) => f.endsWith('.png') && !f.includes('/_') && !f.endsWith('/player.png'));
 }
 
 /** The entity file for a Progress-screen id: animals/<id>.xml, animals/<id>/<id>.xml (bosses), or anywhere. */
@@ -199,6 +201,7 @@ const ANIM_SKIP = /death|dead|die|corpse|ragdoll|hurt|damage|test|_old|^empty$|^
 const MAX_ANIMS = 5;
 const ANIM_FRAMES = 16;
 const ANIM_SIZE = 96;
+const HEADS_FACING_LEFT = new Set(['data/enemies_gfx/maggot_tiny_head.xml']);
 
 /** Named animations in a <Sprite> file (default first). */
 function animNames(wak: Wak, file: string): string[] {
@@ -224,7 +227,9 @@ async function animations(wak: Wak, e: El, main: El, images: Map<string, Buffer>
       s === main ||
       (s.attrs._enabled !== '0' && s.attrs.image_file && !s.attrs.image_file.includes('/ui_gfx/') && !notBody(s) && !SPRITE_SKIP.test(s.attrs.image_file) && !SPRITE_SKIP.test(s.attrs._tags ?? '')),
   );
-  const worm = comp(e, 'WormComponent');
+  // Suomuhauki and Limatoukka move like worms too, with their own component.
+  const worm = comp(e, 'WormComponent') ?? comp(e, 'BossDragonComponent');
+  const held = await heldSprites(wak, e, file);
   // Noita draws lower z_index in front: draw back to front.
   const z = (s: El) => num(s.attrs.z_index, 0);
   const opts = (s: El, anim?: string) => ({
@@ -247,24 +252,29 @@ async function animations(wak: Wak, e: El, main: El, images: Map<string, Buffer>
       const body = parts.filter((s) => !/tail/.test(s.attrs.image_file!)).slice(0, 3);
       const tail = parts.find((s) => /tail/.test(s.attrs.image_file!));
       const chain = [...(tail ? [tail] : []), ...body.reverse()];
+      const head = await spriteLayer(wak, file, opts(main, name || undefined), images);
+      // Heads face right, except Limatoukka's: its body trails off to the right instead.
+      const dir = HEADS_FACING_LEFT.has(file) ? -1 : 1;
       for (let i = 0; i < chain.length; i++) {
         const s = chain[i]!;
         // The first body part sits on the head's pivot (the head is drawn over it), so the chain stays joined.
-        const shift = gap * (chain.length - 1 - i);
+        const shift = dir * gap * (chain.length - 1 - i);
         const l = await spriteLayer(wak, s.attrs.image_file!, opts(s, name || undefined), images);
         // spriteLayer takes the pivot from the sprite file; push it along the chain.
         if (l) layers.push({ ...l, ox: l.ox + shift });
       }
-      const head = await spriteLayer(wak, file, opts(main, name || undefined), images);
       if (head) layers.push(head);
     } else {
-      for (const s of [...sprites].sort((a, b) => z(b) - z(a))) {
+      // Things it holds (Märkiäinen's lantern) hang from a hotspot on its sprite, which moves with the animation.
+      const hand = await Promise.all(held.map(async (h) => ({ ...h, at: (await hotspotAt(wak, file, h.hotspot, name || undefined)) ?? h.fallback })));
+      const all = [...sprites.map((s) => ({ s, at: [0, 0] as [number, number] })), ...hand];
+      for (const { s, at } of all.sort((a, b) => z(b.s) - z(a.s))) {
         const f = String(s.attrs.image_file);
         const isMain = s === main;
         // Other layers join only if they're still images or animate with the same name.
         if (!isMain && f.endsWith('.xml') && name && !animNames(wak, f).includes(name)) continue;
         const l = await spriteLayer(wak, f, opts(s, isMain || f.endsWith('.xml') ? name || undefined : undefined), images);
-        if (l) layers.push(l);
+        if (l) layers.push({ ...l, ox: l.ox - at[0], oy: l.oy - at[1] });
       }
     }
     if (!layers.length) continue;
@@ -279,6 +289,54 @@ async function animations(wak: Wak, e: El, main: El, images: Map<string, Buffer>
     out.push({ name: name || 'still', layers });
   }
   return out;
+}
+
+type Held = { s: El; hotspot: string; fallback: [number, number] };
+
+/**
+ * Sprites on child entities pinned to one of its hotspots (InheritTransformComponent parent_hotspot_tag):
+ * what it carries, like Märkiäinen's lantern.
+ */
+async function heldSprites(wak: Wak, e: El, mainFile: string): Promise<Held[]> {
+  const out: Held[] = [];
+  for (const child of comps(e, 'Entity')) {
+    const tag = comp(child, 'InheritTransformComponent')?.attrs.parent_hotspot_tag;
+    if (!tag) continue;
+    const spot = comps(e, 'HotspotComponent').find((h) => (h.attrs._tags ?? '').split(',').map((x) => x.trim()).includes(tag));
+    if (!spot?.attrs.sprite_hotspot_name || !mainFile.endsWith('.xml') || !wak.has(mainFile)) continue;
+    for (const s of comps(child, 'SpriteComponent')) {
+      const f = s.attrs.image_file ?? '';
+      if (s.attrs._enabled === '0' || !f || f.includes('/ui_gfx/') || notBody(s) || SPRITE_SKIP.test(f) || SPRITE_SKIP.test(s.attrs._tags ?? '')) continue;
+      out.push({ s, hotspot: spot.attrs.sprite_hotspot_name, fallback: [num(spot.attrs['offset.x'], 0), num(spot.attrs['offset.y'], 0)] });
+    }
+  }
+  return out;
+}
+
+/** Where a named hotspot sits, from the creature's pivot, in the first frame of an animation: its colour in the hotspot sheet. */
+async function hotspotAt(wak: Wak, spriteFile: string, name: string, anim?: string): Promise<[number, number] | null> {
+  const sprite = parseXml(wak.text(spriteFile)).find((x) => x.tag === 'Sprite');
+  const sheet = sprite?.attrs.hotspots_filename;
+  const colour = comps(sprite ?? null, 'Hotspot').find((h) => h.attrs.name === name)?.attrs.color;
+  if (!sprite || !sheet || !colour || !wak.has(sheet)) return null;
+  const rgb = parseInt(colour, 16);
+  const [r, g, b] = [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255];
+  const rects = comps(sprite, 'RectAnimation');
+  const rect = (anim && rects.find((a) => a.attrs.name === anim)) || rects.find((a) => a.attrs.name === sprite.attrs.default_animation) || rects[0];
+  const { data, info } = await sharp(wak.bytes(sheet)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const x0 = num(rect?.attrs.pos_x, 0);
+  const y0 = num(rect?.attrs.pos_y, 0);
+  const w = num(rect?.attrs.frame_width, info.width);
+  const h = num(rect?.attrs.frame_height, info.height);
+  const ox = rect?.attrs.has_offset === '1' ? num(rect.attrs.offset_x, 0) : num(sprite.attrs.offset_x, 0);
+  const oy = rect?.attrs.has_offset === '1' ? num(rect.attrs.offset_y, 0) : num(sprite.attrs.offset_y, 0);
+  for (let y = y0; y < Math.min(y0 + h, info.height); y++) {
+    for (let x = x0; x < Math.min(x0 + w, info.width); x++) {
+      const i = (y * info.width + x) * 4;
+      if (data[i + 3]! > 0 && data[i] === r && data[i + 1] === g && data[i + 2] === b) return [x - x0 - ox, y - y0 - oy];
+    }
+  }
+  return null;
 }
 
 /** Its lasting effects, including those on child entities (Kalmamato's freeze protection sits on one). */
