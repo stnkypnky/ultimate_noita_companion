@@ -168,7 +168,17 @@ const scenes: Scene[] = [
     sizes: ['laptop'],
     run: async (p) => {
       await firing(p, false);
-      return p.getByLabel(/^Test range:/).screenshot();
+      // Keep the liveliest of a few frames: the one with the most light in it (a blast, not the pause between casts).
+      const range = p.getByLabel(/^Test range:/);
+      let best: { png: Buffer; light: number } | null = null;
+      for (let i = 0; i < 16; i++) {
+        const png = await range.screenshot();
+        const { channels } = await sharp(png).stats();
+        const light = channels.slice(0, 3).reduce((sum, c) => sum + c.mean, 0);
+        if (!best || light > best.light) best = { png, light };
+        await p.waitForTimeout(170);
+      }
+      return best!.png;
     },
   },
   {
