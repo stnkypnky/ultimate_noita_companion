@@ -28,6 +28,14 @@ describe('item descriptions', () => {
     expect(SECRET_ITEMS.has('chest_leggy')).toBe(true);
   });
 
+  it('everyday pickups are not secrets (the flask spawn list puts them all over the main path)', () => {
+    for (const id of ['broken_wand', 'brimstone', 'thunderstone', 'potion', 'powder_stash']) {
+      expect(ids.has(id), id).toBe(true);
+      expect(SECRET_ITEMS.has(id), id).toBe(false);
+    }
+    for (const id of SECRET_ITEMS) expect(ids.has(id), id).toBe(true);
+  });
+
   it('the Chaos die stays hidden until the save has beaten Ylialkemisti; the perk reroll is not an item', () => {
     expect(SECRET_ITEMS.has('physics_die')).toBe(true);
     expect(itemKey('physics_die')).toBe('card_unlocked_duplicate');

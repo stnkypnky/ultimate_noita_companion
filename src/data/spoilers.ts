@@ -33,8 +33,9 @@ export const materialKey = (id: string) => `material:${id}`;
 export const SECRET_ITEMS = new Set([
   'essence_air', 'essence_alcohol', 'essence_fire', 'essence_laser', 'essence_water',
   'evil_eye', 'greed_curse', 'physics_gold_orb_greed', 'physics_greed_die', 'moon', 'safe_haven', 'summon_portal_broken',
-  'beamstone', 'brimstone', 'musicstone', 'poopstone', 'stonestone', 'thunderstone', 'wandstone', 'waterstone',
-  'newsun', 'newsun_dark', 'sunbaby', 'sunegg', 'sunseed', 'sunstone', 'broken_wand', 'potion_mimic', 'bloodmoney_x',
+  // Not here: Broken wand, Kiuaskivi and Ukkoskivi, which the flask spawn list puts all over the main path.
+  'beamstone', 'musicstone', 'poopstone', 'stonestone', 'wandstone', 'waterstone',
+  'newsun', 'newsun_dark', 'sunbaby', 'sunegg', 'sunseed', 'sunstone', 'potion_mimic', 'bloodmoney_x',
   'chest_leggy', 'goldnugget_x', 'physics_die',
 ]);
 
