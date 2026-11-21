@@ -8,7 +8,7 @@ import { useProgress, useSpoilers } from '@/store/progress';
 import { useLiveRun } from '@/features/live/state';
 import { useRuns } from '@/features/live/runs';
 import { MaterialSwatch } from '@/features/materials/MaterialSwatch';
-import { Section, StatTable } from '@/ui/controls';
+import { BulletList, Section, StatTable } from '@/ui/controls';
 import { AtlasIcon } from '@/ui/GameIcon';
 import { Source } from '@/ui/ItemDescription';
 import { HiddenNotice, InlineSpoiler } from '@/ui/Spoiler';
@@ -190,22 +190,6 @@ function MetThisRun({ id }: { id: string }) {
   );
 }
 
-function BulletList({ items, tone }: { items: { text: string; tone?: 'good' | 'bad' }[] | string[]; tone?: string }) {
-  if (!items.length) return null;
-  return (
-    <ul className="space-y-1 text-sm text-muted">
-      {items.map((it) => {
-        const x = typeof it === 'string' ? { text: it } : it;
-        return (
-          <li key={x.text} className="flex gap-2">
-            <span className={`mt-[7px] h-1.5 w-1.5 shrink-0 ${x.tone === 'good' ? 'bg-toxic' : x.tone === 'bad' ? 'bg-blood' : (tone ?? 'bg-gold/60')}`} />
-            <span>{x.text}</span>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
 
 function HowToBeat({ enemy: e }: { enemy: Enemy }) {
   const tips = howToBeat(e);

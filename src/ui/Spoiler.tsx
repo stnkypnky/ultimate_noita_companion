@@ -47,12 +47,12 @@ export function SecretCallout({ what }: { what: 'item' | 'material' }) {
 }
 
 /** The gold "Rare item" box: how rare it is. Rare items are never hidden. */
-export function RareCallout({ odds }: { odds: string }) {
+export function RareCallout({ odds, what = 'item' }: { odds: string; what?: string }) {
   return (
     <p className="rare-callout mt-4 flex items-start gap-2.5 px-3 py-2.5 text-[14px] leading-snug">
       <Gem size={16} className="mt-0.5 shrink-0" />
       <span>
-        <span className="font-game text-[16px]">Rare item.</span> {odds}
+        <span className="font-game text-[16px]">Rare {what}.</span> {odds}
       </span>
     </p>
   );

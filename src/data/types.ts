@@ -117,6 +117,13 @@ export type Perk = {
   oneOff: boolean;
   removesOtherPerks: boolean;
   gameEffect?: string;
+  /** stackable_how_often_reappears: perks between two copies in the deck (the game's default is 4). */
+  reappearGap?: number;
+  /**
+   * How often it is offered, from the game's perk.lua over thousands of seeds: the share of runs whose seven Holy
+   * Mountains offer it (no perks taken, no rerolls), and whose first mountain does. Absent: never in the deck.
+   */
+  odds?: { any: number; first: number };
   discoverFlag: string;
 };
 

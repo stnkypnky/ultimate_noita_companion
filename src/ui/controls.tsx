@@ -161,6 +161,24 @@ export function CollapsibleSection({
   );
 }
 
+/** A short bulleted list: tips, traits. A `good` item gets a green bullet, a `bad` one red. */
+export function BulletList({ items, tone }: { items: { text: string; tone?: 'good' | 'bad' }[] | string[]; tone?: string }) {
+  if (!items.length) return null;
+  return (
+    <ul className="space-y-1 text-sm text-muted">
+      {items.map((it) => {
+        const x = typeof it === 'string' ? { text: it } : it;
+        return (
+          <li key={x.text} className="flex gap-2">
+            <span className={`mt-[7px] h-1.5 w-1.5 shrink-0 ${x.tone === 'good' ? 'bg-toxic' : x.tone === 'bad' ? 'bg-blood' : (tone ?? 'bg-gold/60')}`} />
+            <span>{x.text}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function Section({ title, children, aside }: { title: string; children: ReactNode; aside?: ReactNode }) {
   return (
     <section className="mt-5">

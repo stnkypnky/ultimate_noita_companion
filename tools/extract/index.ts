@@ -20,6 +20,7 @@ import { buildMaterials } from './materials.ts';
 import { buildEnemies, enemyIconFiles, linkEnemies } from './enemies.ts';
 import { biomeSpawns } from './spawns.ts';
 import { materialSources } from './materialSources.ts';
+import { perkOdds } from './perkOdds.ts';
 import { EntityLoader } from './entity.ts';
 import { buildAtlas, buildPackedAtlas, firstFrame } from './sprites.ts';
 import { bitmapFont } from './fonts.ts';
@@ -155,6 +156,16 @@ for (const f of seedLuaFiles) {
   const dest = join(OUT, 'lua', f);
   await mkdir(dirname(dest), { recursive: true });
   await writeFile(dest, wak.bytes(f));
+}
+// How often each perk is offered: the real perk deck over many seeds.
+{
+  const t0 = Date.now();
+  const odds = perkOdds(seedHost.call, materialTable(materials));
+  for (const p of perks) {
+    const o = odds.get(p.id);
+    if (o) p.odds = o;
+  }
+  console.log(`perk odds: ${odds.size} perks offered, ${Date.now() - t0} ms`);
 }
 seedHost.close();
 console.log(`seed tool: ${seedLuaFiles.length} game scripts`);

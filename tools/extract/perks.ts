@@ -10,6 +10,7 @@ export type RawPerk = {
   stackable?: boolean;
   stackable_is_rare?: boolean;
   stackable_maximum?: number;
+  stackable_how_often_reappears?: number;
   max_in_perk_pool?: number;
   usable_by_enemies?: boolean;
   not_in_default_perk_pool?: boolean;
@@ -33,6 +34,7 @@ export function buildPerks(raw: RawPerk[], t: Translations, icons: Map<string, P
     oneOff: !!p.one_off_effect,
     removesOtherPerks: !!p.remove_other_perks,
     ...(p.game_effect ? { gameEffect: p.game_effect } : {}),
+    ...(p.stackable_how_often_reappears ? { reappearGap: p.stackable_how_often_reappears } : {}),
     discoverFlag: `perk_picked_${p.id.toLowerCase()}`,
   }));
 }
