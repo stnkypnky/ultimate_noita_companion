@@ -24,5 +24,20 @@ export function areaNotes(b: MapBiome, cx: number, mapWidth: number): AreaNote[]
       },
     ];
   }
+  if (b.id === 'solid_wall_tower') {
+    return [
+      {
+        text:
+          cx === 0 || cx === mapWidth - 1
+            ? "Cursed Rock: the wall between this world and the parallel worlds beside it, 1024 px thick (a chunk at each world's edge), the whole height of the world, inside a giant wall of Extremely Dense Rock."
+            : 'Cursed Rock: it walls in the Tower, and partly the Wizards’ Den.',
+        source: 'https://noita.wiki.gg/wiki/Cursed_Rock',
+      },
+      {
+        text: "Crossing it hurts badly, and touching the rock itself most of all. Red particles mark the cursed area's damage.",
+        source: 'https://noita.wiki.gg/wiki/Parallel_Worlds',
+      },
+    ];
+  }
   return [];
 }

@@ -24,8 +24,7 @@ import { buildAtlas, buildPackedAtlas, firstFrame } from './sprites.ts';
 import { bitmapFont } from './fonts.ts';
 import { FIXED_POIS, POI_TABLE } from './pois.ts';
 import { placePois, type PoiData, type PoiInfo, type PoiStats } from '../../src/seed/poi.ts';
-import { generateLayouts } from '../../src/seed/layout.ts';
-import { buildTileset, type Tileset } from '../../src/seed/wang.ts';
+import { generateLayouts, templateOf, type Template } from '../../src/seed/layout.ts';
 
 const ROOT = join(import.meta.dirname, '../..');
 const OUT = join(ROOT, 'public/game');
@@ -137,11 +136,10 @@ for (const s of poiScripts) {
 }
 // A whole placement for one seed, so whatever the room functions load as they run is shipped too.
 {
-  const tilesets = new Map<string, Tileset>();
+  const tilesets = new Map<string, Template>();
   for (const [key, png] of world.wangImages) {
     const { data, info } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-    const ts = buildTileset(new Uint8Array(data), info.width, info.height);
-    if (ts) tilesets.set(key, ts);
+    tilesets.set(key, templateOf(new Uint8Array(data), info.width, info.height));
   }
   const overlay = new Uint8Array(await sharp(readFileSync(join(import.meta.dirname, 'assets/coalmine_overlay.png'))).removeAlpha().raw().toBuffer());
   seedHost.call('sim_set_world_seed', 1);

@@ -5,8 +5,7 @@ import { join } from 'node:path';
 import sharp from 'sharp';
 import { Wak } from './extract/wak.ts';
 import { createLuaHost, seedSource } from './extract/lua.ts';
-import { generateLayouts } from '../src/seed/layout.ts';
-import { buildTileset, type Tileset } from '../src/seed/wang.ts';
+import { generateLayouts, templateOf, type Template } from '../src/seed/layout.ts';
 import { placePois, type PoiStats } from '../src/seed/poi.ts';
 import type { WorldMap } from '../src/data/types.ts';
 
@@ -22,11 +21,10 @@ for (const b of map.biomes) {
   const s = /\blua_script="([^"]*)"/.exec(wak.text(b.file))?.[1];
   if (s && wak.has(s)) b.luaScript = s;
 }
-const tilesets = new Map<string, Tileset>();
+const tilesets = new Map<string, Template>();
 for (const n of new Set(map.biomes.flatMap((b) => (b.wangTemplate ? [b.wangTemplate] : [])))) {
   const { data, info } = await sharp(join(pub, `wang/${n}.png`)).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-  const ts = buildTileset(new Uint8Array(data), info.width, info.height);
-  if (ts) tilesets.set(n, ts);
+  tilesets.set(n, templateOf(new Uint8Array(data), info.width, info.height));
 }
 const ov = await sharp(join(pub, 'wang/coalmine_overlay.png')).removeAlpha().raw().toBuffer();
 let t = Date.now();

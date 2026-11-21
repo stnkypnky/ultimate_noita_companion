@@ -70,7 +70,7 @@ const NAMES: Record<string, string> = {
   hills_flat: 'Forest',
   empty: 'Open sky',
   solid_wall: 'Solid rock',
-  solid_wall_tower: 'Solid rock',
+  solid_wall_tower: 'Cursed rock',
   solid_wall_hidden_cavern: 'Hidden cavern',
   sky_light_injector: 'Open sky',
   bridge: 'Bridge',
@@ -182,6 +182,12 @@ export function biomeName(b: MapBiome) {
   const n = b.name && b.name !== '_EMPTY_' && b.name !== '???' ? b.name : NAMES[b.id] ?? b.id.replace(/_/g, ' ');
   return n.charAt(0).toUpperCase() + n.slice(1);
 }
+
+/**
+ * Cursed Rock (rock_static_cursed): the wall between parallel worlds at both edges, and around the Tower. Unnamed in
+ * the game but no filler: the map draws it at full strength, not dimmed like the plain rock between areas.
+ */
+export const isCursedRock = (b: MapBiome) => b.material === 'rock_static_cursed';
 
 /** Whether the game names it (the rest are unnamed rooms and filler). */
 export const namedInGame = (b: MapBiome) => !!b.name && b.name !== '_EMPTY_' && b.name !== '???';

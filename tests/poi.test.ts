@@ -5,8 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { createLuaHost, seedSource, type LuaHost } from '../tools/extract/lua.ts';
-import { generateLayouts, type AreaLayout } from '../src/seed/layout.ts';
-import { buildTileset, type Tileset } from '../src/seed/wang.ts';
+import { generateLayouts, templateOf, type AreaLayout, type Template } from '../src/seed/layout.ts';
 import { placePois, type PoiData, type PoiStats, type SeedPoi } from '../src/seed/poi.ts';
 import { fixedPois, placedPois, poiDirection } from '../src/features/map/pois.ts';
 import type { WorldMap } from '../src/data/types.ts';
@@ -25,11 +24,10 @@ const SEED = 123;
 beforeAll(async () => {
   host = await createLuaHost((p) => (shipped.has(p) && existsSync(join(GAME, 'lua', p)) ? readFileSync(join(GAME, 'lua', p), 'utf8') : undefined));
   await host.lua.doString(seedSource);
-  const tilesets = new Map<string, Tileset>();
+  const tilesets = new Map<string, Template>();
   for (const n of new Set(map.biomes.flatMap((b) => (b.wangTemplate ? [b.wangTemplate] : [])))) {
     const { data: px, info } = await sharp(join(GAME, `wang/${n}.png`)).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-    const ts = buildTileset(new Uint8Array(px), info.width, info.height);
-    if (ts) tilesets.set(n, ts);
+    tilesets.set(n, templateOf(new Uint8Array(px), info.width, info.height));
   }
   const overlay = new Uint8Array(await sharp(join(GAME, 'wang/coalmine_overlay.png')).removeAlpha().raw().toBuffer());
   layouts = generateLayouts(map, SEED, tilesets, overlay);

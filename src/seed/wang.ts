@@ -406,6 +406,8 @@ export type WangArea = {
   chunkY: number;
   coalMine: boolean;
   blockOutRooms: boolean;
+  /** Reroll until there's a way down (false: tall areas, taken as first laid). Default true. */
+  checkPath?: boolean;
   /** RandomMaterials: each colour → the colours it may become (RGB). */
   randomMaterials: { from: number; to: number[] }[];
   /** The Mines' fixed entrance and stairs (256 × 103 RGB), for coalMine areas. */
@@ -488,9 +490,13 @@ class MapGen {
       fill(m, this.w, sx, ex, sy, ey, WHITE);
     }
   }
-  hasPath() {
+  /** Walls off the marked rooms and lays the Mines' entrance, as before a path check (finalize undoes both). */
+  prepare() {
     if (this.a.blockOutRooms) this.blockOut(this.out);
     if (this.a.coalMine) this.overlay(true, this.out);
+  }
+  hasPath() {
+    this.prepare();
     this.path = this.out.slice();
     const m = this.path;
     const { from, main } = this.mainPathX();
@@ -567,17 +573,28 @@ class MapGen {
   }
 }
 
-/** An area's layout (RGB, width × height), or null when the generator can't make one (the game would also fail). */
+/** Path-checked tries before the layout is taken as it comes (noita-telescope's MAX_PATHFINDING_ATTEMPTS). */
+const PATH_TRIES = 99;
+/** Areas taller than this many chunks aren't checked for a way down (telescope's BIOME_PATH_HEIGHT_LIMIT_CHUNKS). */
+export const PATH_CHECK_MAX_CHUNKS = 4;
+
+/**
+ * An area's layout (RGB, width × height), or null when the tiles can't be laid at all. The layout is rerolled until it
+ * has a way down; after 99 tries without one, the next is kept as it is (as noita-telescope does). Tall areas (the
+ * Snowy Chasm, the Lake) aren't checked: their first layout stands.
+ */
 export function generateArea(ts: Tileset, a: WangArea): Uint8Array | null {
   const rng = areaRng(a.seed, a.width);
-  for (let tries = 0; tries < 100; tries++) {
+  for (let tries = 0; tries <= PATH_TRIES; tries++) {
     const r2 = Prng.of(rng.nextU());
     const img = generateImage(ts, a.width, a.height + 4, () => r2.nextU());
     if (!img) return null;
     // The first 4 rows are dropped (generated taller, then trimmed from the top).
     const out = img.slice(4 * 3 * a.width);
     const mg = new MapGen(out, a);
-    if (mg.hasPath()) {
+    const keep = a.checkPath === false || tries === PATH_TRIES;
+    if (keep) mg.prepare();
+    if (keep || mg.hasPath()) {
       mg.finalize();
       return out;
     }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Maximize, Minus, Plus } from 'lucide-react';
 import { gameUrl } from '@/data/store';
 import type { Material, WorldMap } from '@/data/types';
-import { biomeName, bodyMaterial, chunkWorld, displayMaterial, groundBands, isLayered, namedInGame, surfaceWave, type makeVisibility } from './world';
+import { biomeName, bodyMaterial, chunkWorld, displayMaterial, groundBands, isCursedRock, isLayered, namedInGame, surfaceWave, type makeVisibility } from './world';
 import type { AreaLayout } from '@/seed/layout';
 import type { PoiKind } from '@/seed/poi';
 import { poiCentre, type MapPoi } from './pois';
@@ -582,7 +582,7 @@ export function MapView({
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) {
         const b = map.biomes[map.cells[cy * map.w + cx]!]!;
-        if (!vis.biome(b) || namedInGame(b) || isLayered(b) || !displayMaterial(b, cy < map.offsetY)) continue;
+        if (!vis.biome(b) || namedInGame(b) || isCursedRock(b) || isLayered(b) || !displayMaterial(b, cy < map.offsetY)) continue;
         const w = chunkWorld(map, cx, cy);
         const [sx, sy] = toScreen(w.x, w.y);
         ctx.fillStyle = 'rgba(0,0,0,0.45)';

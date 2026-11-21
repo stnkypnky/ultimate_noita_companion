@@ -7,8 +7,7 @@ import seedSource from './lua/seed.lua?raw';
 import { NoitaRandom } from '../sim/rng';
 import type { LuaCall } from '../sim/protocol';
 import { biomeModifiers, fungalShifts, generateWand, holyMountainPerks, holyMountainShops, setupSeed, type SeedSetup, type ShopWand } from './seed';
-import { generateLayouts, type AreaLayout } from './layout';
-import { buildTileset, type Tileset } from './wang';
+import { generateLayouts, templateOf, type AreaLayout, type Template } from './layout';
 import { placePois, type PoiData, type PoiStats, type SeedPoi } from './poi';
 import type { WorldMap } from '../data/types';
 
@@ -35,7 +34,7 @@ export type SeedOut =
   | { id: number; ok: false; error: string };
 
 // ---- Cave layouts (wang.ts): the map and the templates, decoded once ----
-let layoutData: Promise<{ map: WorldMap; tilesets: Map<string, Tileset>; overlay?: Uint8Array }> | null = null;
+let layoutData: Promise<{ map: WorldMap; tilesets: Map<string, Template>; overlay?: Uint8Array }> | null = null;
 
 /** Raw RGB of a PNG, without colour management (the game reads the stored values). */
 async function rgbOf(url: string) {
@@ -55,13 +54,12 @@ async function rgbOf(url: string) {
 
 async function loadLayoutData(base: string) {
   const map = (await (await fetch(`${base}game/data/map.json`)).json()) as WorldMap;
-  const tilesets = new Map<string, Tileset>();
+  const tilesets = new Map<string, Template>();
   const names = [...new Set(map.biomes.flatMap((b) => (b.wangTemplate ? [b.wangTemplate] : [])))];
   await Promise.all(
     names.map(async (n) => {
       const img = await rgbOf(`${base}game/wang/${n}.png`);
-      const ts = buildTileset(img.rgb, img.w, img.h);
-      if (ts) tilesets.set(n, ts);
+      tilesets.set(n, templateOf(img.rgb, img.w, img.h));
     }),
   );
   const overlay = await rgbOf(`${base}game/wang/coalmine_overlay.png`).then((o) => o.rgb, () => undefined);
