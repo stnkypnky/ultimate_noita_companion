@@ -151,8 +151,8 @@ function rng(seed: number) {
   };
 }
 
-/** Rising embers like the app's splash: square pixels cooling from yellow to red. */
-function embers(n: number, w: number, h: number, seed: number, size: number) {
+/** Rising embers like the app's splash: square pixels cooling from yellow to red. `lanes` keeps them to x ranges. */
+function embers(n: number, w: number, h: number, seed: number, size: number, lanes: [number, number][] = [[0, w]]) {
   const r = rng(seed);
   const css: string[] = [];
   const els: string[] = [];
@@ -162,7 +162,8 @@ function embers(n: number, w: number, h: number, seed: number, size: number) {
     const drift = Math.round((r() - 0.5) * 80);
     const s = size * (1 + Math.floor(r() * 2));
     css.push(`.e${i}{animation:rise${i} ${dur.toFixed(2)}s linear ${delay.toFixed(2)}s infinite}@keyframes rise${i}{0%{transform:translate(0,0);opacity:0;fill:#ffd27a}15%{opacity:1}55%{fill:#ff9a2a}100%{transform:translate(${drift}px,${-h * (0.6 + r() * 0.5)}px);opacity:0;fill:#e2441a}}`);
-    els.push(`<rect class="ember e${i}" x="${Math.round(r() * w)}" y="${Math.round(h - r() * h * 0.25)}" width="${s}" height="${s}" fill="#ffb347" opacity=".8"/>`);
+    const [a, b] = lanes[i % lanes.length]!;
+    els.push(`<rect class="ember e${i}" x="${Math.round(a + r() * (b - a))}"y="${Math.round(h - r() * h * 0.25)}" width="${s}" height="${s}" fill="#ffb347" opacity=".8"/>`);
   }
   return { css: `@media (prefers-reduced-motion: no-preference){${css.join('')}}@media (prefers-reduced-motion: reduce){.ember{display:none}}`, els: els.join('') };
 }
@@ -389,7 +390,11 @@ ${text(RUNES, word, W / 2, 29, 3, GOLD, { anchor: 'middle', shadow: 'none' })}`;
   const W = 880;
   const H = 300;
   const G = 4;
-  const em = embers(18, W, H, 11, 4);
+  // Kept to the margins, clear of the text.
+  const em = embers(18, W, H, 11, 4, [
+    [16, 170],
+    [730, 860],
+  ]);
   const rows: [string, string][] = [
     ['Killed by', 'a README that went on a bit'],
     ['Depth', 'The Credits'],

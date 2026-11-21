@@ -49,8 +49,7 @@ Drag spells onto a wand, or long-press and tap on a phone. UNC runs **Nolla's ow
 - **Share** a wand as a link or a QR code.
 
 <p align="center">
-  <img src="docs/readme/shots/wand-laptop.webp" alt="The Wand Builder on a laptop" width="68%">
-  <img src="docs/readme/shots/wand-phone.webp" alt="The Wand Builder on a phone" width="26%">
+  <img src="docs/readme/shots/wand-laptop.webp" alt="The Wand Builder on a laptop" width="100%">
 </p>
 
 <a id="test-range"></a>
@@ -64,8 +63,7 @@ Before you trust a wand with your life, try it here. The Preview tab is a small 
 - Lightning, note songs, Plicates, Greek letters and the trigger loops behind projection wands all work.
 
 <p align="center">
-  <img src="docs/readme/shots/range-close-laptop.webp" alt="The Test Range firing a bomb wand at a statue" width="68%">
-  <img src="docs/readme/shots/range-phone.webp" alt="The Test Range on a phone" width="26%">
+  <img src="docs/readme/shots/range-close-laptop.webp" alt="The Test Range firing a bomb wand at a statue" width="100%">
 </p>
 
 <a id="live-run"></a>
@@ -78,8 +76,7 @@ Install the small companion mod and UNC follows your game as you play: health, g
 - **Run history**: your last ten runs, with what killed you and where you fell.
 
 <p align="center">
-  <img src="docs/readme/shots/run-laptop.webp" alt="The Live Run dashboard on a laptop" width="68%">
-  <img src="docs/readme/shots/run-phone.webp" alt="The Live Run page on a phone" width="26%">
+  <img src="docs/readme/shots/run-laptop.webp" alt="The Live Run dashboard on a laptop" width="100%">
 </p>
 
 <a id="world-map"></a>
@@ -90,8 +87,7 @@ The whole world as the game lays it out. Enter your seed and every cave area is 
 The **Seed** tab shows each Holy Mountain's perks and shop, the fungal shifts, and the biome modifiers. Tick the perks you take and the later mountains update.
 
 <p align="center">
-  <img src="docs/readme/shots/seed-laptop.webp" alt="Holy Mountain perks and shops for a seed" width="68%">
-  <img src="docs/readme/shots/map-phone.webp" alt="The world map on a phone" width="26%">
+  <img src="docs/readme/shots/seed-laptop.webp" alt="Holy Mountain perks and shops for a seed" width="100%">
 </p>
 
 <a id="bestiary"></a>
@@ -100,8 +96,7 @@ The **Seed** tab shows each Holy Mountain's perks and shop, the fungal shifts, a
 Every creature, animated. UNC tells you how each one fights, how to beat it, where it lives, what it drops and what it's weak to. It also keeps your record: how many you've killed and how many times one killed you. (Hurtta knows what it did.)
 
 <p align="center">
-  <img src="docs/readme/shots/bestiary-laptop.webp" alt="The Bestiary showing Hurtta" width="68%">
-  <img src="docs/readme/shots/bestiary-phone.webp" alt="The Bestiary on a phone" width="26%">
+  <img src="docs/readme/shots/bestiary-laptop.webp" alt="The Bestiary showing Hurtta" width="100%">
 </p>
 
 <a id="spells-perks-items"></a>
@@ -113,8 +108,7 @@ Every creature, animated. UNC tells you how each one fights, how to beat it, whe
 - **Hidden mechanics** that the tooltips leave out, like speed damage and how hard things get thrown, with wiki links.
 
 <p align="center">
-  <img src="docs/readme/shots/perk-laptop.webp" alt="Perk details with real odds" width="68%">
-  <img src="docs/readme/shots/spell-phone.webp" alt="A spell's details on a phone" width="26%">
+  <img src="docs/readme/shots/perk-laptop.webp" alt="Perk details with real odds" width="100%">
 </p>
 
 <a id="materials"></a>
@@ -123,7 +117,7 @@ Every creature, animated. UNC tells you how each one fights, how to beat it, whe
 What every material is, where to find it (biomes, rooms, flasks, pouches, even what creatures bleed), and readable reactions like *Lava + Water = Rock + Steam*. Alchemy looks up Lively Concoction and Alchemic Precursor for any seed. Recipes stay hidden until you ask for them.
 
 <p align="center">
-  <img src="docs/readme/shots/material-phone.webp" alt="Water: where to find it" width="26%">
+  <img src="docs/readme/shots/material-laptop.webp" alt="Materials: Water, and where to find it" width="100%">
 </p>
 
 <a id="no-spoilers"></a>
@@ -134,7 +128,7 @@ Noita is best when it surprises you, so UNC only shows what **your save** says y
 Point UNC at your `save00` folder once. It reads the folder locally (nothing is uploaded) and keeps watching it, so new spells, perks and creatures appear as you find them.
 
 <p align="center">
-  <img src="docs/readme/shots/spells-laptop.webp" alt="The spell list with undiscovered spells hidden" width="68%">
+  <img src="docs/readme/shots/spells-laptop.webp" alt="The spell list with undiscovered spells hidden" width="100%">
 </p>
 
 <a id="every-device"></a>
@@ -145,14 +139,28 @@ Point UNC at your `save00` folder once. It reads the folder locally (nothing is 
 - **Updates itself**, and paired devices show which one is out of date.
 
 <p align="center">
-  <img src="docs/readme/shots/progress-laptop.webp" alt="Progress Sync with live save watching and device pairing" width="68%">
-  <img src="docs/readme/shots/home-phone.webp" alt="UNC's home screen on a phone" width="26%">
+  <img src="docs/readme/shots/progress-laptop.webp" alt="Progress Sync with live save watching and device pairing" width="100%">
+</p>
+
+<h3 align="center">In your pocket</h3>
+
+<p align="center">
+  <img src="docs/readme/shots/run-phone.webp" alt="Live Run on a phone" width="24%">
+  <img src="docs/readme/shots/range-phone.webp" alt="The Test Range on a phone" width="24%">
+  <img src="docs/readme/shots/map-phone.webp" alt="The world map on a phone" width="24%">
+  <img src="docs/readme/shots/bestiary-phone.webp" alt="The Bestiary on a phone" width="24%">
+</p>
+<p align="center">
+  <img src="docs/readme/shots/home-phone.webp" alt="UNC's home screen on a phone" width="24%">
+  <img src="docs/readme/shots/wand-phone.webp" alt="The Wand Builder on a phone" width="24%">
+  <img src="docs/readme/shots/spell-phone.webp" alt="A spell's details on a phone" width="24%">
+  <img src="docs/readme/shots/material-phone.webp" alt="Water: where to find it, on a phone" width="24%">
 </p>
 
 <a id="get-started"></a>
 <img src="docs/readme/h-start.svg" alt="Get Started" width="100%">
 
-| | Step | |
+| # | Step | How |
 |:-:|---|---|
 | **1** | **Open UNC** | Go to **https://stnkypnky.github.io/ultimate_noita_companion/** and install it from the browser menu if you like. |
 | **2** | **Bring your save** | On your PC, open **Progress Sync** → *Choose save folder* and pick `save00` (usually `%USERPROFILE%\AppData\LocalLow\Nolla_Games_Noita\save00`). This needs Chrome or Edge. In Brave, first turn on `brave://flags/#file-system-access-api`. Then pair your phone, or scan the one-off sync code. |

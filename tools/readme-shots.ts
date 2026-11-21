@@ -198,7 +198,7 @@ const scenes: Scene[] = [
   { name: 'spell', sizes: ['phone'], run: go('spells/LIGHT_BULLET_TRIGGER') },
   { name: 'spells', sizes: ['laptop'], run: go('spells') },
   { name: 'perk', sizes: ['laptop'], run: go('perks/EXTRA_HP') },
-  { name: 'material', sizes: ['phone'], run: go('materials/water') },
+  { name: 'material', sizes: ['laptop', 'phone'], run: go('materials/water') },
   { name: 'progress', sizes: ['laptop'], run: go('progress') },
 ];
 
