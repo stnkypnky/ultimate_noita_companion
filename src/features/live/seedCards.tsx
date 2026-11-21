@@ -70,7 +70,7 @@ function useRunReport(seed: number, picks: string[][], map: WorldMap | null) {
  * The cards that know where you are. Shown only with the newer mod (it sends a position). A past run shows
  * where it ended and what it went through instead of what's next.
  */
-export function useSeedCards(run: LiveRun, at: number, past: boolean) {
+export function useSeedCards(run: LiveRun, at: number, past: boolean, mapHeight = 320) {
   const map = useWorldMap();
   const next = map && run.y !== undefined ? nextMountain(map, run.y) : null;
   const picks = useMemo(() => (next ? picksBefore(run, next) : []), [run, next]);
@@ -78,7 +78,7 @@ export function useSeedCards(run: LiveRun, at: number, past: boolean) {
   if (run.x === undefined || run.y === undefined) return { map: null, mountain: null, fungal: null };
   const marker = past ? (run.status === 'dead' ? 'died' : 'last') : 'here';
   return {
-    map: map && <MiniMap map={map} x={run.x} y={run.y} seed={run.seed} kind={marker} biome={run.biome?.name} />,
+    map: map && <MiniMap map={map} x={run.x} y={run.y} seed={run.seed} kind={marker} biome={run.biome?.name} height={mapHeight} />,
     mountain: past ? <MountainsReached next={next} seed={run.seed} /> : <NextMountain next={next} report={report} />,
     fungal: run.fungal ? past ? <FungalsDone count={run.fungal.count} report={report} /> : <NextFungal fungal={run.fungal} at={at} report={report} /> : null,
   };
@@ -94,7 +94,7 @@ const mapSpoilersShown = () => {
 
 const MARKER_TITLE = { here: 'Where you are', died: 'Where you died', last: 'Where you left off' } as const;
 
-function MiniMap({ map, x, y, seed, kind, biome }: { map: WorldMap; x: number; y: number; seed: number; kind: MarkerKind; biome?: string }) {
+function MiniMap({ map, x, y, seed, kind, biome, height }: { map: WorldMap; x: number; y: number; seed: number; kind: MarkerKind; biome?: string; height: number }) {
   const { materialById } = useData();
   const { mode, visible } = useSpoilers();
   const orbs = useProgress((s) => s.progress?.orbs);
@@ -126,7 +126,7 @@ function MiniMap({ map, x, y, seed, kind, biome }: { map: WorldMap; x: number; y
   return (
     <CollapsibleSection id="run-map" title={MARKER_TITLE[kind]} summary={summary}>
       {/* As tall as the map's own minimum height, so it doesn't spill over the list below. */}
-      <div className="h-[320px]">
+      <div style={{ height }}>
         <MapView
           map={map}
           vis={vis}
@@ -243,6 +243,12 @@ function NextMountain({ next, report }: { next: number | null; report: SeedRepor
   );
 }
 
+/** Seconds until the next fungal shift (0: ready now), or null when all are used or the mod doesn't say. */
+export function fungalLeft(run: LiveRun, at: number, now: number): number | null {
+  if (!run.fungal || run.fungal.count >= MAX_SHIFTS) return null;
+  return Math.max(0, Math.round(run.fungal.readyIn - (now - at) / 1000));
+}
+
 function NextFungal({ fungal, at, report }: { fungal: NonNullable<LiveRun['fungal']>; at: number; report: SeedReport | null }) {
   const now = useNow(1000);
   const left = Math.max(0, Math.round(fungal.readyIn - (now - at) / 1000));
@@ -280,14 +286,17 @@ function NextFungal({ fungal, at, report }: { fungal: NonNullable<LiveRun['funga
   );
 }
 
-/** Play time, kills, orbs and carried items (mod 2). */
-export function RunStats({ run, at, active }: { run: LiveRun; at: number; active: boolean }) {
-  const { items } = useData();
-  const now = useNow(1000);
-  const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
-  if (run.playtime === undefined && run.kills === undefined && !run.items?.length) return null;
+/** Play time so far, ticking on while the game runs (undefined: the mod doesn't send it). */
+export function playtimeNow(run: LiveRun, at: number, now: number, active: boolean) {
   const ticking = active && run.status === 'alive';
-  const playtime = run.playtime !== undefined ? run.playtime + (ticking ? Math.max(0, (now - at) / 1000) : 0) : undefined;
+  return run.playtime !== undefined ? run.playtime + (ticking ? Math.max(0, (now - at) / 1000) : 0) : undefined;
+}
+
+/** Play time, kills and orbs (mod 2), and what killed you. */
+export function RunStats({ run, at, active }: { run: LiveRun; at: number; active: boolean }) {
+  const now = useNow(1000);
+  if (run.playtime === undefined && run.kills === undefined) return null;
+  const playtime = playtimeNow(run, at, now, active);
   const summary = [playtime !== undefined && clock(playtime), run.kills !== undefined && `${run.kills} kills`].filter(Boolean).join(' · ');
   return (
     <CollapsibleSection id="run-stats" title="This run" summary={summary}>
@@ -301,8 +310,19 @@ export function RunStats({ run, at, active }: { run: LiveRun; at: number; active
           <Skull size={14} /> Killed by <KilledBy text={run.killedBy} seed={run.seed} at={at} />
         </p>
       )}
+    </CollapsibleSection>
+  );
+}
+
+/** The items you carry (mod 2): the held one marked. */
+export function CarriedItems({ run }: { run: LiveRun }) {
+  const { items } = useData();
+  const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  if (!run.items?.length) return null;
+  return (
+    <CollapsibleSection id="run-items" title="Items" summary={`${run.items.length} carried`}>
       {run.items && run.items.length > 0 && (
-        <ul className="mt-3 space-y-1">
+        <ul className="space-y-1">
           {run.items.map((it, i) => {
             const known = itemById.get(it.id);
             return (

@@ -116,7 +116,7 @@ await pc.getByRole('link', { name: 'Run', exact: true }).waitFor({ timeout: 5000
 console.log('PC: Run in the nav');
 await pc.goto(`${BASE}run`);
 await pc.getByRole('heading', { name: 'Current run' }).waitFor({ timeout: 15000 });
-await pc.getByText('Damage / sec').first().waitFor({ timeout: 15000 });
+await pc.getByText('dps', { exact: true }).first().waitFor({ timeout: 15000 });
 console.log('PC: Run page with a simulated wand');
 for (const text of ['Where you are', /^Next: Holy Mountain \d$/, 'Next fungal shift', 'ready now', 'Kills']) {
   try {
@@ -146,7 +146,7 @@ console.log('phone: Run page from the bottom bar');
 // Play on: a new spell found and some damage taken. The phone should follow without a reload.
 const t0 = Date.now();
 await writeSave(pc, { 'persistent/flags/action_nuke': '', 'companion_live.json': liveRun(55, 300) });
-await phone.getByText('55 / 100').waitFor({ timeout: 30000 });
+await phone.getByText('55/100').waitFor({ timeout: 30000 });
 console.log(`phone: live HP update in ${Date.now() - t0} ms`);
 
 // Phones: sections start folded with a summary line; a tap opens one, and it stays open after a reload.

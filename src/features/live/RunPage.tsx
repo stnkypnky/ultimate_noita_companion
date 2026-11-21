@@ -3,19 +3,19 @@
 // A recent run opens in the same view, as it was when it ended (/run/:id).
 import { useState, type ReactNode } from 'react';
 import { Link, Navigate, useParams } from 'react-router';
-import { Check, ClipboardCopy, Coins, Eye, Heart, Map as MapIcon, MapPin, Skull } from 'lucide-react';
+import { Check, ClipboardCopy, Clock, Coins, Eye, Heart, Map as MapIcon, MapPin, Skull } from 'lucide-react';
 import { ALCHEMY_KEY } from '@/data/spoilers';
 import { useSpoilers } from '@/store/progress';
 import { Page } from '@/ui/Page';
-import { CollapsibleSection } from '@/ui/controls';
+import { CollapsibleSection, Section, SectionStyleContext } from '@/ui/controls';
 import { HudBar } from '@/ui/game';
-import { useIsDesktop } from '@/ui/hooks';
+import { useIsDesktop, useIsTablet, useIsWide } from '@/ui/hooks';
 import { LiveCrystal } from '@/ui/LiveCrystal';
 import { timeAgo, useNow } from '@/ui/time';
 import { RecipeCard } from '@/features/alchemy/AlchemyPage';
 import { alchemyRecipes } from '@/features/alchemy/aplc';
 import { ModInstall } from './ModInstall';
-import { RunStats, useSeedCards } from './seedCards';
+import { CarriedItems, RunStats, fungalLeft, playtimeNow, useSeedCards } from './seedCards';
 import { FoundThisRun, RunSwitcher, Timeline, useRunRecord } from './historyParts';
 import { DetailSheet, FlaskSummary, Flasks, PerkSummary, Perks, SpellButton, SpellSummary, Wands, type Detail } from './parts';
 import { MAX_RUNS, snapshotOf, type RunRecord } from './history';
@@ -80,18 +80,45 @@ export function PastRunPage() {
   );
 }
 
+type Tab = 'wands' | 'inventory' | 'seed' | 'log';
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'wands', label: 'Wands' },
+  { id: 'inventory', label: 'Inventory' },
+  { id: 'seed', label: 'Seed' },
+  { id: 'log', label: 'Log' },
+];
+const TAB_KEY = 'run-tab';
+const readTab = (): Tab => {
+  try {
+    const t = localStorage.getItem(TAB_KEY);
+    return TABS.some((x) => x.id === t) ? (t as Tab) : 'wands';
+  } catch {
+    return 'wands';
+  }
+};
+
 function RunView({ run, at, rec, past, status, switcher }: { run: LiveRun; at: number; rec?: RunRecord; past: boolean; status: ReactNode; switcher: ReactNode }) {
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [tab, setTabState] = useState<Tab>(readTab);
+  const setTab = (t: Tab) => {
+    setTabState(t);
+    try {
+      localStorage.setItem(TAB_KEY, t);
+    } catch {
+      /* this visit only */
+    }
+    scrollTo({ top: 0 });
+  };
   const desktop = useIsDesktop();
+  const wide = useIsWide();
+  const tablet = useIsTablet();
   const { active } = useLiveRun();
-  const seed = useSeedCards(run, at, past);
+  const now = useNow(1000);
+  // On a phone the map has a tab of its own, so it can take most of the screen.
+  const seed = useSeedCards(run, at, past, desktop ? 320 : Math.max(280, Math.round(innerHeight * 0.55)));
   const waiting = !past && run.status === 'no_player';
 
-  const wands = (
-    <CollapsibleSection id="run-wands" title="Wands" defaultOpen summary={`${run.wands.length} wand${run.wands.length === 1 ? '' : 's'}`}>
-      <Wands run={run} onOpen={setDetail} past={past} />
-    </CollapsibleSection>
-  );
+  const wands = <Wands run={run} onOpen={setDetail} past={past} />;
   const bag = run.spells.length > 0 && (
     <CollapsibleSection id="run-bag" title="Spells in your bag" summary={<SpellSummary run={run} />}>
       <div className="flex flex-wrap gap-0.5">
@@ -122,49 +149,126 @@ function RunView({ run, at, rec, past, status, switcher }: { run: LiveRun; at: n
     </p>
   );
 
-  return (
-    <Page title={past ? 'Run' : 'Current run'} subtitle={status} toolbar={!waiting && <Hud run={run} past={past} />}>
-      {switcher}
-      {waiting ? (
-        <p className="panel mt-2 p-6 text-center text-sm text-muted">Noita is open — waiting for a run to start.</p>
-      ) : desktop ? (
-        <div className="grid gap-x-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
-          <div>
-            {wands}
-            {bag}
-            {found}
-            {timeline}
-          </div>
-          <div>
-            {stats}
-            {flasks}
-            {perks}
-            {seed.map}
-            {seed.mountain}
-            {seed.fungal}
-            {thisSeed}
-            {update}
-          </div>
+  const items = <CarriedItems run={run} />;
+  const fungal = fungalLeft(run, at, now);
+  const seedBlocks = (
+    <>
+      {seed.mountain}
+      {seed.fungal}
+      {seed.map}
+      {thisSeed}
+    </>
+  );
+
+  let body: ReactNode;
+  if (waiting) {
+    body = <p className="panel mt-2 p-6 text-center text-sm text-muted">Noita is open — waiting for a run to start.</p>;
+  } else if (desktop) {
+    // A dashboard: everything open at once. Wands take the free width (side by side as it grows); inventory and
+    // the seed get columns of their own on wide screens.
+    body = (
+      <div className={`grid gap-x-6 ${wide ? 'grid-cols-[minmax(0,1fr)_340px_380px]' : 'grid-cols-[minmax(0,1fr)_340px]'}`}>
+        <div className="min-w-0">
+          <Section title={`Wands (${run.wands.length})`}>{wands}</Section>
+          {bag}
+          {found}
+          {timeline}
         </div>
-      ) : (
-        // Phones and tablets: one column, what matters mid-fight first; everything but the wands starts folded.
-        <div>
-          {wands}
+        <div className="min-w-0">
           {stats}
           {flasks}
           {perks}
-          {bag}
-          {seed.mountain}
-          {seed.fungal}
-          {seed.map}
-          {found}
-          {timeline}
-          {thisSeed}
-          {update}
+          {items}
+          {!wide && seedBlocks}
+          {!wide && update}
         </div>
-      )}
+        {wide && (
+          <div className="min-w-0">
+            {seedBlocks}
+            {update}
+          </div>
+        )}
+      </div>
+    );
+  } else {
+    // Phones and tablets: one topic per tab, the tabs pinned under the HUD; a tablet lays a tab out in two columns.
+    const two = tablet ? 'grid grid-cols-2 items-start gap-x-6' : '';
+    body = (
+      <div className="pt-1">
+        {tab === 'wands' && wands}
+        {tab === 'inventory' && (
+          <div className={two}>
+            <div className="min-w-0">
+              {flasks}
+              {items}
+            </div>
+            <div className="min-w-0">
+              {perks}
+              {bag}
+            </div>
+          </div>
+        )}
+        {tab === 'seed' && (
+          <div className={two}>
+            <div className="min-w-0">
+              {seed.mountain}
+              {seed.fungal}
+              {thisSeed}
+            </div>
+            <div className="min-w-0">{seed.map}</div>
+          </div>
+        )}
+        {tab === 'log' && (
+          <div className={two}>
+            <div className="min-w-0">
+              {stats}
+              {found}
+            </div>
+            <div className="min-w-0">{timeline}</div>
+          </div>
+        )}
+        {update}
+      </div>
+    );
+  }
+
+  const toolbar = !waiting && (
+    <>
+      <Hud run={run} at={at} past={past} fungal={fungal} />
+      {!desktop && <RunTabBar tab={tab} onTab={setTab} badges={{ seed: fungal === 0 ? 'dot' : undefined, log: rec?.found.length || undefined }} />}
+    </>
+  );
+
+  return (
+    <Page full title={past ? 'Run' : 'Current run'} subtitle={status} toolbar={toolbar}>
+      {switcher}
+      <SectionStyleContext.Provider value="card">{body}</SectionStyleContext.Provider>
       <DetailSheet detail={detail} onClose={() => setDetail(null)} />
     </Page>
+  );
+}
+
+/** The Run page's sections on phones and tablets, pinned under the HUD. */
+function RunTabBar({ tab, onTab, badges }: { tab: Tab; onTab: (t: Tab) => void; badges: Partial<Record<Tab, 'dot' | number>> }) {
+  return (
+    <div role="tablist" aria-label="Run sections" className="grid grid-cols-4 gap-1">
+      {TABS.map((t) => {
+        const b = badges[t.id];
+        return (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => onTab(t.id)}
+            className={`btn-game font-game relative flex min-h-10 items-center justify-center px-1 text-[16px] ${tab === t.id ? '' : 'quiet'}`}
+          >
+            {t.label}
+            {b === 'dot' && <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-toxic" aria-label="(ready)" />}
+            {typeof b === 'number' && <span className="absolute -top-1 -right-1 rounded-full bg-toxic px-1 text-[10px] leading-4 text-bg">{b}</span>}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -210,32 +314,49 @@ function PastStatus({ rec }: { rec: RunRecord }) {
   );
 }
 
-/** Health, gold and where you are: sticks under the title while you scroll. */
-function Hud({ run, past }: { run: LiveRun; past: boolean }) {
+/**
+ * Health, gold, where you are, play time and the fungal shift: sticks under the title while you scroll. Two lines
+ * on a phone, one on a wide screen.
+ */
+function Hud({ run, at, past, fungal }: { run: LiveRun; at: number; past: boolean; fungal: number | null }) {
+  const { active } = useLiveRun();
+  const now = useNow(1000);
+  const playtime = playtimeNow(run, at, now, !past && active);
   return (
-    <div className="grid grid-cols-2 items-center gap-x-4 gap-y-2 sm:grid-cols-[minmax(0,2fr)_auto_minmax(0,1.5fr)]">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted">
       {run.hp !== undefined && run.maxHp ? (
-        <div className="col-span-2 text-sm sm:col-span-1">
-          <div className="flex items-center gap-1.5 text-muted">
-            {run.status === 'dead' ? <Skull size={14} /> : <Heart size={14} className="text-blood" />}
-            <span className="font-game text-[16px] text-ink">
-              {Math.max(0, Math.round(run.hp))} / {Math.round(run.maxHp)}
-            </span>
-          </div>
-          <HudBar value={Math.max(0, run.hp / run.maxHp)} color="#c3332b" className="mt-1.5" label="Health" />
+        <div className="flex min-w-[220px] flex-1 items-center gap-2 lg:max-w-md">
+          {run.status === 'dead' ? <Skull size={14} className="shrink-0" /> : <Heart size={14} className="shrink-0 text-blood" />}
+          <span className="font-game shrink-0 text-[16px] text-ink tabular-nums">
+            {Math.max(0, Math.round(run.hp))}/{Math.round(run.maxHp)}
+          </span>
+          <HudBar value={Math.max(0, run.hp / run.maxHp)} color="#c3332b" className="flex-1" label="Health" />
         </div>
       ) : null}
       {run.gold !== undefined && (
-        <div className="flex items-center gap-1.5 text-sm text-muted">
-          <Coins size={14} className="text-gold" /> <span className="font-game text-[16px] text-ink">{run.gold}</span>
-        </div>
+        <span className="inline-flex items-center gap-1.5">
+          <Coins size={14} className="text-gold" /> <span className="font-game text-[16px] text-ink tabular-nums">{run.gold}</span>
+        </span>
       )}
-      {run.biome && (
-        <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted">
-          <MapPin size={14} className="shrink-0 text-ember" /> <span className="truncate text-ink">{run.biome.name}</span>
-          {run.depth !== undefined && <span className="shrink-0 text-faint">· {Math.round(run.depth)} m{past ? ' deep' : ''}</span>}
-        </div>
-      )}
+      {/* The second line on a phone: place, time, fungal shift. */}
+      <div className="flex min-w-0 basis-full flex-wrap items-center gap-x-3 gap-y-1 lg:basis-auto">
+        {run.biome && (
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            <MapPin size={14} className="shrink-0 text-ember" /> <span className="truncate text-ink">{run.biome.name}</span>
+            {run.depth !== undefined && <span className="shrink-0 text-faint">· {Math.round(run.depth)} m{past ? ' deep' : ''}</span>}
+          </span>
+        )}
+        {playtime !== undefined && (
+          <span className="inline-flex items-center gap-1.5">
+            <Clock size={14} className="text-faint" /> <span className="text-ink tabular-nums">{clock(playtime)}</span>
+          </span>
+        )}
+        {!past && fungal !== null && (
+          <span className={`rounded px-1.5 py-0.5 text-xs ${fungal === 0 ? 'bg-toxic/15 text-toxic' : 'bg-surface-2 text-muted'}`} title="Next fungal shift">
+            {fungal === 0 ? 'Shift ready' : `Shift in ${clock(fungal)}`}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

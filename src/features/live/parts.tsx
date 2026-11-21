@@ -33,8 +33,9 @@ export function Wands({ run, onOpen, past }: { run: LiveRun; onOpen: OpenDetail;
   const options = useMemo<SimOptions>(() => ({ ...DEFAULT_OPTIONS, unlimitedSpells: unlimited }), [unlimited]);
   const ordered = [...run.wands].sort((a, b) => Number(b.active) - Number(a.active));
   if (!ordered.length) return <p className="panel p-4 text-sm text-muted">{past ? 'No wands.' : 'No wands in hand.'}</p>;
+  // Side by side as the space allows: one column on phones, up to four across on wide screens.
   return (
-    <div className="space-y-3">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,360px),1fr))] gap-3">
       {ordered.map((w) => (
         <WandCard key={run.wands.indexOf(w)} wand={w} all={run.wands} perks={run.perks} options={options} onOpen={onOpen} past={past} />
       ))}
@@ -83,28 +84,36 @@ function WandCard({
     { icon: 'spread_degrees', label: 'Spread', value: `${fmtNum(wand.spread, 1)}°` },
   ];
 
+  const short = s && s.manaUsed > wand.manaMax;
   return (
-    <section className={`panel p-4 ${wand.active ? 'ring-1 ring-toxic/40' : ''}`}>
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="grid h-12 min-w-12 shrink-0 place-items-center">
-          <WandPortrait wand={built} scale={desktop ? 3 : 2} />
+    <section className={`panel @container min-w-0 p-3 ${wand.active ? 'ring-1 ring-toxic/40' : ''}`}>
+      {/* One row: portrait, name, damage per second, and the builder a tap away. */}
+      <header className="flex items-center gap-2.5">
+        <span className="grid h-9 min-w-9 shrink-0 place-items-center">
+          <WandPortrait wand={built} scale={2} />
         </span>
-        <div className="min-w-0 flex-1 basis-32">
-          <h3 className="font-game line-clamp-2 text-[16px] leading-tight break-words" title={wand.name || 'Wand'}>
+        <div className="min-w-0 flex-1">
+          <h3 className="font-game truncate text-[16px] leading-tight" title={wand.name || 'Wand'}>
             {wand.name || 'Wand'}
           </h3>
           {wand.active && <span className="font-game-caps text-[8px] text-toxic">{past ? 'Last held' : 'In hand'}</span>}
         </div>
+        <div className="shrink-0 text-right" title="Damage per second, simulated">
+          <div className="font-game text-[24px] leading-none text-ember tabular-nums">{s ? fmtNum(s.dps, 0) : sim.status === 'running' ? '…' : '–'}</div>
+          <div className="text-[10px] tracking-wide text-faint uppercase">dps</div>
+        </div>
         <button
           onClick={() => void encodeWand(built).then((code) => navigate(`/wand#w=${code}`))}
-          className="inline-flex items-center justify-center gap-1.5 btn-game quiet font-game text-[16px] px-2.5 py-1 max-sm:w-full"
+          title="Open in the wand builder"
+          aria-label="Open in the wand builder"
+          className="btn-game quiet grid h-9 w-9 shrink-0 place-items-center"
         >
-          <Wand2 size={14} /> Open in builder
+          <Wand2 size={15} />
         </button>
       </header>
 
       {!past && wand.mana !== undefined && wand.manaMax > 0 && (
-        <div className="mt-3 flex items-center gap-2 text-xs text-muted">
+        <div className="mt-2 flex items-center gap-2 text-xs text-muted">
           <HudBar value={Math.max(0, Math.min(1, wand.mana / wand.manaMax))} color="#42a8e2" className="flex-1" label="Mana" />
           <span className="font-game w-20 text-right text-[16px] text-ink">
             {Math.round(wand.mana)}
@@ -115,52 +124,44 @@ function WandCard({
 
       <WandSlotsRow wand={wand} built={built} onOpen={onOpen} />
 
-      {/* Phones: the wand's stats fold away so the slots and the simulation stay in view. */}
+      {/* The simulated cycle in one line. */}
+      {s && (
+        <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted">
+          <span>
+            <span className="text-ink tabular-nums">{seconds(s.cycleFrames)}</span> cycle
+          </span>
+          <span className={short ? 'text-ember' : ''} title={short ? 'More than the wand holds: it waits for mana mid-cycle' : undefined}>
+            <span className={`tabular-nums ${short ? '' : 'text-ink'}`}>{fmtNum(s.manaUsed, 0)}</span> mana
+          </span>
+          <span>
+            <span className="text-ink tabular-nums">{s.casts}</span> cast{s.casts === 1 ? '' : 's'}
+          </span>
+        </p>
+      )}
+      {s && s.skippedForMana > 0 && (
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-ember">
+          <AlertTriangle size={13} /> Runs out of mana: {s.skippedForMana} spell{s.skippedForMana > 1 ? 's' : ''} skipped per cycle
+        </p>
+      )}
+
+      {/* The wand's own stats: always on a big screen, folded on phones and tablets. */}
       {(desktop || showStats) && (
-        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
+        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-line/60 pt-2 text-xs @[40rem]:grid-cols-4">
           {stats.map((st) => (
-            <div key={st.label} className="flex items-center gap-1.5">
+            <div key={st.label} className="flex min-w-0 items-center gap-1.5">
               <StatIcon name={st.icon} />
-              <dt className="text-faint">{st.label}</dt>
+              <dt className="truncate text-faint">{st.label}</dt>
               <dd className="ml-auto font-medium text-ink tabular-nums">{st.value}</dd>
             </div>
           ))}
         </dl>
       )}
       {!desktop && (
-        <button onClick={() => setShowStats(!showStats)} aria-expanded={showStats} className="mt-2 inline-flex min-h-9 items-center gap-1 text-xs text-muted hover:text-ink">
+        <button onClick={() => setShowStats(!showStats)} aria-expanded={showStats} className="mt-1 inline-flex min-h-9 items-center gap-1 text-xs text-muted hover:text-ink">
           <ChevronDown size={14} className={showStats ? 'rotate-180' : ''} /> {showStats ? 'Hide wand stats' : `Wand stats · ${seconds(wand.castDelay)} delay · ${seconds(wand.rechargeTime)} recharge`}
         </button>
       )}
-
-      {s ? (
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Tile icon="damage_projectile" label="Damage / sec" value={fmtNum(s.dps, 0)} accent />
-          <Tile icon="gun_reload_time" label="Cycle time" value={seconds(s.cycleFrames)} />
-          <Tile icon="mana_drain" label="Mana / cycle" value={fmtNum(s.manaUsed, 0)} warn={s.manaUsed > wand.manaMax} />
-          <Tile icon="gun_actions_per_round" label="Casts / cycle" value={String(s.casts)} />
-        </div>
-      ) : sim.status === 'running' ? (
-        <p className="mt-3 text-xs text-faint">Simulating…</p>
-      ) : null}
-      {s && s.skippedForMana > 0 && (
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-ember">
-          <AlertTriangle size={13} /> Runs out of mana: {s.skippedForMana} spell{s.skippedForMana > 1 ? 's' : ''} skipped per cycle
-        </p>
-      )}
     </section>
-  );
-}
-
-function Tile({ label, value, accent, warn, icon }: { label: string; value: string; accent?: boolean; warn?: boolean; icon: StatIconName }) {
-  return (
-    <div className="slot px-3 py-2" title={warn ? 'More than the wand holds: it waits for mana mid-cycle' : undefined}>
-      <div className="flex items-center gap-1.5 text-[11px] tracking-wide text-faint uppercase">
-        <StatIcon name={icon} />
-        {label}
-      </div>
-      <div className={`font-game mt-1 text-[20px] leading-none ${accent ? 'text-ember' : warn ? 'text-blood' : ''}`}>{value}</div>
-    </div>
   );
 }
 

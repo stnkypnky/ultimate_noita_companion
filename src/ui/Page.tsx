@@ -12,6 +12,7 @@ export function Page({
   progress,
   children,
   wide,
+  full,
 }: {
   title: string;
   subtitle?: ReactNode;
@@ -21,6 +22,8 @@ export function Page({
   progress?: ReactNode;
   children: ReactNode;
   wide?: boolean;
+  /** No width cap at all: dashboards that use every pixel of a big screen. */
+  full?: boolean;
 }) {
   const ref = useRef<HTMLElement>(null);
 
@@ -35,7 +38,7 @@ export function Page({
   }, []);
 
   return (
-    <div className={`mx-auto w-full ${wide ? 'max-w-[1600px]' : 'max-w-5xl'} px-4 md:px-8`}>
+    <div className={`mx-auto w-full ${full ? '' : wide ? 'max-w-[1600px]' : 'max-w-5xl'} px-4 md:px-8`}>
       {/* The shadow + clip-path stretch the header's backing across the whole content area, not just this column. */}
       <header
         ref={ref}

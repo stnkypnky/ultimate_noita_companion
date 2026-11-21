@@ -14,6 +14,10 @@ export function useMediaQuery(query: string): boolean {
 
 /** Laptop/desktop layout breakpoint (matches Tailwind `lg`). */
 export const useIsDesktop = () => useMediaQuery('(min-width: 1024px)');
+/** Tablet and up (Tailwind `md`). */
+export const useIsTablet = () => useMediaQuery('(min-width: 768px)');
+/** Wide screens (Tailwind `2xl`). */
+export const useIsWide = () => useMediaQuery('(min-width: 1536px)');
 
 export function useDebounced<T>(value: T, ms = 120): T {
   const [v, setV] = useState(value);

@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useId, useRef, useState, type ReactNode } from 'react';
+import { createContext, forwardRef, useCallback, useContext, useId, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight, Search, X } from 'lucide-react';
 import { useHotkey, useIsDesktop } from './hooks';
 import { StatIcon, statIconFor, type StatIconName } from './game';
@@ -112,8 +112,14 @@ function readOpen(): Record<string, boolean> {
 }
 
 /**
+ * How CollapsibleSections inside render: 'fold' (the default: fold below desktop width) or 'card' (always open, as
+ * a plain Section: a dashboard or a tab that already shows just one topic).
+ */
+export const SectionStyleContext = createContext<'fold' | 'card'>('fold');
+
+/**
  * A Section that folds to its title and a one-line summary below desktop width (phones, tablets). Each one is
- * remembered on this device by `id`. On desktop it is a plain Section.
+ * remembered on this device by `id`. On desktop, or inside a 'card' SectionStyleContext, it is a plain Section.
  */
 export function CollapsibleSection({
   id,
@@ -131,9 +137,10 @@ export function CollapsibleSection({
   children: ReactNode;
 }) {
   const desktop = useIsDesktop();
+  const style = useContext(SectionStyleContext);
   const [open, setOpenState] = useState(() => readOpen()[id] ?? defaultOpen);
   const bodyId = useId();
-  if (desktop) return <Section title={title} aside={aside}>{children}</Section>;
+  if (desktop || style === 'card') return <Section title={title} aside={aside}>{children}</Section>;
   const toggle = () => {
     const next = !open;
     setOpenState(next);
