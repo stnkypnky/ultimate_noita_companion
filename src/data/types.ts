@@ -510,6 +510,20 @@ export type Reaction = {
   entity?: string;
 };
 
+/**
+ * One place a material turns up: in a biome's ground (its common noise layers), in pockets (rare layers: ores, coal
+ * seams), in its caves (the wang tiles; `share` = the template's pixels of it), or in rooms (pixel scenes).
+ */
+export type MaterialWhere = { biome: string; how: 'ground' | 'pockets' | 'caves' | 'rooms'; share?: number };
+
+/** A flask or pouch that can hold it, with the chance (0..1) one holds it. */
+export type MaterialContainer = { kind: 'flask' | 'starting' | 'alchemist' | 'chestFlask' | 'pouch'; odds: number };
+
+export type MaterialSource = { biomes?: MaterialWhere[]; containers?: MaterialContainer[]; bleeds?: string[] };
+
+/** data/material_sources.json: where to find each material, by material id. */
+export type MaterialSources = Record<string, MaterialSource>;
+
 /** A biome on the world map (data/biome/<id>.xml). */
 export type MapBiome = {
   id: string;

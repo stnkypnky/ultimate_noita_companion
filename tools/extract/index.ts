@@ -19,6 +19,7 @@ import { buildPerks, type RawPerk } from './perks.ts';
 import { buildMaterials } from './materials.ts';
 import { buildEnemies, enemyIconFiles, linkEnemies } from './enemies.ts';
 import { biomeSpawns } from './spawns.ts';
+import { materialSources } from './materialSources.ts';
 import { EntityLoader } from './entity.ts';
 import { buildAtlas, buildPackedAtlas, firstFrame } from './sprites.ts';
 import { bitmapFont } from './fonts.ts';
@@ -202,6 +203,10 @@ await mkdir(join(OUT, 'wang'), { recursive: true });
 for (const [key, png] of world.wangImages) await writeFile(join(OUT, 'wang', `${key}.png`), png);
 await writeFile(join(OUT, 'wang', 'coalmine_overlay.png'), readFileSync(join(import.meta.dirname, 'assets/coalmine_overlay.png')));
 await writeJson('data/wang_colors.json', Object.fromEntries(wang));
+// Where each material is found: biomes, rooms, flasks, pouches and creatures.
+const sources = await materialSources(wak, world.map, wang, enemies, new Set(materials.map((m) => m.id)));
+await writeJson('data/material_sources.json', sources);
+console.log(`material sources: ${Object.keys(sources).length} materials placed`);
 console.log(`map: ${world.map.w}×${world.map.h} chunks, ${world.map.biomes.length} biomes, ${world.map.scenes.length} pixel scenes`);
 // Points of interest: the curated rooms with their sizes (a room only loads where it fits inside its biome).
 const sized = async (table: typeof POI_TABLE) => {

@@ -1,9 +1,10 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import MiniSearch from 'minisearch';
-import { ArrowRight } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { useData } from '@/data/store';
-import type { Material, Reaction } from '@/data/types';
+import type { Material } from '@/data/types';
+import { groupLabel, groupMembers } from '@/data/materialGroups';
 import { SECRET_MATERIALS, materialKey } from '@/data/spoilers';
 import { useSpoilers } from '@/store/progress';
 import { DiscoveryBar } from '@/features/progress/DiscoveryBar';
@@ -15,6 +16,8 @@ import { HiddenMechanics } from '@/ui/HiddenMechanics';
 import { useDebounced } from '@/ui/hooks';
 import { MaterialSwatch } from './MaterialSwatch';
 import { collapseVariants, nameHints } from '@/features/alchemy/lookup';
+import { reactionsOf, rowMaterials, type ReactionRow, type Side } from './reactions';
+import { WhereToFind } from './WhereToFind';
 
 const STATES = ['liquid', 'powder', 'solid', 'gas', 'fire'] as const;
 const STATE_LABEL: Record<Material['state'], string> = { liquid: 'Liquids', powder: 'Powders', solid: 'Solids', gas: 'Gases', fire: 'Fire' };
@@ -46,7 +49,7 @@ export function MaterialsPage() {
   const hints = useMaterialHints();
 
   const search = useMemo(() => {
-    const ms = new MiniSearch<Material>({ fields: ['name', 'id', 'tagText'], storeFields: ['id'], extractField: (m, f) => (f === 'tagText' ? m.tags.join(' ') : String((m as Record<string, unknown>)[f] ?? '')), searchOptions: { prefix: true, fuzzy: 0.2, boost: { name: 3 } } });
+    const ms = new MiniSearch<Material>({ fields: ['name', 'id'], storeFields: ['id'], searchOptions: { prefix: true, fuzzy: 0.2, boost: { name: 3 } } });
     ms.addAll(materials);
     return ms;
   }, [materials]);
@@ -71,7 +74,7 @@ export function MaterialsPage() {
       subtitle={`${shown.length} materials`}
       toolbar={
         <>
-          <SearchInput ref={searchRef} value={query} onChange={setQuery} placeholder="Search materials or [tags]…" />
+          <SearchInput ref={searchRef} value={query} onChange={setQuery} placeholder="Search materials…" />
           <ChipRow>
             {STATES.map((s) => (
               <Chip key={s} active={state === s} onClick={() => setState(state === s ? null : s)}>
@@ -126,19 +129,22 @@ export function MaterialsPage() {
 }
 
 export function MaterialDetail({ material: m }: { material: Material }) {
-  const { reactionsByMaterial } = useData();
+  const { reactions, materials, materialById } = useData();
   const { isVisible, reveal } = useMaterialVisibility();
-  const hint = useMaterialHints().get(m.id);
+  const hints = useMaterialHints();
+  const hint = hints.get(m.id);
+  const rows = useMemo(
+    () => reactionsOf(m, reactions, { materials, byId: materialById, label: (id) => `${materialById.get(id)?.name ?? id}·${hints.get(id) ?? ''}`.toLowerCase() }),
+    [m, reactions, materials, materialById, hints],
+  );
   if (!isVisible(m.id)) return <HiddenNotice what="material" onReveal={() => reveal(m.id)} />;
 
-  const related = [...(reactionsByMaterial.get(m.id) ?? []), ...m.tags.flatMap((t) => reactionsByMaterial.get(t) ?? [])];
-  const unique = [...new Set(related)];
-  const safe = unique.filter((r) => [...r.inputs, ...r.outputs].every((x) => x.startsWith('[') || isVisible(x)));
-  const hiddenCount = unique.length - safe.length;
-  const asInput = safe.filter((r) => r.inputs.some((x) => x === m.id || m.tags.includes(x)));
-  const asOutput = safe.filter((r) => r.outputs.includes(m.id) && !asInput.includes(r));
+  const safe = (list: ReactionRow[]) => list.filter((r) => rowMaterials(r).every(isVisible));
+  const asInput = safe(rows.asInput);
+  const asOutput = safe(rows.asOutput);
+  const hiddenCount = rows.asInput.length + rows.asOutput.length - asInput.length - asOutput.length;
 
-  const rows = [
+  const props = [
     { label: 'State', value: titleCase(m.state) },
     { label: 'Density', value: String(m.density) },
     ...(m.burnable ? [{ label: 'Flammable', value: m.autoignitionTemperature ? `Ignites at ${m.autoignitionTemperature}°` : 'Yes' }] : []),
@@ -162,22 +168,12 @@ export function MaterialDetail({ material: m }: { material: Material }) {
       {secret && <SecretCallout what="material" />}
 
       <Section title="Properties">
-        <StatTable rows={rows} />
+        <StatTable rows={props} />
       </Section>
 
-      <HiddenMechanics kind="material" id={m.id} />
+      <WhereToFind id={m.id} />
 
-      {m.tags.length > 0 && (
-        <Section title="Tags">
-          <div className="flex flex-wrap gap-1.5">
-            {m.tags.map((t) => (
-              <span key={t} className="rounded-md bg-surface-2 px-2 py-1 font-mono text-xs text-muted">
-                {t}
-              </span>
-            ))}
-          </div>
-        </Section>
-      )}
+      <HiddenMechanics kind="material" id={m.id} />
 
       {asInput.length > 0 && (
         <Section title={`Reacts with (${asInput.length})`}>
@@ -196,22 +192,82 @@ export function MaterialDetail({ material: m }: { material: Material }) {
 
 const effectName = (e: string) => titleCase(e.toLowerCase().replace(/_/g, ' '));
 
-function ReactionList({ reactions }: { reactions: Reaction[] }) {
+function ReactionList({ reactions }: { reactions: ReactionRow[] }) {
   return (
     <ul className="space-y-1.5">
       {reactions.map((r, i) => (
-        <li key={i} className="flex flex-wrap items-center gap-1.5 slot px-2.5 py-2">
-          {r.inputs.map((x, j) => (
-            <MatChip key={`i${j}`} id={x} />
-          ))}
-          <ArrowRight size={14} className="mx-0.5 text-faint" />
-          {r.outputs.map((x, j) => (
-            <MatChip key={`o${j}`} id={x} />
-          ))}
-          <span className="ml-auto pl-2 text-[11px] text-faint tabular-nums">{r.probability}%</span>
-        </li>
+        <ReactionItem key={i} row={r} />
       ))}
     </ul>
+  );
+}
+
+/** One reaction: ingredients = results. A group chip opens the list of materials it stands for, under the row. */
+function ReactionItem({ row }: { row: ReactionRow }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const chip = (s: Side, k: string) =>
+    s.kind === 'material' ? <MatChip key={k} id={s.id} /> : <GroupChip key={k} pattern={s.pattern} open={open === s.pattern} onToggle={() => setOpen(open === s.pattern ? null : s.pattern)} />;
+  const join = (sides: Side[], p: string) => sides.flatMap((s, j) => [...(j ? [<span key={`${p}+${j}`} className="text-faint">+</span>] : []), chip(s, `${p}${j}`)]);
+  return (
+    <li className="slot px-2.5 py-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {join(row.inputs, 'i')}
+        <span className="mx-0.5 text-base font-semibold text-faint" aria-label="results in">
+          =
+        </span>
+        {join(row.outputs, 'o')}
+        <span className="ml-auto pl-2 text-[11px] text-faint tabular-nums">
+          {row.explosion && 'explodes · '}
+          {row.probability}%
+        </span>
+      </div>
+      {open && <GroupMembers pattern={open} />}
+    </li>
+  );
+}
+
+function GroupChip({ pattern, open, onToggle }: { pattern: string; open: boolean; onToggle: () => void }) {
+  const count = useGroupMembers(pattern).length;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
+      title="A group of materials: tap to see which"
+      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs ${open ? 'bg-gold/20 text-gold' : 'bg-gold/10 text-gold/90 hover:bg-gold/20'}`}
+    >
+      {groupLabel(pattern)}
+      <span className="text-[10px] text-faint tabular-nums">{count}</span>
+      <ChevronDown size={12} className={open ? 'rotate-180' : ''} />
+    </button>
+  );
+}
+
+function useGroupMembers(pattern: string) {
+  const { materials, materialById } = useData();
+  return useMemo(() => groupMembers(pattern, materials, materialById), [pattern, materials, materialById]);
+}
+
+/** The materials a group stands for, one chip per name; secret ones you haven't found stay out of the list. */
+function GroupMembers({ pattern }: { pattern: string }) {
+  const members = useGroupMembers(pattern);
+  const { isVisible } = useMaterialVisibility();
+  const hints = useMaterialHints();
+  const shown = collapseVariants(members.filter((m) => isVisible(m.id)), hints, (x) => SECRET_MATERIALS.has(x));
+  const hidden = members.filter((m) => !isVisible(m.id)).length;
+  return (
+    <div className="mt-2 border-t border-line pt-2">
+      <p className="mb-1.5 text-[11px] text-faint">{groupLabel(pattern)}: any of these</p>
+      <div className="flex flex-wrap gap-1">
+        {shown
+          .slice()
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((m) => (
+            <MatChip key={m.id} id={m.id} />
+          ))}
+        {hidden > 0 && <span className="px-1 py-0.5 text-[11px] text-faint">+{hidden} hidden</span>}
+      </div>
+    </div>
   );
 }
 
@@ -228,7 +284,6 @@ export function useMaterialHints() {
 function MatChip({ id }: { id: string }) {
   const { materialById } = useData();
   const hints = useMaterialHints();
-  if (id.startsWith('[')) return <span className="rounded bg-arcane/15 px-1.5 py-0.5 font-mono text-[11px] text-arcane">{id}</span>;
   const m = materialById.get(id);
   if (!m) return <span className="text-xs text-muted">{id}</span>;
   // Same-named materials (two kinds of ice) get a hint, so the rows don't read as repeats.
