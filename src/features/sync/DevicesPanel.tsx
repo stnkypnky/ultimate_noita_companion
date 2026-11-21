@@ -2,8 +2,11 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import QRCode from 'qrcode';
-import { AlertTriangle, Check, ClipboardCopy, Link2, QrCode, RefreshCw, Unlink } from 'lucide-react';
+import { AlertTriangle, Check, ClipboardCopy, Download, Link2, QrCode, RefreshCw, Unlink, Wrench } from 'lucide-react';
 import { timeAgo, useNow } from '@/ui/time';
+import { applyUpdate, checkForUpdate, repairApp, useAppUpdate } from '@/app/appUpdate';
+import { APP_BUILD, APP_COMMIT, versionLabel } from '@/app/version';
+import type { Peer } from './engine';
 import { syncSaveNow, useSaveWatch } from '@/features/progress/liveSave';
 import { deviceName } from './device';
 import { ensureGroup, pairLink, renameDeviceTo, setAutoSync, syncDevicesNow, unpair, useSync } from './sync';
@@ -81,7 +84,10 @@ export function DevicesPanel() {
           </p>
         )}
         {error && <p className="mt-3 text-sm text-blood">{error}</p>}
+        <VersionWarnings peers={peers} />
       </div>
+
+      <AppVersion />
 
       <AnimatePresence>{showPair && <PairCode />}</AnimatePresence>
 
@@ -89,6 +95,81 @@ export function DevicesPanel() {
         Devices connect to each other directly (over your Wi-Fi when they share it). Free public relays only introduce them, and that handshake is encrypted
         with your pairing key. What syncs: save progress, reveals, saved builds and settings. Performance mode and frame-rate settings stay per device.
       </p>
+    </div>
+  );
+}
+
+const names = (ps: Peer[]) => ps.map((p) => p.name).join(', ');
+
+/** Devices on a different version of the app count and sync things differently: say which one to update. */
+function VersionWarnings({ peers }: { peers: Peer[] }) {
+  const older = peers.filter((p) => (p.build ?? 0) < APP_BUILD);
+  const newer = peers.filter((p) => (p.build ?? 0) > APP_BUILD);
+  if (!older.length && !newer.length) return null;
+  return (
+    <div className="mt-3 space-y-2">
+      {older.length > 0 && (
+        <p className="flex gap-2 rounded-lg border border-gold/40 bg-gold/10 p-2.5 text-xs text-gold">
+          <AlertTriangle size={15} className="shrink-0" />
+          <span>
+            <b>{names(older)}</b> {older.length > 1 ? 'are' : 'is'} on an older version of the companion and may not take the latest from this device. Close
+            and reopen the app there and it updates itself.
+          </span>
+        </p>
+      )}
+      {newer.length > 0 && (
+        <p className="flex flex-wrap items-center gap-2 rounded-lg border border-gold/40 bg-gold/10 p-2.5 text-xs text-gold">
+          <AlertTriangle size={15} className="shrink-0" />
+          <span className="min-w-0 flex-1">
+            <b>{names(newer)}</b> {newer.length > 1 ? 'are' : 'is'} on a newer version than this device.
+          </span>
+          <UpdateButton />
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Update now if a new version is downloaded; otherwise look for one. */
+function UpdateButton() {
+  const { ready, checking, applying, checkedAt } = useAppUpdate();
+  const [asked, setAsked] = useState(false);
+  const label = applying ? 'Updating…' : ready ? 'Update now' : checking ? 'Checking…' : asked && checkedAt ? 'Up to date' : 'Check for updates';
+  return (
+    <button
+      disabled={applying || checking}
+      onClick={() => {
+        setAsked(true);
+        if (ready) void applyUpdate();
+        else void checkForUpdate(true);
+      }}
+      className="inline-flex items-center gap-2 btn-game quiet font-game text-[16px] px-3 py-1.5 disabled:opacity-60"
+    >
+      <Download size={15} /> {label}
+    </button>
+  );
+}
+
+function AppVersion() {
+  const [confirm, setConfirm] = useState(false);
+  return (
+    <div className="panel p-4 text-sm">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <p className="w-full min-w-0 text-muted sm:w-auto sm:flex-1">
+          App version <span className="text-ink">{versionLabel(APP_BUILD, APP_COMMIT)}</span>
+        </p>
+        <UpdateButton />
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-faint">
+        <span className="min-w-0 flex-1">Stuck on an old version, or the app won’t load properly? Repair downloads it fresh. Your progress, builds and settings stay.</span>
+        <button
+          onClick={() => (confirm ? void repairApp() : setConfirm(true))}
+          onBlur={() => setConfirm(false)}
+          className={`inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm ${confirm ? 'bg-gold/15 text-gold' : 'text-muted hover:text-ink'}`}
+        >
+          <Wrench size={15} /> {confirm ? 'Repair and reload?' : 'Repair app'}
+        </button>
+      </div>
     </div>
   );
 }

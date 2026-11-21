@@ -231,6 +231,16 @@ describe('device sync engine', () => {
     expect(oldEngine.peers().map((p) => p.name)).toEqual(['PC']);
   });
 
+  it('tells each device which version of the app the others run', async () => {
+    const hub = memoryHub();
+    const pc = startEngine(hub.connect(), device().adapter, { id: 'pc', name: 'PC', build: 2000 });
+    const phone = startEngine(hub.connect(), device().adapter, { id: 'phone', name: 'Phone' });
+    await settle();
+    expect(phone.peers()).toEqual([expect.objectContaining({ name: 'PC', build: 2000 })]);
+    // An older app doesn't say.
+    expect(pc.peers()[0]).not.toHaveProperty('build');
+  });
+
   it('ignores its own hello (another tab of the same device)', async () => {
     const hub = memoryHub();
     const a = device({ save: { code: 'a', at: 1 } });

@@ -39,7 +39,8 @@ export type SyncAdapter = {
   watch: (fn: (kind: Kind) => void) => () => void;
 };
 
-export type Peer = { peerId: string; id: string; name: string };
+/** `build`: which version of the app it runs (newer is bigger); older versions don't say. */
+export type Peer = { peerId: string; id: string; name: string; build?: number };
 
 export type EngineHooks = {
   onPeers?: (peers: Peer[]) => void;
@@ -90,7 +91,7 @@ const validStamp = (x: unknown): x is RunStamp => obj(x) && str(x.id, 64) && num
 
 export type Engine = { stop: () => void; resync: () => void; peers: () => Peer[] };
 
-export function startEngine(transport: Transport, adapter: SyncAdapter, me: { id: string; name: string }, hooks: EngineHooks = {}): Engine {
+export function startEngine(transport: Transport, adapter: SyncAdapter, me: { id: string; name: string; build?: number }, hooks: EngineHooks = {}): Engine {
   const peers = new Map<string, Peer>();
   /** What each kind looked like when last pushed, so builds go out as a delta. */
   let sentBuilds = new Map<string, number>();
@@ -112,7 +113,8 @@ export function startEngine(transport: Transport, adapter: SyncAdapter, me: { id
     h: Object.fromEntries((await allRuns()).map((r) => [r.id, r.updatedAt])),
   });
 
-  const hello = async (to?: string) => transport.send({ k: 'hello', v: 1, id: me.id, name: me.name, d: await digest() }, to);
+  const hello = async (to?: string) =>
+    transport.send({ k: 'hello', v: 1, id: me.id, name: me.name, ...(me.build ? { b: me.build } : {}), d: await digest() }, to);
 
   const sendProgress = async (to?: string) => {
     const code = await adapter.progress.encode();
@@ -181,7 +183,7 @@ export function startEngine(transport: Transport, adapter: SyncAdapter, me: { id
         case 'hello': {
           if (m.v !== 1 || !str(m.id, 64) || !str(m.name, 60) || !validDigest(m.d) || m.id === me.id) return;
           const known = peers.has(from);
-          peers.set(from, { peerId: from, id: m.id, name: m.name });
+          peers.set(from, { peerId: from, id: m.id, name: m.name, ...(num(m.b) && m.b > 0 ? { build: m.b } : {}) });
           emitPeers();
           // Peers join at slightly different times: make sure each side has said hello once.
           if (!known) void hello(from);

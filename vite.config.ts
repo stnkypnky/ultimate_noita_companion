@@ -4,12 +4,28 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { fileURLToPath, URL } from 'node:url';
+import { execSync } from 'node:child_process';
 
 // GitHub Pages serves the app from /<repo>/; local dev uses /.
 const base = process.env.GITHUB_PAGES ? '/ultimate_noita_companion/' : '/';
 
+/** Which version of the app this is: the commit and its time, so paired devices can tell who is out of date. */
+function appBuild() {
+  try {
+    const [sha, time] = execSync('git log -1 --format=%h_%ct', { encoding: 'utf8' }).trim().split('_');
+    return { commit: sha!, time: Number(time) * 1000 };
+  } catch {
+    return { commit: 'dev', time: Date.now() };
+  }
+}
+const build = appBuild();
+
 export default defineConfig({
   base,
+  define: {
+    __APP_BUILD__: JSON.stringify(build.time),
+    __APP_COMMIT__: JSON.stringify(build.commit),
+  },
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },

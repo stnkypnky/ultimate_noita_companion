@@ -1,6 +1,8 @@
 // Device sync, wired to the app: the pairing group, the connection, and the adapter that lets the engine
 // read and merge progress, reveals, settings and saved builds.
 import { create } from 'zustand';
+import { APP_BUILD } from '@/app/version';
+import { checkForUpdate } from '@/app/appUpdate';
 import { useGameData } from '@/data/store';
 import { saveTime, scanTime, useProgress } from '@/store/progress';
 import { decodeProgress, encodeProgress } from '@/features/progress/codec';
@@ -262,9 +264,13 @@ async function restart() {
     transport,
     appAdapter,
     // Same-device testing: each tab acts as its own device.
-    { id: local() ? `${deviceId()}-${tabId}` : deviceId(), name: deviceName() },
+    { id: local() ? `${deviceId()}-${tabId}` : deviceId(), name: deviceName(), build: APP_BUILD },
     {
-      onPeers: (peers) => useSync.setState({ peers, status: 'online' }),
+      onPeers: (peers) => {
+        useSync.setState({ peers, status: 'online' });
+        // Another device already runs a newer version: fetch it here too.
+        if (peers.some((p) => (p.build ?? 0) > APP_BUILD)) void checkForUpdate();
+      },
       onReceived: (kind, from) => kind !== 'live' && useSync.setState({ last: { kind, from: from?.name ?? 'another device', at: Date.now() } }),
     },
   );
