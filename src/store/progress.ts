@@ -49,6 +49,11 @@ export type Progress = {
   flags: string[];
   /** Enemy ids seen, from save00/stats/stats_<enemy>.xml. */
   enemies: string[];
+  /**
+   * The creatures the game itself counts as discovered: one has died, or one has killed you. Older syncs lack it
+   * (see `countedEnemies`).
+   */
+  counted?: string[];
   /** From the same files: how many of each have died, and how many times one killed you. */
   enemyStats?: Record<string, EnemyStat>;
   orbs: number[];
@@ -56,6 +61,9 @@ export type Progress = {
   /** Deaths, newest first (capped), with what killed you. */
   deaths?: DeathRecord[];
 };
+
+/** The creatures to count as discovered, as the game's Progress screen does. */
+export const countedEnemies = (p: Progress | null | undefined): string[] => (p ? (p.counted ?? p.enemies) : []);
 
 /** How recent this save is, for picking the newest between devices (ms; 0 if unknown). */
 export const saveTime = (p: Progress | null | undefined) => (p ? Date.parse(p.savedAt ?? p.syncedAt) || 0 : 0);
@@ -67,6 +75,7 @@ export function sameProgress(a: Progress | null, b: Progress | null): boolean {
     ...rest,
     flags: [...rest.flags].sort(),
     enemies: [...rest.enemies].sort(),
+    ...(rest.counted ? { counted: [...rest.counted].sort() } : {}),
     enemyStats: Object.entries(rest.enemyStats ?? {}).sort(([x], [y]) => x.localeCompare(y)),
   });
   return JSON.stringify(strip(a)) === JSON.stringify(strip(b));

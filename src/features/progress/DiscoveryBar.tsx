@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import { Link } from 'react-router';
 import { useGameData } from '@/data/store';
 import { ALCHEMY_ALL_KEY, SECRET_ITEMS, SECRET_MATERIALS, itemKey, materialKey } from '@/data/spoilers';
-import { useProgress } from '@/store/progress';
+import { countedEnemies, useProgress } from '@/store/progress';
 import { HudBar } from '@/ui/game';
 import { isSafe } from '@/features/alchemy/lookup';
 
@@ -30,7 +30,8 @@ export function useDiscovery(kind: DiscoveryKind): Count | null {
   return useMemo(() => {
     if (!data) return null;
     const flags = new Set(progress?.flags ?? []);
-    const met = new Set(progress?.enemies ?? []);
+    // Counted as the game counts them, so the number matches its Progress screen.
+    const met = new Set(countedEnemies(progress));
     // Found = in the save or revealed by hand. "Show everything" mode makes things visible, not found.
     const known = new Set([...flags, ...revealed]);
     const visible = (key: string) => known.has(key);

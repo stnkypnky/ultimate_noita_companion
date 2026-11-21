@@ -81,6 +81,9 @@ export async function parseSave(files: SaveFile[]): Promise<Progress> {
       enemyStats[id] = stat;
     }),
   );
+  // The game's Progress screen counts a creature once one has died or one has killed you, by its own stats file.
+  // A file of zeros (met it, never fought it) and a killer known only from a session's record don't count.
+  const counted = Object.keys(enemyStats).sort();
 
   // The game leaves the killer's name out of killed_by (" | bite"), but each session's _kills.xml keeps it in
   // its death_map ("worm_skull | bite"). That's also the only record when no stats_<id>.xml was written.
@@ -151,6 +154,7 @@ export async function parseSave(files: SaveFile[]): Promise<Progress> {
     ...(newest ? { savedAt: new Date(newest).toISOString() } : {}),
     flags,
     enemies,
+    counted,
     enemyStats,
     orbs,
     ...(runs ? { runs } : {}),

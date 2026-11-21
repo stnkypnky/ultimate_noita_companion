@@ -58,6 +58,22 @@ describe('parseSave', () => {
       { date: '2026-11-18T20:18:24', seed: 5, cause: 'explosion' },
     ]);
     expect(p.runs!.recent[0]!.killedBy).toBe('worm_skull');
+    // The game counts acidshooter (it has died), not worm_skull (no stats file of its own).
+    expect(p.counted).toEqual(['acidshooter']);
+  });
+
+  it('counts creatures the way the game does: one died, or one killed you', async () => {
+    const s = 'Nolla_Games_Noita/save00/stats/';
+    const zero = '<Stats deaths="0" kills="0" player_kills="0" ></Stats>';
+    const p = await parseSave([
+      file('Nolla_Games_Noita/save00/persistent/flags/action_bomb'),
+      file(`${s}stats_sheep.xml`, zero),
+      file(`${s}stats_player.xml`, zero),
+      file(`${s}stats_lurker.xml`, '<Stats deaths="0" kills="2" player_kills="1" ></Stats>'),
+      file(`${s}stats_rat.xml`, '<Stats deaths="4" kills="0" player_kills="0" ></Stats>'),
+    ]);
+    expect([...p.enemies].sort()).toEqual(['lurker', 'player', 'rat', 'sheep']);
+    expect(p.counted).toEqual(['lurker', 'rat']);
   });
 
   it('rejects folders that are not saves', async () => {
@@ -112,6 +128,13 @@ describe('sync codec', () => {
     const { progress } = await decodeProgress(code, lists, 'abcdef1234');
     expect(progress.deaths).toEqual([deaths[0]]);
     expect(progress.enemyStats).toEqual({ e1: { died: 3, killedYou: 1 } });
+  });
+
+  it('carries which creatures the game counts', async () => {
+    const code = await encodeProgress({ syncedAt: '', flags: [], enemies: ['e1', 'e2'], counted: ['e2'], orbs: [] }, lists, 'abcdef1234');
+    expect((await decodeProgress(code, lists, 'abcdef1234')).progress.counted).toEqual(['e2']);
+    const old = await encodeProgress({ syncedAt: '', flags: [], enemies: ['e1'], orbs: [] }, lists, 'abcdef1234');
+    expect((await decodeProgress(old, lists, 'abcdef1234')).progress.counted).toBeUndefined();
   });
 
   it('flags codes from a different game build', async () => {

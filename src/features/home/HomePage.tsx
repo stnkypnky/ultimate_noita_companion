@@ -2,7 +2,7 @@ import { Link } from 'react-router';
 import { motion } from 'motion/react';
 import { ArrowRight, Beaker, FlaskConical, Gem, Lock, Map as MapIcon, Package, RefreshCw, Settings, Skull, Sparkles, Wand2, type LucideIcon } from 'lucide-react';
 import { useGameData } from '@/data/store';
-import { useHasSave, useProgress, useProgressHydrated } from '@/store/progress';
+import { countedEnemies, useHasSave, useProgress, useProgressHydrated } from '@/store/progress';
 import { SyncSave } from '@/features/progress/SyncSave';
 import { RunBanner } from '@/features/live/RunBanner';
 import { HudBar, Runes } from '@/ui/game';
@@ -33,7 +33,7 @@ function ProgressCard() {
   const rows = [
     { label: 'Spells', n: data.spells.filter((s) => flags.has(s.discoverFlag)).length, of: data.spells.length, color: 'var(--arcane)' },
     { label: 'Perks', n: data.perks.filter((p) => flags.has(p.discoverFlag)).length, of: data.perks.length, color: 'var(--gold)' },
-    { label: 'Creatures', n: progress.enemies.filter((e) => data.enemies.some((x) => x.id === e)).length, of: data.enemies.length, color: 'var(--blood)' },
+    { label: 'Creatures', n: countedEnemies(progress).filter((e) => data.enemies.some((x) => x.id === e)).length, of: data.enemies.length, color: 'var(--blood)' },
   ];
   return (
     <Link to="/progress" className="panel mt-6 block p-5">

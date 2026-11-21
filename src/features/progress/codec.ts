@@ -16,6 +16,8 @@ type Payload = {
   s: string;
   p: string;
   e: string;
+  /** The creatures the game counts (a subset of `e`); older codes lack it. */
+  c?: string;
   /** Other persistent flags (secret unlocks, progress_*, …). */
   f: string[];
   o: number[];
@@ -49,6 +51,7 @@ function readBits(s: string, n: number): number[] {
 export async function encodeProgress(progress: Progress, lists: Lists, gameHash: string): Promise<string> {
   const flags = new Set(progress.flags);
   const enemies = new Set(progress.enemies);
+  const counted = new Set(progress.counted);
   const known = new Set([...lists.spells, ...lists.perks].map((x) => x.discoverFlag));
   const payload: Payload = {
     v: 1,
@@ -59,6 +62,7 @@ export async function encodeProgress(progress: Progress, lists: Lists, gameHash:
     s: bitset(lists.spells.length, (i) => flags.has(lists.spells[i]!.discoverFlag)),
     p: bitset(lists.perks.length, (i) => flags.has(lists.perks[i]!.discoverFlag)),
     e: bitset(lists.enemies.length, (i) => enemies.has(lists.enemies[i]!.id)),
+    ...(progress.counted ? { c: bitset(lists.enemies.length, (i) => counted.has(lists.enemies[i]!.id)) } : {}),
     f: progress.flags.filter((f) => !known.has(f)),
     o: progress.orbs,
     ...(progress.runs ? { r: progress.runs } : {}),
@@ -104,6 +108,7 @@ export async function decodeProgress(code: string, lists: Lists, gameHash: strin
     typeof payload.s === 'string' &&
     typeof payload.p === 'string' &&
     typeof payload.e === 'string' &&
+    (payload.c === undefined || typeof payload.c === 'string') &&
     Array.isArray(payload.f) &&
     payload.f.every((x) => typeof x === 'string') &&
     Array.isArray(payload.o) &&
@@ -128,6 +133,7 @@ export async function decodeProgress(code: string, lists: Lists, gameHash: strin
       ...(payload.n ? { source: payload.n } : {}),
       flags,
       enemies: readBits(payload.e, lists.enemies.length).map((i) => lists.enemies[i]!.id),
+      ...(payload.c !== undefined ? { counted: readBits(payload.c, lists.enemies.length).map((i) => lists.enemies[i]!.id) } : {}),
       ...(payload.k
         ? { enemyStats: Object.fromEntries(payload.k.filter(([i]) => lists.enemies[i]).map(([i, died, killedYou]) => [lists.enemies[i]!.id, { died, killedYou }])) }
         : {}),

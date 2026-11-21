@@ -17,9 +17,12 @@ const HP = 25;
  * The same ids name the save's stats/stats_<id>.xml files.
  */
 export function enemyIconFiles(wak: Wak): string[] {
-  // player.png is you (named DEBUG_NAME:player), not a creature.
-  return wak.list('data/ui_gfx/animal_icons/').filter((f) => f.endsWith('.png') && !f.includes('/_') && !f.endsWith('/player.png'));
+  // player.png is you, Mina: the Progress screen lists her too.
+  return wak.list('data/ui_gfx/animal_icons/').filter((f) => f.endsWith('.png') && !f.includes('/_'));
 }
+
+/** Entity names the game leaves as debug text: the player entity is "DEBUG_NAME:player". */
+const NAMES: Record<string, string> = { player: 'Mina' };
 
 /** The entity file for a Progress-screen id: animals/<id>.xml, animals/<id>/<id>.xml (bosses), or anywhere. */
 function entityFile(wak: Wak, id: string): string | undefined {
@@ -94,7 +97,7 @@ export async function buildEnemies(
 
     const enemy: EnemyOut = {
       id,
-      name: tr(t, e?.attrs.name, humanize(id)),
+      name: NAMES[id] ?? tr(t, e?.attrs.name, humanize(id)),
       icon: icons.get(icon) ?? { x: 0, y: 0, w: 0, h: 0 },
       ...(dm ? { hp: round(hp * HP) } : {}),
       ...(tags.length ? { tags } : {}),

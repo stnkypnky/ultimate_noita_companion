@@ -1,10 +1,10 @@
 import { useData } from '@/data/store';
-import type { Progress } from '@/store/progress';
+import { countedEnemies, type Progress } from '@/store/progress';
 
 export function useProgressCounts(progress: Progress | null) {
   const { spells, perks, enemies } = useData();
   const flags = new Set(progress?.flags ?? []);
-  const seen = new Set(progress?.enemies ?? []);
+  const seen = new Set(countedEnemies(progress));
   return {
     spells: [spells.filter((s) => flags.has(s.discoverFlag)).length, spells.length] as const,
     perks: [perks.filter((p) => flags.has(p.discoverFlag)).length, perks.length] as const,
