@@ -15,7 +15,9 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "extract": "tsx tools/extract/index.ts",
-    "icons": "tsx tools/icons.ts"
+    "icons": "tsx tools/icons.ts",
+    "readme-art": "tsx tools/readme-art.ts",
+    "readme-shots": "tsx tools/readme-shots.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "6.3.1",
