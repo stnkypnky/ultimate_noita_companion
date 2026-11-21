@@ -236,7 +236,7 @@ function NextMountain({ next, report }: { next: number | null; report: SeedRepor
               <ShopView items={shop.items} type={shop.type} />
             </div>
           )}
-          <p className="text-[11px] text-faint">From the game's own scripts for this seed. After Extra Perk or Gamble the perks may differ.</p>
+          <p className="text-[11px] text-faint">After Extra Perk or Gamble the perks may differ.</p>
         </div>
       )}
     </CollapsibleSection>

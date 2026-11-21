@@ -15,7 +15,7 @@ import { SeedPanel } from './SeedPanel';
 import { areaNotes } from './notes';
 import type { SeedReport } from '@/seed/worker';
 import { useSeedLayers } from './useSeedLayers';
-import { biomeKey, biomeName, chunkOf, chunkWorld, holyMountains, loadMap, makeVisibility, namedInGame, onPath, orbOf, sceneKey } from './world';
+import { biomeKey, biomeName, chunkOf, chunkWorld, holyMountains, isCursedRock, loadMap, makeVisibility, namedInGame, onPath, orbOf, sceneKey } from './world';
 
 /** Whose caves the map shows before you pick a seed. */
 const EXAMPLE_SEED = 123;
@@ -165,7 +165,7 @@ export function MapPage() {
                     )
                   </>
                 )}
-                {layouts && (pois ? "; points of interest placed by the game's own scripts for this seed" : '; placing points of interest…')}. Each pixel of a cave is 10 × 10 in the game; enemies and items aren't drawn.
+                {layouts && !pois && '; placing points of interest…'}
               </p>
             </div>
           }
@@ -217,19 +217,23 @@ function AreaDetail({
   const chunks = map.cells.filter((k) => map.biomes[k] === b).length;
   const hidden = map.scenes.filter((s) => s.x < w.x + map.chunk && s.x + s.w > w.x && s.y < w.y + map.chunk && s.y + s.h > w.y && !vis.scene(s));
   const name = biomeName(b);
+  // Filler (plain rock, open sky) gets no "off the path" line or wiki link: there's nothing more to know about it.
+  const notable = namedInGame(b) || isCursedRock(b);
+  const where = onPath(b) ? 'On the way down' : namedInGame(b) ? 'Off the main path' : '';
   return (
     <div>
       <h2 className="font-game text-[28px] leading-tight">{name}</h2>
-      <p className="mt-1 text-sm text-muted">
-        {onPath(b) ? 'On the way down' : namedInGame(b) ? 'Off the main path' : 'Unnamed in the game'}
-        {hm ? ` · Holy Mountain ${hm}` : ''}
-      </p>
+      {(where || hm) && (
+        <p className="mt-1 text-sm text-muted">
+          {[where, hm ? `Holy Mountain ${hm}` : ''].filter(Boolean).join(' · ')}
+        </p>
+      )}
       <Section title="Where">
         <StatTable
           rows={[
             { label: 'World x', value: `${w.x} to ${w.x + map.chunk}` },
             { label: 'Depth (y)', value: `${w.y} to ${w.y + map.chunk}` },
-            { label: 'Size', value: `${chunks} chunk${chunks === 1 ? '' : 's'} of 512 × 512` },
+            ...(namedInGame(b) ? [{ label: 'Size', value: `${chunks} chunk${chunks === 1 ? '' : 's'} of 512 × 512` }] : []),
             ...(orb !== null ? [{ label: 'Orb', value: `Orb ${orb}${orbs.includes(orb) ? ' · collected' : ''}` }] : []),
           ]}
         />
@@ -248,7 +252,7 @@ function AreaDetail({
           </ul>
         </Section>
       )}
-      {report && (
+      {report && (report.modifiers[b.id] || namedInGame(b)) && (
         <Section title="This seed">
           <p className="text-sm text-muted">
             {report.modifiers[b.id] ? (texts[report.modifiers[b.id]!.description.replace(/^\$/, '')] ?? report.modifiers[b.id]!.id) : 'No biome modifier.'}
@@ -264,17 +268,16 @@ function AreaDetail({
           <EyeOff size={13} /> {hidden.length} hidden thing{hidden.length === 1 ? '' : 's'} here: reveal
         </button>
       )}
-      <a
-        href={`https://noita.wiki.gg/index.php?search=${encodeURIComponent(name)}`}
-        target="_blank"
-        rel="noreferrer"
-        className="mt-5 inline-flex items-center gap-1.5 text-sm text-gold hover:underline"
-      >
-        Look it up on the wiki <ExternalLink size={13} />
-      </a>
-      <p className="mt-6 text-xs text-faint">
-        Biome from <code>{b.file || 'biome_map.png'}</code>. The world repeats to each side as parallel worlds; New Game+ uses a different map.
-      </p>
+      {notable && (
+        <a
+          href={`https://noita.wiki.gg/index.php?search=${encodeURIComponent(name)}`}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-5 inline-flex items-center gap-1.5 text-sm text-gold hover:underline"
+        >
+          Look it up on the wiki <ExternalLink size={13} />
+        </a>
+      )}
     </div>
   );
 }
@@ -367,7 +370,7 @@ function AreaPois({
           );
         })}
       </ul>
-      <p className="mt-2 text-[11px] text-faint">Rooms placed by the game's own scripts for this seed's caves. In New Game+ they differ.</p>
+      <p className="mt-2 text-[11px] text-faint">In New Game+ these differ.</p>
     </Section>
   );
 }
