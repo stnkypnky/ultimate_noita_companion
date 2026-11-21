@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildTime, startEngine, type BuildRecord, type Kind, type RunStamp, type SettingsLog, type SyncAdapter } from '../src/features/sync/engine.ts';
+import { buildTime, newerSave, startEngine, type BuildRecord, type Kind, type RunStamp, type SettingsLog, type SyncAdapter } from '../src/features/sync/engine.ts';
 import { memoryHub } from '../src/features/sync/transport.ts';
 import { mergeRevealLogs, type RevealLog } from '../src/store/progress.ts';
 
 /** A device's state, held in memory, behind the same adapter interface the app uses. */
-function device(init: { save?: { code: string; at: number }; reveals?: RevealLog; settings?: SettingsLog; builds?: BuildRecord[]; runs?: RunStamp[]; old?: boolean } = {}) {
+function device(init: { save?: { code: string; at: number; q?: number }; reveals?: RevealLog; settings?: SettingsLog; builds?: BuildRecord[]; runs?: RunStamp[]; old?: boolean } = {}) {
   const s = {
     save: init.save ?? null,
     reveals: init.reveals ?? {},
@@ -18,10 +18,12 @@ function device(init: { save?: { code: string; at: number }; reveals?: RevealLog
   const adapter: SyncAdapter = {
     progress: {
       time: () => s.save?.at ?? 0,
+      // An older version of the app doesn't say when its save was read.
+      ...(init.old ? {} : { scanned: () => s.save?.q ?? 0 }),
       encode: async () => s.save?.code ?? null,
-      apply: async (code, at) => {
-        if (at > (s.save?.at ?? 0)) {
-          s.save = { code, at };
+      apply: async (code, at, q) => {
+        if (newerSave(at, q, s.save?.at ?? 0, init.old ? undefined : (s.save?.q ?? 0))) {
+          s.save = q ? { code, at, q } : { code, at };
           changed('progress');
         }
       },
@@ -110,6 +112,29 @@ describe('device sync engine', () => {
       expect(d.s.builds.get('gone')).toEqual({ id: 'gone', deletedAt: 70 });
       expect(d.s.builds.get('y')).toMatchObject({ updatedAt: 30 });
     }
+  });
+
+  it('passes on a newer reading of the same save, both on meeting and when it changes', async () => {
+    const hub = memoryHub();
+    // The PC read the same save again with a newer app (counting creatures differently).
+    const pc = device({ save: { code: 'reread', at: 100, q: 500 } });
+    const tablet = device({ save: { code: 'first-read', at: 100, q: 300 } });
+    const pcEngine = startEngine(hub.connect(), pc.adapter, { id: 'pc', name: 'PC' });
+    startEngine(hub.connect(), tablet.adapter, { id: 'tablet', name: 'Tablet' });
+    await settle();
+    expect(tablet.s.save).toEqual({ code: 'reread', at: 100, q: 500 });
+    expect(pc.s.save?.code).toBe('reread');
+
+    pc.s.save = { code: 'again', at: 100, q: 600 };
+    pc.changed('progress');
+    await settle();
+    expect(tablet.s.save?.code).toBe('again');
+    // An older reading never replaces a newer one.
+    pc.s.save = { code: 'stale', at: 100, q: 1 };
+    pc.changed('progress');
+    await settle();
+    expect(tablet.s.save?.code).toBe('again');
+    pcEngine.stop();
   });
 
   it('pushes live changes, and relays through a device in the middle', async () => {

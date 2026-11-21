@@ -2,10 +2,10 @@
 // read and merge progress, reveals, settings and saved builds.
 import { create } from 'zustand';
 import { useGameData } from '@/data/store';
-import { saveTime, useProgress } from '@/store/progress';
+import { saveTime, scanTime, useProgress } from '@/store/progress';
 import { decodeProgress, encodeProgress } from '@/features/progress/codec';
 import { deviceId, deviceName, setDeviceName } from './device';
-import { buildTime, startEngine, type BuildRecord, type Engine, type Kind, type Peer, type SyncAdapter } from './engine';
+import { buildTime, newerSave, startEngine, type BuildRecord, type Engine, type Kind, type Peer, type SyncAdapter } from './engine';
 import { applySettings, settingsLog, watchSettings } from './settings';
 import { broadcastTransport, p2pTransport, type Transport } from './transport';
 
@@ -142,6 +142,7 @@ export function runsChanged() {
 export const appAdapter: SyncAdapter = {
   progress: {
     time: () => saveTime(useProgress.getState().progress),
+    scanned: () => scanTime(useProgress.getState().progress),
     encode: async () => {
       const p = useProgress.getState().progress;
       const l = lists();
@@ -157,7 +158,8 @@ export const appAdapter: SyncAdapter = {
         return;
       }
       useSync.setState({ mismatch: undefined });
-      if (saveTime(progress) > saveTime(useProgress.getState().progress)) useProgress.getState().updateProgress(progress);
+      const mine = useProgress.getState().progress;
+      if (newerSave(saveTime(progress), scanTime(progress), saveTime(mine), mine ? scanTime(mine) : undefined)) useProgress.getState().updateProgress(progress);
     },
   },
   reveals: {

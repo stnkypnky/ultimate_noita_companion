@@ -68,6 +68,9 @@ export const countedEnemies = (p: Progress | null | undefined): string[] => (p ?
 /** How recent this save is, for picking the newest between devices (ms; 0 if unknown). */
 export const saveTime = (p: Progress | null | undefined) => (p ? Date.parse(p.savedAt ?? p.syncedAt) || 0 : 0);
 
+/** When this copy of the save was read (ms; 0 if unknown). It travels with the progress, so every device agrees. */
+export const scanTime = (p: Progress | null | undefined) => (p ? Date.parse(p.syncedAt) || 0 : 0);
+
 /** Same discoveries, ignoring when or where it was read. */
 export function sameProgress(a: Progress | null, b: Progress | null): boolean {
   if (!a || !b) return a === b;

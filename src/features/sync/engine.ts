@@ -20,9 +20,14 @@ export type SyncAdapter = {
   progress: {
     /** How recent the local save is (ms, 0 = none). */
     time: () => number;
+    /**
+     * When that save was read (ms). It breaks a tie: the same save read again by a newer app version can count
+     * things differently, and that newer reading should still reach the other devices.
+     */
+    scanned?: () => number;
     encode: () => Promise<string | null>;
     /** Apply a code if it's newer than what's here. */
-    apply: (code: string, at: number) => Promise<void>;
+    apply: (code: string, at: number, scanned?: number) => Promise<void>;
   };
   reveals: { get: () => RevealLog; apply: (log: RevealLog) => void };
   settings: { get: () => SettingsLog; apply: (log: SettingsLog) => void };
@@ -41,8 +46,12 @@ export type EngineHooks = {
   onReceived?: (kind: Kind, from: Peer | undefined) => void;
 };
 
-/** `h` (run history) is newer than the rest: older devices don't send it. */
-type Digest = { p: number; r: [number, number]; s: [number, number]; b: Record<string, number>; h?: Record<string, number> };
+/** `h` (run history) and `q` (when the save was read) are newer than the rest: older devices don't send them. */
+type Digest = { p: number; q?: number; r: [number, number]; s: [number, number]; b: Record<string, number>; h?: Record<string, number> };
+
+/** Is a save (its time, and when it was read) newer than another? The newer save wins; for the same save, the newer reading. */
+export const newerSave = (at: number, scanned: number | undefined, mine: number, myScanned: number | undefined) =>
+  at > mine || (at === mine && scanned !== undefined && myScanned !== undefined && scanned > myScanned);
 
 const logDigest = (log: Record<string, { t: number }>): [number, number] => [Math.max(0, ...Object.values(log).map((e) => e.t)), Object.keys(log).length];
 
@@ -68,7 +77,13 @@ function validLog(x: unknown, value: 'boolean' | 'string'): boolean {
 function validDigest(x: unknown): x is Digest {
   if (!obj(x) || !num(x.p) || !obj(x.b)) return false;
   const pair = (v: unknown) => Array.isArray(v) && v.length === 2 && v.every(num);
-  return pair(x.r) && pair(x.s) && Object.values(x.b).every(num) && (x.h === undefined || (obj(x.h) && Object.values(x.h).every(num)));
+  return (
+    pair(x.r) &&
+    pair(x.s) &&
+    Object.values(x.b).every(num) &&
+    (x.h === undefined || (obj(x.h) && Object.values(x.h).every(num))) &&
+    (x.q === undefined || num(x.q))
+  );
 }
 
 const validStamp = (x: unknown): x is RunStamp => obj(x) && str(x.id, 64) && num(x.updatedAt);
@@ -90,6 +105,7 @@ export function startEngine(transport: Transport, adapter: SyncAdapter, me: { id
 
   const digest = async (): Promise<Digest> => ({
     p: adapter.progress.time(),
+    ...(adapter.progress.scanned ? { q: adapter.progress.scanned() } : {}),
     r: logDigest(adapter.reveals.get()),
     s: logDigest(adapter.settings.get()),
     b: Object.fromEntries((await adapter.builds.all()).map((b) => [b.id, buildTime(b)])),
@@ -100,7 +116,8 @@ export function startEngine(transport: Transport, adapter: SyncAdapter, me: { id
 
   const sendProgress = async (to?: string) => {
     const code = await adapter.progress.encode();
-    if (code) transport.send({ k: 'progress', code, at: adapter.progress.time() }, to);
+    const q = adapter.progress.scanned?.();
+    if (code) transport.send({ k: 'progress', code, at: adapter.progress.time(), ...(q !== undefined ? { q } : {}) }, to);
   };
   const sendLive = (to?: string) => {
     const live = adapter.live?.get();
@@ -109,7 +126,7 @@ export function startEngine(transport: Transport, adapter: SyncAdapter, me: { id
 
   /** On meeting a peer: send what it lacks. It does the same for us. */
   const answer = async (to: string, d: Digest) => {
-    if (adapter.progress.time() > d.p) await sendProgress(to);
+    if (newerSave(adapter.progress.time(), adapter.progress.scanned?.(), d.p, d.q)) await sendProgress(to);
     // Logs merge per key either way, so any difference means both sides send theirs.
     const differs = (a: [number, number], b: [number, number]) => a[0] !== b[0] || a[1] !== b[1];
     if (differs(logDigest(adapter.reveals.get()), d.r)) transport.send({ k: 'reveals', log: adapter.reveals.get() }, to);
@@ -171,10 +188,12 @@ export function startEngine(transport: Transport, adapter: SyncAdapter, me: { id
           await answer(from, m.d);
           return;
         }
-        case 'progress':
-          if (!str(m.code, 64 * 1024) || !num(m.at) || m.at <= adapter.progress.time()) return;
-          await adapter.progress.apply(m.code, m.at);
+        case 'progress': {
+          const q = num(m.q) ? m.q : undefined;
+          if (!str(m.code, 64 * 1024) || !num(m.at) || !newerSave(m.at, q, adapter.progress.time(), adapter.progress.scanned?.())) return;
+          await adapter.progress.apply(m.code, m.at, q);
           return got('progress');
+        }
         case 'reveals':
           if (!validLog(m.log, 'boolean')) return;
           adapter.reveals.apply(m.log as RevealLog);
