@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Maximize, Minus, Plus } from 'lucide-react';
 import { gameUrl } from '@/data/store';
 import type { Material, WorldMap } from '@/data/types';
+import { GROUND_STEP, groundLine, surfaceAt, type GroundPoint } from './ground';
 import { biomeName, bodyMaterial, chunkWorld, displayMaterial, groundBands, isCursedRock, isLayered, namedInGame, surfaceWave, type makeVisibility } from './world';
 import type { AreaLayout } from '@/seed/layout';
 import type { PoiKind } from '@/seed/poi';
@@ -309,6 +310,7 @@ export function MapView({
   follow,
   markerKind = 'here',
   pois,
+  ground,
 }: {
   map: WorldMap;
   vis: Vis;
@@ -326,7 +328,10 @@ export function MapView({
   markerKind?: MarkerKind;
   /** Points of interest to pin (fixed ones and the seed's rooms). */
   pois?: MapPoi[] | null;
+  /** The real overworld ground line where the mod sampled it (live runs, mod 5). */
+  ground?: GroundPoint[] | null;
 }) {
+  const line = useMemo(() => (ground?.length ? groundLine(ground) : null), [ground]);
   const caves = useMemo(() => {
     const out = new Map<number, HTMLCanvasElement>();
     if (layouts && wangColors) for (const l of layouts) out.set(l.area, layoutCanvas(map, l, wangColors, materialById));
@@ -518,12 +523,21 @@ export function MapView({
           const wy1 = w.y + map.chunk;
           // Each layer from its (rolling) top edge down to the chunk's bottom; the next layer paints over the rest. The
           // whole column rolls together, so thin surface layers keep their thickness.
-          const step = Math.max(32, 4 / v.s);
-          for (const band of groundBands(b)) {
-            // The roll is at most ±80 px; a layer the next one fully covers, or one still below the chunk, is skipped.
-            if (band.y1 + 80 <= wy0 || band.y0 - 80 >= wy1) continue;
+          const bands = groundBands(b);
+          // Where the mod sampled the real ground, the column rolls to it (its top layer starts there); elsewhere a
+          // made-up roll of at most ±80 px.
+          const surfaceTop = bands[0]?.y0 ?? 0;
+          const roll = (x: number) => {
+            const real = line ? surfaceAt(line, x) : undefined;
+            return real !== undefined ? surfaceTop - real : surfaceWave(x);
+          };
+          const R = line ? 2000 : 80;
+          const step = line ? Math.max(GROUND_STEP, 2 / v.s) : Math.max(32, 4 / v.s);
+          for (const band of bands) {
+            // A layer the next one fully covers, or one still below the chunk, is skipped.
+            if (band.y1 + R <= wy0 || band.y0 - R >= wy1) continue;
             ctx.fillStyle = fillFor(band.material);
-            const flat = band.y0 + 80 <= wy0;
+            const flat = band.y0 + R <= wy0;
             if (flat) {
               ctx.fillRect(rx, ry, rs, rs);
               continue;
@@ -533,7 +547,7 @@ export function MapView({
             ctx.moveTo(rx, ry + rs);
             for (let x = w.x; ; x += step) {
               const xx = Math.min(x, w.x + map.chunk);
-              const edge = Math.min(wy1, Math.max(wy0, band.y0 - surfaceWave(xx)));
+              const edge = Math.min(wy1, Math.max(wy0, band.y0 - roll(xx)));
               const [px, py] = toScreen(xx, edge);
               ctx.lineTo(xx === w.x ? rx : xx >= w.x + map.chunk ? rx + rs : px, edge <= wy0 ? ry : py);
               if (xx >= w.x + map.chunk) break;
@@ -773,7 +787,7 @@ export function MapView({
         ctx.fillRect(sx - 2, sy - 2, 2, 2);
       }
     }
-  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, copies, caveBiomes, sceneAreas, wangColors, sceneColor, mx, my, markerKind, pois, cellAt, layered, biomeById]);
+  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, copies, caveBiomes, sceneAreas, wangColors, sceneColor, mx, my, markerKind, pois, cellAt, layered, biomeById, line]);
 
   // Pointer: drag pans, two fingers pinch, a tap selects.
   const pointers = useRef(new Map<number, { x: number; y: number }>());

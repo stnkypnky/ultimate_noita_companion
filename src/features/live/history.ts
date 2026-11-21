@@ -3,6 +3,7 @@
 import { RARE_ITEMS, SECRET_ITEMS, SECRET_MATERIALS } from '@/data/spoilers';
 import type { LiveRun, LiveWand } from './parse';
 import { liveFlags } from './state';
+import { mergeSurface } from '@/features/map/ground';
 
 export type RunEventKind = 'start' | 'biome' | 'perk' | 'spell' | 'wand' | 'item' | 'found' | 'hp_low' | 'died';
 /** `id`: a spell, perk or item id, or (for found) a spoiler key; `text`: a biome name or what killed you. */
@@ -174,7 +175,10 @@ export function foldSnapshot(
   if (run.playtime !== undefined) rec.playtime = run.playtime;
   rec.perks = run.perks.map((p) => ({ ...p }));
   rec.wands = run.wands.map((w) => ({ ...w, mana: undefined }));
+  // The ground line sampled so far this run: the mod forgets it when the game restarts, the record doesn't.
+  const ground = mergeSurface(rec.last?.surface, run.surface);
   rec.last = keepSnapshot(run);
+  if (ground.length) rec.last.surface = ground;
   if (run.status === 'dead') {
     rec.outcome = 'died';
     rec.endedAt = at;

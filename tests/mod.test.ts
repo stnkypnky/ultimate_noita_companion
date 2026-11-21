@@ -111,7 +111,29 @@ describe('companion mod export', () => {
   it('copes with no player (main menu, between runs)', async () => {
     const lua = await host();
     const raw = JSON.parse((await lua.doString('E[1].tags = {}; return companion_json(companion_state())')) as string);
-    expect(raw).toEqual({ v: 1, mod: 4, status: 'no_player', seed: 123456, ngPlus: 1 });
+    expect(raw).toEqual({ v: 1, mod: 5, status: 'no_player', seed: 123456, ngPlus: 1 });
+    lua.global.close();
+  });
+
+  it('samples the overworld ground near the surface, each column once, and not deep down', async () => {
+    const lua = await host();
+    // Deep in the caves (the stub player stands at y 2400): no samples.
+    const deep = JSON.parse((await lua.doString('return companion_json(companion_state())')) as string);
+    expect(deep.surface).toBeUndefined();
+    // On the surface, with the ground 30 px below the player: one ray per 16 px column across ±480 px.
+    await lua.doString(`
+      function EntityGetTransform(id) return 100, 200 end
+      rays = 0
+      function RaytraceSurfaces(x1, y1, x2, y2) rays = rays + 1 return true, x1, 230 end`);
+    const up = JSON.parse((await lua.doString('return companion_json(companion_state())')) as string);
+    expect(up.surface.length).toBe(61);
+    expect(up.surface[0]).toEqual([-376, 230]);
+    expect(up.surface.every((p: number[]) => p[1] === 230 && (p[0] - 8) % 16 === 0)).toBe(true);
+    // Same place again: no new rays.
+    const before = (await lua.doString('return rays')) as number;
+    await lua.doString('companion_state()');
+    expect(await lua.doString('return rays')).toBe(before);
+    expect(parseLiveRun(JSON.stringify(up))?.surface?.length).toBe(61);
     lua.global.close();
   });
 
@@ -213,7 +235,7 @@ describe('companion mod export', () => {
       C[12].values.mActiveItem = 50
     `);
     const raw = JSON.parse((await lua.doString('return companion_json(companion_state())')) as string);
-    expect(raw).toMatchObject({ mod: 4, x: 100, y: 2400, playtime: 321.5, kills: 17, orbs: 2, seen: ['zombie', 'longleg'] });
+    expect(raw).toMatchObject({ mod: 5, x: 100, y: 2400, playtime: 321.5, kills: 17, orbs: 2, seen: ['zombie', 'longleg'] });
     expect(raw.items).toEqual([{ id: 'evil_eye', name: '$item_evil_eye', held: true }]);
     // Shifted at frame 3000; the 5-minute cooldown (18000 frames) ends at frame 21000, 250 s after frame 6000.
     expect(raw.fungal).toEqual({ count: 1, readyIn: 250 });

@@ -57,6 +57,8 @@ export type LiveRun = {
   items?: LiveItem[];
   /** What killed you, when status is dead. */
   killedBy?: string;
+  /** Mod 5: the real overworld ground line near where you've been, as [x, y] world pixels (first solid from above). */
+  surface?: [number, number][];
 };
 export type LiveItem = { id: string; name: string; held?: boolean };
 
@@ -189,6 +191,14 @@ function v2(o: Record<string, unknown>): Partial<LiveRun> {
   const fc = f && count(f.count);
   if (f && fc !== undefined && fc !== null) out.fungal = { count: Math.min(fc, 99), readyIn: count(f.readyIn) ?? 0 };
   if (Array.isArray(o.seen)) out.seen = [...new Set(arr(o.seen, 400).map(id).filter((s): s is string => !!s))];
+  if (Array.isArray(o.surface)) {
+    const pts = arr(o.surface, 4000).flatMap((p) => {
+      if (!Array.isArray(p) || p.length !== 2) return [];
+      const [px, py] = p as unknown[];
+      return typeof px === 'number' && typeof py === 'number' && Number.isFinite(px) && Number.isFinite(py) ? [[Math.round(px), Math.round(py)] as [number, number]] : [];
+    });
+    if (pts.length) out.surface = pts;
+  }
   if (Array.isArray(o.items))
     out.items = arr(o.items, 32)
       .map((it) => {

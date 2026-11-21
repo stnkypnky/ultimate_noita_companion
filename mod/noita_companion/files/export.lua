@@ -209,6 +209,34 @@ local function look_around(seed, x, y)
   return seen_list
 end
 
+-- The real ground line of the overworld (the forest, desert and snow above the caves are engine noise the app
+-- can't rebuild): every SURFACE_STEP px across about a screen either side, a ray down from above you finds the
+-- first solid or powder cell. Each column is kept once per seed.
+local SURFACE_STEP = 16
+local SURFACE_SPAN = 480
+local SURFACE_REACH = 350
+local SURFACE_MAX = 2000
+local SURFACE_BELOW = 900 -- only near the surface: deeper down it's the caves, which the app draws itself
+local surface, surface_list, surface_seed = {}, {}, nil
+
+local function sample_surface(seed, x, y)
+  if surface_seed ~= seed then surface, surface_list, surface_seed = {}, {}, seed end
+  if y > SURFACE_BELOW or type(RaytraceSurfaces) ~= "function" then return surface_list end
+  local top = y - SURFACE_REACH
+  for c = math.floor((x - SURFACE_SPAN) / SURFACE_STEP), math.floor((x + SURFACE_SPAN) / SURFACE_STEP) do
+    if surface[c] == nil and #surface_list < SURFACE_MAX then
+      local cx = c * SURFACE_STEP + SURFACE_STEP / 2
+      local ok, hit, _, hy = pcall(RaytraceSurfaces, cx, top, cx, y + SURFACE_REACH)
+      -- A hit right at the start means the ray began inside rock (a cliff above you): try again from elsewhere.
+      if ok and hit and hy and hy > top + 2 then
+        surface[c] = true
+        surface_list[#surface_list + 1] = { cx, math.floor(hy + 0.5) }
+      end
+    end
+  end
+  return surface_list
+end
+
 local function stat(key)
   return tonumber(try(StatsGetValue, key) or "")
 end
@@ -224,7 +252,7 @@ function companion_state(status)
   local p = player()
   local state = {
     v = 1,
-    mod = 4,
+    mod = 5,
     status = status or "alive",
     seed = tonumber(StatsGetValue("world_seed") or "") or 0,
     ngPlus = tonumber(SessionNumbersGetValue("NEW_GAME_PLUS_COUNT") or "") or 0,
@@ -256,6 +284,8 @@ function companion_state(status)
   state.orbs = try(GameGetOrbCountThisRun)
   state.fungal = try(fungal)
   state.seen = look_around(state.seed, x, y)
+  local ground = try(sample_surface, state.seed, x, y)
+  if ground and #ground > 0 then state.surface = ground end
   local biome = BiomeMapGetName(x, y)
   state.biome = { id = biome, name = translated(biome) }
   local dm = comp(p, "DamageModelComponent")

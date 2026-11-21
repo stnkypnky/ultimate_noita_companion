@@ -15,6 +15,7 @@ import { poiCentre, poiDirection } from '@/features/map/pois';
 import { MaterialName, PerkChip, ShopView } from '@/features/map/SeedPanel';
 import { loadMap, makeVisibility } from '@/features/map/world';
 import { useSeedLayers } from '@/features/map/useSeedLayers';
+import type { GroundPoint } from '@/features/map/ground';
 import { clock, nextMountain, picksBefore } from './runMath';
 import { materialTable } from '@/seed/seed';
 import { seedReport } from '@/seed/client';
@@ -70,7 +71,7 @@ function useRunReport(seed: number, picks: string[][], map: WorldMap | null) {
  * The cards that know where you are. Shown only with the newer mod (it sends a position). A past run shows
  * where it ended and what it went through instead of what's next.
  */
-export function useSeedCards(run: LiveRun, at: number, past: boolean, mapHeight = 320) {
+export function useSeedCards(run: LiveRun, at: number, past: boolean, mapHeight = 320, ground?: GroundPoint[]) {
   const map = useWorldMap();
   const next = map && run.y !== undefined ? nextMountain(map, run.y) : null;
   const picks = useMemo(() => (next ? picksBefore(run, next) : []), [run, next]);
@@ -78,7 +79,7 @@ export function useSeedCards(run: LiveRun, at: number, past: boolean, mapHeight 
   if (run.x === undefined || run.y === undefined) return { map: null, mountain: null, fungal: null };
   const marker = past ? (run.status === 'dead' ? 'died' : 'last') : 'here';
   return {
-    map: map && <MiniMap map={map} x={run.x} y={run.y} seed={run.seed} kind={marker} biome={run.biome?.name} height={mapHeight} />,
+    map: map && <MiniMap map={map} x={run.x} y={run.y} seed={run.seed} kind={marker} biome={run.biome?.name} height={mapHeight} ground={ground ?? run.surface} />,
     mountain: past ? <MountainsReached next={next} seed={run.seed} /> : <NextMountain next={next} report={report} />,
     fungal: run.fungal ? past ? <FungalsDone count={run.fungal.count} report={report} /> : <NextFungal fungal={run.fungal} at={at} report={report} /> : null,
   };
@@ -94,7 +95,25 @@ const mapSpoilersShown = () => {
 
 const MARKER_TITLE = { here: 'Where you are', died: 'Where you died', last: 'Where you left off' } as const;
 
-function MiniMap({ map, x, y, seed, kind, biome, height }: { map: WorldMap; x: number; y: number; seed: number; kind: MarkerKind; biome?: string; height: number }) {
+function MiniMap({
+  map,
+  x,
+  y,
+  seed,
+  kind,
+  biome,
+  height,
+  ground,
+}: {
+  map: WorldMap;
+  x: number;
+  y: number;
+  seed: number;
+  kind: MarkerKind;
+  biome?: string;
+  height: number;
+  ground?: GroundPoint[];
+}) {
   const { materialById } = useData();
   const { mode, visible } = useSpoilers();
   const orbs = useProgress((s) => s.progress?.orbs);
@@ -139,6 +158,7 @@ function MiniMap({ map, x, y, seed, kind, biome, height }: { map: WorldMap; x: n
           layouts={layouts}
           wangColors={wangColors}
           pois={pois}
+          ground={ground}
         />
       </div>
       {near.length > 0 && (

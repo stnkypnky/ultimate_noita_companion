@@ -1,7 +1,8 @@
 // The live companion for the run you're playing: everything in hand, simulated and explained, plus what
 // this seed holds. Data comes from the companion mod, read on the PC or relayed by a paired device.
 // A recent run opens in the same view, as it was when it ended (/run/:id).
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { mergeSurface } from '@/features/map/ground';
 import { Link, Navigate, useParams } from 'react-router';
 import { Check, ClipboardCopy, Clock, Coins, Eye, Heart, Map as MapIcon, MapPin, Skull } from 'lucide-react';
 import { ALCHEMY_KEY } from '@/data/spoilers';
@@ -114,8 +115,11 @@ function RunView({ run, at, rec, past, status, switcher }: { run: LiveRun; at: n
   const tablet = useIsTablet();
   const { active } = useLiveRun();
   const now = useNow(1000);
+  // The ground line sampled this run, kept on the record across game restarts.
+  const recGround = rec?.seed === run.seed ? rec.last?.surface : undefined;
+  const ground = useMemo(() => mergeSurface(recGround, run.surface), [recGround, run.surface]);
   // On a phone the map has a tab of its own, so it can take most of the screen.
-  const seed = useSeedCards(run, at, past, desktop ? 320 : Math.max(280, Math.round(innerHeight * 0.55)));
+  const seed = useSeedCards(run, at, past, desktop ? 320 : Math.max(280, Math.round(innerHeight * 0.55)), ground);
   const waiting = !past && run.status === 'no_player';
 
   const wands = <Wands run={run} onOpen={setDetail} past={past} />;
