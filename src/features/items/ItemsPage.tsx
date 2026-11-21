@@ -46,16 +46,18 @@ export function ItemsPage() {
   const searchRef = useSearchFocus();
 
   const isVisible = useCallback((it: Item) => !SECRET_ITEMS.has(it.id) || visible(itemKey(it.id)), [visible]);
+  // By name, numbers in order: Gold nugget (10), (50), (200)…
+  const sorted = useMemo(() => [...items].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })), [items]);
   const shown = useMemo(
     () =>
       q
-        ? items.filter(
+        ? sorted.filter(
             (it) =>
               isVisible(it) &&
               (it.name.toLowerCase().includes(q) || it.description.toLowerCase().includes(q) || (itemInfo(it.id)?.text.toLowerCase().includes(q) ?? false)),
           )
-        : items,
-    [items, q, isVisible],
+        : sorted,
+    [sorted, q, isVisible],
   );
   const selected = id ? items.find((it) => it.id === id) : undefined;
   const close = useCallback(() => navigate('/items'), [navigate]);
@@ -74,7 +76,6 @@ export function ItemsPage() {
                   <ItemIcon item={selected} scale={3} secret={SECRET_ITEMS.has(selected.id)} />
                   <div className="min-w-0">
                     <h2 className={`font-game text-[24px] leading-tight ${SECRET_ITEMS.has(selected.id) ? 'secret-name' : ''}`}>{selected.name}</h2>
-                    <code className="text-xs text-faint">{selected.id}</code>
                   </div>
                 </header>
                 {SECRET_ITEMS.has(selected.id) && <SecretCallout what="item" />}

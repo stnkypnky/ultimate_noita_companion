@@ -11,7 +11,7 @@ import { DiscoveryBar } from '@/features/progress/DiscoveryBar';
 // Every section of the app (Home is also the phone's menu). `open`: usable before a save is synced.
 const TILES: { to: string; title: string; text: string; icon: LucideIcon; accent: string; open?: boolean }[] = [
   { to: '/wand', title: 'Wand Builder', text: 'Drag spells onto a wand and simulate every cast.', icon: Wand2, accent: 'var(--ember)' },
-  { to: '/spells', title: 'Spells', text: 'Every spell, straight from the game files.', icon: Sparkles, accent: 'var(--arcane)' },
+  { to: '/spells', title: 'Spells', text: 'What every spell does, and where it turns up.', icon: Sparkles, accent: 'var(--arcane)' },
   { to: '/materials', title: 'Materials', text: 'Properties and reactions of every material.', icon: FlaskConical, accent: 'var(--toxic)' },
   { to: '/alchemy', title: 'Alchemy', text: 'Seed-based Lively Concoction & Alchemic Precursor.', icon: Beaker, accent: 'var(--gold)' },
   { to: '/perks', title: 'Perks', text: 'What every perk really does, and how they stack.', icon: Gem, accent: 'var(--gold)' },
@@ -60,7 +60,6 @@ function ProgressCard() {
 }
 
 export function HomePage() {
-  const version = useGameData((s) => s.version);
   const hydrated = useProgressHydrated();
   const hasSave = useHasSave();
   const needsSave = hydrated && !hasSave;
@@ -152,10 +151,6 @@ export function HomePage() {
       <ProgressCard />
 
       <p className="mt-8 text-center text-xs text-faint">
-        {version
-          ? `Game data from build ${version.gameHash.slice(0, 8)} (${version.branch})`
-          : 'Game data not extracted yet — run `npm run extract`.'}
-        <br />
         Unofficial fan project — not affiliated with Nolla Games. Game data &amp; art © Nolla Games.
       </p>
     </div>

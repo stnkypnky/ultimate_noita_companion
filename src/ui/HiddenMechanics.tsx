@@ -152,22 +152,20 @@ export function HowToUnlock({ notes, flag }: { notes: MechanicNote[]; flag?: str
 }
 
 function Note({ note }: { note: MechanicNote }) {
-  // Curated notes may cite the script they were read from (data/…) instead of a wiki page.
-  const script = note.source.startsWith('data/');
-  const fromFiles = note.source === DOCS || script;
+  // Notes read from the game's own files (or the component docs) carry no link; wiki notes link to read more.
+  const wiki = note.source.startsWith('http') && note.source !== DOCS;
   return (
     <li className="flex gap-2 text-[14px] leading-relaxed text-muted">
       <span aria-hidden className="mt-[9px] h-1.5 w-1.5 shrink-0 bg-gold/70" />
       <span>
-        {note.text}{' '}
-        {fromFiles ? (
-          <span className="text-[11px] whitespace-nowrap text-faint" title={script ? note.source : undefined}>
-            (game files)
-          </span>
-        ) : (
-          <a href={note.source} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-[11px] whitespace-nowrap text-faint hover:text-gold">
-            wiki <ExternalLink size={10} />
-          </a>
+        {note.text}
+        {wiki && (
+          <>
+            {' '}
+            <a href={note.source} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-[11px] whitespace-nowrap text-faint hover:text-gold">
+              wiki <ExternalLink size={10} />
+            </a>
+          </>
         )}
       </span>
     </li>

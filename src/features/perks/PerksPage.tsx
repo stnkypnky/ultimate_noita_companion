@@ -90,7 +90,10 @@ export function PerksPage() {
                     <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-raised">
                       {hidden ? <span className="font-game text-[16px] text-faint">?</span> : <AtlasIcon atlas="perks" icon={p.icon} scale={2} />}
                     </span>
-                    <span className={`truncate text-[13px] font-medium ${hidden ? 'text-faint' : ''}`}>{hidden ? '???' : p.name}</span>
+                    <span className="min-w-0">
+                      <span className={`block truncate text-[13px] font-medium ${hidden ? 'text-faint' : ''}`}>{hidden ? '???' : p.name}</span>
+                      {!hidden && <span className="line-clamp-2 text-[11px] leading-snug text-faint">{p.description}</span>}
+                    </span>
                   </button>
                 </li>
               );
@@ -123,7 +126,6 @@ export function PerkDetail({ perk }: { perk: Perk }) {
         </span>
         <div className="min-w-0">
           <h2 className="font-game text-[24px] leading-tight">{perk.name}</h2>
-          <code className="text-xs text-faint">{perk.id}</code>
         </div>
       </header>
       <p className="mt-4 text-[15px] leading-relaxed text-muted">{perk.description}</p>

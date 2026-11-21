@@ -112,8 +112,8 @@ export function SeedPanel({
     <section className="panel mt-6 p-4 md:p-5" aria-label="Seed">
       <h2 className="font-game text-[24px]">What a seed gives</h2>
       <p className="mt-1 text-sm text-muted">
-        The game's own scripts, run with the game's random numbers: Holy Mountain perks and shops, fungal shifts and biome modifiers. The seed is on the
-        pause menu (and your synced runs have theirs).
+        Holy Mountain perks and shops, fungal shifts and biome modifiers for any seed. The seed is on the pause menu (and your synced runs have
+        theirs).
       </p>
       <form
         className="mt-3 flex flex-wrap items-center gap-2"

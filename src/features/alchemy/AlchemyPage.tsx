@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 import { ArrowRight, BookOpen, Dices, EyeOff, Plus, X } from 'lucide-react';
 import { useData } from '@/data/store';
 import type { Material, Reaction } from '@/data/types';
-import { ALCHEMY_ALL_KEY, ALCHEMY_KEY } from '@/data/spoilers';
+import { ALCHEMY_ALL_KEY, ALCHEMY_KEY, SECRET_MATERIALS } from '@/data/spoilers';
 import { useProgress, useSpoilers } from '@/store/progress';
 import { DiscoveryBar } from '@/features/progress/DiscoveryBar';
 import { Page } from '@/ui/Page';
@@ -13,7 +13,7 @@ import { useDebounced } from '@/ui/hooks';
 import { MaterialSwatch } from '@/features/materials/MaterialSwatch';
 import { titleCase, useMaterialVisibility } from '@/features/materials/MaterialsPage';
 import { MAX_SEED, alchemyRecipes, type Recipe } from './aplc';
-import { dedupeByName, lookupReactions, nameHints, tagLabel, unique } from './lookup';
+import { collapseVariants, dedupeByName, lookupReactions, nameHints, tagLabel, unique } from './lookup';
 
 export function AlchemyPage() {
   return (
@@ -96,10 +96,6 @@ function SeedRecipes() {
           <RecipeCard title="Alchemic Precursor" recipe={recipes.ap} />
         </div>
       )}
-      <p className="mt-3 text-[11px] text-faint">
-        Recipes come from the community's reverse-engineered algorithm (lamas_stats, noita-tools) — the game picks them in its engine, not its
-        script files.
-      </p>
     </Section>
   );
 }
@@ -177,7 +173,11 @@ function MaterialLookup() {
   const name = useSlotName();
   const isVisible = useCallback((id: string) => all || materialVisible(id), [all, materialVisible]);
   const [m, setM] = useState<Material | null>(null);
-  const options = useMemo(() => materials.filter((x) => x.showInCreative && isVisible(x.id)).sort((x, y) => x.name.localeCompare(y.name)), [materials, isVisible]);
+  const hints = useNameHints();
+  const options = useMemo(
+    () => collapseVariants(materials.filter((x) => x.showInCreative && isVisible(x.id)), hints, (id) => SECRET_MATERIALS.has(id)).sort((x, y) => x.name.localeCompare(y.name)),
+    [materials, isVisible, hints],
+  );
   const found = useMemo(() => {
     if (!m) return null;
     const f = lookupReactions(m, reactions, isVisible);
@@ -308,7 +308,6 @@ function AllRecipes() {
           <BookOpen size={16} className="mr-2 inline" />
           Reveal all recipes
         </button>
-        <span className="text-xs text-faint">{distinct.length} reactions</span>
       </div>
     );
   }
@@ -360,6 +359,7 @@ function AllRecipes() {
 function MaterialPicker({ value, onChange, options, label }: { value: Material | null; onChange: (m: Material | null) => void; options: Material[]; label: string }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
+  const hints = useNameHints();
   // Names that start with the query come first, so "phe" lands on Pheromone, not Worm Pheromone.
   const list = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -411,7 +411,7 @@ function MaterialPicker({ value, onChange, options, label }: { value: Material |
                 >
                   <MaterialSwatch material={m} size={20} />
                   {titleCase(m.name)}
-                  <span className="ml-auto text-[11px] text-faint">{m.id}</span>
+                  {hints.get(m.id) && <span className="ml-auto text-[11px] text-faint">{hints.get(m.id)}</span>}
                 </button>
               </li>
             ))}

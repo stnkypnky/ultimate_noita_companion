@@ -43,7 +43,6 @@ export function EnemyDetail({ enemy: e }: { enemy: Enemy }) {
             <MetThisRun id={e.id} />
           </div>
           <p className="mt-1.5 text-sm text-muted">{style.blurb}</p>
-          <code className="text-xs text-faint">{e.id}</code>
         </div>
       </header>
 
@@ -78,7 +77,7 @@ export function EnemyDetail({ enemy: e }: { enemy: Enemy }) {
         )}
         {!e.attacks && !e.behavior?.aura && (
           <p className="mt-2 flex items-center gap-2 text-sm text-faint">
-            <Skull size={15} /> Its game file doesn't give it an attack of its own.
+            <Skull size={15} /> It has no attack of its own.
           </p>
         )}
       </Section>
@@ -122,7 +121,10 @@ export function EnemyDetail({ enemy: e }: { enemy: Enemy }) {
       {e.hurtBy && (
         <Section title="Hurt by">
           <div className="flex flex-wrap gap-1.5">
-            {e.hurtBy.map((h) => {
+            {byName(
+              [...e.hurtBy].sort((a, b) => b.perSecond - a.perSecond),
+              (h) => materialById.get(h.material)?.name ?? h.material,
+            ).map((h) => {
               const m = materialById.get(h.material);
               const show = matVisible(h.material);
               return (
@@ -141,9 +143,11 @@ export function EnemyDetail({ enemy: e }: { enemy: Enemy }) {
       {e.bleeds && (
         <Section title="Bleeds">
           <div className="flex flex-wrap gap-1.5">
-            {[...new Set([e.bleeds.spray, e.bleeds.hit].filter((x): x is string => !!x))].map((id, i) => {
-              const m = materialById.get(id);
-              if (!m) return null;
+            {byName(
+              [e.bleeds.spray, e.bleeds.hit].filter((x): x is string => !!x && materialById.has(x)),
+              (id) => materialById.get(id)!.name,
+            ).map((id, i) => {
+              const m = materialById.get(id)!;
               return (
                 <Link key={id} to={`/materials/${id}`} className="slot slot-hover inline-flex items-center gap-2 py-1.5 pr-2.5 pl-1.5 text-sm">
                   <MaterialSwatch material={m} size={20} hidden={!matVisible(id)} />
@@ -252,7 +256,7 @@ function WhereItLives({ enemy: e }: { enemy: Enemy }) {
 }
 
 /** A creature named for linking: its icon and name, or "???" when you haven't met it. */
-export function CreatureChip({ id, n }: { id: string; n?: number }) {
+export function CreatureChip({ id, n, detail }: { id: string; n?: number; /** Shown after the name once met, e.g. its health. */ detail?: string }) {
   const { enemyById } = useData();
   const { visible } = useSpoilers();
   const c = enemyById.get(id);
@@ -263,12 +267,18 @@ export function CreatureChip({ id, n }: { id: string; n?: number }) {
     <Link to={`/bestiary/${id}`} className="slot slot-hover inline-flex items-center gap-1.5 py-1 pr-2.5 pl-1 text-sm">
       {shown ? <AtlasIcon atlas="enemies" icon={c.icon} scale={1} /> : <span className="font-game w-6 text-center text-[16px] text-faint">?</span>}
       <span className={shown ? '' : 'text-faint'}>{label(shown ? c.name : '???')}</span>
+      {shown && detail && <span className="text-xs text-faint">{detail}</span>}
     </Link>
   );
 }
 
 function Family({ enemy: e }: { enemy: Enemy }) {
-  const { enemies } = useData();
+  const { enemies, enemyById } = useData();
+  // A relative with the same name (the weaker Hurtta) is told apart by its health.
+  const hpIfSameName = (id: string) => {
+    const v = enemyById.get(id);
+    return v && v.name === e.name && v.hp !== undefined ? `${v.hp} HP` : undefined;
+  };
   const foes = new Set((e.relations?.foes ?? []).filter((h) => h !== 'player'));
   const hunted = foes.size ? enemies.filter((x) => x.herd && foes.has(x.herd) && x.id !== e.id) : [];
   if (!e.variants?.length && !hunted.length) return null;
@@ -279,7 +289,7 @@ function Family({ enemy: e }: { enemy: Enemy }) {
           <p className="mb-1.5 text-xs text-faint">Related creatures</p>
           <div className="flex flex-wrap gap-1.5">
             {e.variants.map((id) => (
-              <CreatureChip key={id} id={id} />
+              <CreatureChip key={id} id={id} detail={hpIfSameName(id)} />
             ))}
           </div>
         </>
@@ -401,6 +411,8 @@ function Counts({ title, items }: { title: string; items: Count[] }) {
 }
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+/** The first of each name: materials that share a name (two kinds of toxic gas) read as one to the player. */
+const byName = <T,>(xs: T[], name: (x: T) => string) => xs.filter((x, i) => xs.findIndex((y) => name(y).toLowerCase() === name(x).toLowerCase()) === i);
 /** 6, 1.5, 0.06, or "<0.01" for the trickles (poo gas). */
 const fmtRate = (n: number) => (n >= 10 ? String(Math.round(n)) : n >= 0.01 ? String(Number(n.toPrecision(2))) : '<0.01');
 

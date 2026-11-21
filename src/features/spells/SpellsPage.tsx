@@ -124,11 +124,12 @@ function SpellTile({ spell, hidden, active, index }: { spell: Spell; hidden: boo
       <button
         onClick={() => navigate(`/spells/${spell.id}`)}
         data-active={active || undefined}
-        className="slot slot-hover flex w-full items-center gap-3 p-2 text-left"
+        className="slot slot-hover flex h-full w-full items-center gap-3 p-2 text-left"
       >
         <SpellIcon type={spell.type} icon={spell.icon} hidden={hidden} />
         <span className="min-w-0 flex-1">
-          <span className={`block truncate text-[13px] font-medium ${hidden ? 'text-faint' : ''}`}>{hidden ? '???' : spell.name}</span>
+          {/* Two lines, so "Spark bolt with trigger" and "Spark bolt with timer" don't both cut off to "Spark bolt with…". */}
+          <span className={`line-clamp-2 text-[13px] leading-tight font-medium ${hidden ? 'text-faint' : ''}`}>{hidden ? '???' : spell.name}</span>
           {!hidden && <span className="block text-[11px] text-faint">{spell.mana} mana</span>}
         </span>
       </button>

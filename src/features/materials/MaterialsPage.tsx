@@ -14,7 +14,7 @@ import { HiddenNotice, SecretCallout } from '@/ui/Spoiler';
 import { HiddenMechanics } from '@/ui/HiddenMechanics';
 import { useDebounced } from '@/ui/hooks';
 import { MaterialSwatch } from './MaterialSwatch';
-import { nameHints } from '@/features/alchemy/lookup';
+import { collapseVariants, nameHints } from '@/features/alchemy/lookup';
 
 const STATES = ['liquid', 'powder', 'solid', 'gas', 'fire'] as const;
 const STATE_LABEL: Record<Material['state'], string> = { liquid: 'Liquids', powder: 'Powders', solid: 'Solids', gas: 'Gases', fire: 'Fire' };
@@ -43,6 +43,7 @@ export function MaterialsPage() {
   const [internal, setInternal] = useState(false);
   const q = useDebounced(query);
   const searchRef = useSearchFocus();
+  const hints = useMaterialHints();
 
   const search = useMemo(() => {
     const ms = new MiniSearch<Material>({ fields: ['name', 'id', 'tagText'], storeFields: ['id'], extractField: (m, f) => (f === 'tagText' ? m.tags.join(' ') : String((m as Record<string, unknown>)[f] ?? '')), searchOptions: { prefix: true, fuzzy: 0.2, boost: { name: 3 } } });
@@ -52,21 +53,16 @@ export function MaterialsPage() {
 
   const shown = useMemo(() => {
     let list = q ? search.search(q).map((r) => materialById.get(r.id as string)!) : [...materials].sort((a, b) => a.name.localeCompare(b.name));
-    if (!internal) list = list.filter((m) => m.showInCreative);
+    // Same-named variants a player can't tell apart show as one, unless every variant is asked for.
+    if (!internal) list = collapseVariants(list.filter((m) => m.showInCreative), hints, (x) => SECRET_MATERIALS.has(x));
     if (state) list = list.filter((m) => m.state === state);
     // Searching or filtering never surfaces secret materials.
     if (q || state) list = list.filter((m) => isVisible(m.id));
     return list;
-  }, [q, search, materialById, materials, internal, state, isVisible]);
+  }, [q, search, materialById, materials, internal, state, isVisible, hints]);
 
   const selected = id ? materialById.get(id) : undefined;
   const close = useCallback(() => navigate('/materials'), [navigate]);
-  // Several materials share a display name (7× "brickwork"); show their ids to tell them apart.
-  const dupes = useMemo(() => {
-    const count = new Map<string, number>();
-    for (const m of materials) count.set(m.name.toLowerCase(), (count.get(m.name.toLowerCase()) ?? 0) + 1);
-    return new Set([...count].filter(([, n]) => n > 1).map(([name]) => name));
-  }, [materials]);
 
   return (
     <Page
@@ -83,7 +79,7 @@ export function MaterialsPage() {
               </Chip>
             ))}
             <Chip active={internal} onClick={() => setInternal(!internal)}>
-              Internal variants
+              All variants
             </Chip>
           </ChipRow>
         </>
@@ -104,17 +100,17 @@ export function MaterialsPage() {
                   <button
                     onClick={() => navigate(`/materials/${m.id}`)}
                     data-active={m.id === id || undefined}
-                    className={`slot slot-hover flex w-full items-center gap-3 p-2.5 text-left ${secret ? 'secret' : ''}`}
+                    className={`slot slot-hover flex h-full w-full items-center gap-3 p-2.5 text-left ${secret ? 'secret' : ''}`}
                   >
                     <MaterialSwatch material={m} hidden={hidden} secret={secret} />
                     <span className="min-w-0">
-                      <span className={`block truncate text-[13px] font-medium ${secret ? 'secret-name' : hidden ? 'text-faint' : ''}`}>
+                      <span className={`line-clamp-2 text-[13px] leading-tight font-medium ${secret ? 'secret-name' : hidden ? 'text-faint' : ''}`}>
                         {hidden ? '???' : titleCase(m.name)}
                       </span>
                       {!hidden && (
                         <span className="block truncate text-[11px] text-faint">
                           {titleCase(m.state)}
-                          {dupes.has(m.name.toLowerCase()) && ` · ${m.id}`}
+                          {hints.get(m.id) && ` · ${hints.get(m.id)}`}
                         </span>
                       )}
                     </span>
@@ -132,6 +128,7 @@ export function MaterialsPage() {
 export function MaterialDetail({ material: m }: { material: Material }) {
   const { reactionsByMaterial } = useData();
   const { isVisible, reveal } = useMaterialVisibility();
+  const hint = useMaterialHints().get(m.id);
   if (!isVisible(m.id)) return <HiddenNotice what="material" onReveal={() => reveal(m.id)} />;
 
   const related = [...(reactionsByMaterial.get(m.id) ?? []), ...m.tags.flatMap((t) => reactionsByMaterial.get(t) ?? [])];
@@ -159,7 +156,7 @@ export function MaterialDetail({ material: m }: { material: Material }) {
         <MaterialSwatch material={m} size={64} secret={secret} />
         <div className="min-w-0">
           <h2 className={`font-game text-[24px] leading-tight ${secret ? 'secret-name' : ''}`}>{titleCase(m.name)}</h2>
-          <code className="text-xs text-faint">{m.id}</code>
+          {hint && <p className="text-xs text-faint">{titleCase(hint)}</p>}
         </div>
       </header>
       {secret && <SecretCallout what="material" />}
@@ -220,18 +217,25 @@ function ReactionList({ reactions }: { reactions: Reaction[] }) {
 
 const hintCache = new WeakMap<Material[], Map<string, string>>();
 
+/** Hints that tell same-named materials apart ("loose", "blue"), worked out once per data set. */
+export function useMaterialHints() {
+  const { materials } = useData();
+  let hints = hintCache.get(materials);
+  if (!hints) hintCache.set(materials, (hints = nameHints(materials)));
+  return hints;
+}
+
 function MatChip({ id }: { id: string }) {
-  const { materials, materialById } = useData();
+  const { materialById } = useData();
+  const hints = useMaterialHints();
   if (id.startsWith('[')) return <span className="rounded bg-arcane/15 px-1.5 py-0.5 font-mono text-[11px] text-arcane">{id}</span>;
   const m = materialById.get(id);
   if (!m) return <span className="text-xs text-muted">{id}</span>;
-  // Same-named materials (two kinds of ice) get a hint from their id, so the rows don't read as repeats.
-  let hints = hintCache.get(materials);
-  if (!hints) hintCache.set(materials, (hints = nameHints(materials)));
+  // Same-named materials (two kinds of ice) get a hint, so the rows don't read as repeats.
   const hint = hints.get(id);
   const secret = SECRET_MATERIALS.has(id);
   return (
-    <Link to={`/materials/${id}`} title={id} className="inline-flex items-center gap-1.5 rounded bg-surface-2 py-0.5 pr-1.5 pl-0.5 text-xs hover:bg-surface-3">
+    <Link to={`/materials/${id}`} className="inline-flex items-center gap-1.5 rounded bg-surface-2 py-0.5 pr-1.5 pl-0.5 text-xs hover:bg-surface-3">
       <MaterialSwatch material={m} size={16} />
       <span className={secret ? 'secret-name' : undefined}>{titleCase(m.name)}</span>
       {hint && <span className="text-[10px] text-faint">· {hint}</span>}

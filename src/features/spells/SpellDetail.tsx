@@ -38,7 +38,6 @@ export function SpellDetail({ spell }: { spell: Spell }) {
             <span className="font-game px-2 py-0.5 text-[16px]" style={{ background: `${TYPE_COLOR[spell.type]}22`, color: TYPE_COLOR[spell.type] }}>
               {TYPE_LABEL[spell.type]}
             </span>
-            <code className="text-faint">{spell.id}</code>
           </div>
         </div>
       </header>

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Material, Reaction } from '../src/data/types.ts';
 import { SECRET_MATERIALS } from '../src/data/spoilers.ts';
-import { lookupReactions, nameHints, tagLabel, unique } from '../src/features/alchemy/lookup.ts';
+import { collapseVariants, lookupReactions, nameHints, tagLabel, unique } from '../src/features/alchemy/lookup.ts';
 import { projectileDamage } from '../src/sim/analyze.ts';
 import type { Projectile } from '../src/data/types.ts';
 
@@ -68,5 +68,24 @@ describe('alchemy lookup', () => {
     expect(hints.get('fire_blue')).toBe('blue');
     expect(hints.has('fire')).toBe(false);
     expect(hints.has('magic_liquid_charm')).toBe(false);
+  });
+
+  it('words its hints for players, never with internal id words', () => {
+    const hints = nameHints(materials);
+    expect(hints.get('ice_glass')).toBe('loose');
+    expect(hints.get('water_fading')).toBe('fades');
+    expect(hints.has('rock_static_trip_secret')).toBe(false);
+    for (const h of hints.values()) expect(h).not.toMatch(/static|box2d|_|secret|noedge|intro/);
+  });
+
+  it('shows variants a player cannot tell apart as one material', () => {
+    const hints = nameHints(materials);
+    const list = collapseVariants(materials.filter((m) => m.showInCreative), hints, (id) => SECRET_MATERIALS.has(id));
+    const rocks = list.filter((m) => m.name.toLowerCase() === 'rock' && !hints.get(m.id));
+    expect(rocks.map((m) => m.id)).toEqual(['rock_static']);
+    // Every card left reads differently: name, state and hint.
+    const keys = list.filter((m) => !SECRET_MATERIALS.has(m.id)).map((m) => `${m.name.toLowerCase()}|${m.state}|${hints.get(m.id) ?? ''}`);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(list.length).toBeLessThan(materials.filter((m) => m.showInCreative).length - 50);
   });
 });

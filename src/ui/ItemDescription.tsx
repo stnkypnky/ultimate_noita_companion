@@ -33,18 +33,13 @@ function CompanionNote({ info, quiet }: { info: ItemInfo; quiet: boolean }) {
   );
 }
 
-/** "(companion note)" with where it came from: a wiki link or the script path. */
+/** A link to read more on the wiki, when the note came from there. */
 export function Source({ source }: { source: string }) {
-  if (source.startsWith('http'))
-    return (
-      <a href={source} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-[11px] whitespace-nowrap text-faint hover:text-gold">
-        (companion note, wiki <ExternalLink size={10} />)
-      </a>
-    );
+  if (!source.startsWith('http')) return null;
   return (
-    <span className="text-[11px] whitespace-nowrap text-faint" title={source}>
-      (companion note, game files)
-    </span>
+    <a href={source} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-[11px] whitespace-nowrap text-faint hover:text-gold">
+      wiki <ExternalLink size={10} />
+    </a>
   );
 }
 
