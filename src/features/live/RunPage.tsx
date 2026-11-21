@@ -4,9 +4,9 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { mergeSurface } from '@/features/map/ground';
 import { Link, Navigate, useParams } from 'react-router';
-import { Check, ClipboardCopy, Clock, Coins, Eye, Heart, Map as MapIcon, MapPin, Skull } from 'lucide-react';
+import { Check, ClipboardCopy, Clock, Coins, Eye, EyeOff, Heart, Map as MapIcon, MapPin, Skull } from 'lucide-react';
 import { ALCHEMY_KEY } from '@/data/spoilers';
-import { useSpoilers } from '@/store/progress';
+import { useProgress, useSpoilers } from '@/store/progress';
 import { Page } from '@/ui/Page';
 import { CollapsibleSection, Section, SectionStyleContext } from '@/ui/controls';
 import { HudBar } from '@/ui/game';
@@ -138,7 +138,7 @@ function RunView({ run, at, rec, past, status, switcher }: { run: LiveRun; at: n
   const ground = useMemo(() => mergeSurface(recGround, run.surface), [recGround, run.surface]);
   // On a phone the map has a tab of its own, so it can take most of the screen.
   // In the landscape dashboard it shares a short column, so about half the height.
-  const mapHeight = landscape ? Math.max(260, Math.round(innerHeight * 0.5)) : desktop ? 320 : Math.max(280, Math.round(innerHeight * 0.55));
+  const mapHeight = landscape ? Math.max(260, Math.round(innerHeight * 0.5)) : desktop ? 320 : Math.max(280, Math.round(innerHeight * 0.45));
   const seed = useSeedCards(run, at, past, mapHeight, ground);
   const waiting = !past && run.status === 'no_player';
 
@@ -176,11 +176,12 @@ function RunView({ run, at, rec, past, status, switcher }: { run: LiveRun; at: n
   const items = <CarriedItems run={run} />;
   const fungal = fungalLeft(run, at, now);
   const badges: Partial<Record<Tab, 'dot' | number>> = { seed: fungal === 0 ? 'dot' : undefined, log: rec?.found.length || undefined };
+  // The map first, the seed's news under it.
   const seedBlocks = (
     <>
+      {seed.map}
       {seed.mountain}
       {seed.fungal}
-      {seed.map}
       {thisSeed}
     </>
   );
@@ -214,14 +215,7 @@ function RunView({ run, at, rec, past, status, switcher }: { run: LiveRun; at: n
             <RunTabBar tabs={sideTabs} tab={sideTab} onTab={setSideTab} badges={badges} />
           </div>
           {sideTab === 'inventory' && inventory}
-          {sideTab === 'seed' && (
-            <>
-              {seed.mountain}
-              {seed.fungal}
-              {seed.map}
-              {thisSeed}
-            </>
-          )}
+          {sideTab === 'seed' && seedBlocks}
           {sideTab === 'log' && (
             <>
               {stats}
@@ -278,14 +272,16 @@ function RunView({ run, at, rec, past, status, switcher }: { run: LiveRun; at: n
           </div>
         )}
         {tab === 'seed' && (
-          <div className={two}>
-            <div className="min-w-0">
-              {seed.mountain}
-              {seed.fungal}
-              {thisSeed}
+          <>
+            {seed.map}
+            <div className={two}>
+              <div className="min-w-0">
+                {seed.mountain}
+                {seed.fungal}
+              </div>
+              <div className="min-w-0">{thisSeed}</div>
             </div>
-            <div className="min-w-0">{seed.map}</div>
-          </div>
+          </>
         )}
         {tab === 'log' && (
           <div className={two}>
@@ -440,8 +436,11 @@ function Hud({ run, at, past, fungal, oneLine }: { run: LiveRun; at: number; pas
 
 function ThisSeed({ seed }: { seed: number }) {
   const { visible, reveal } = useSpoilers();
+  const hideAgain = useProgress((s) => s.hideAgain);
+  // Hidden here even when spoilers are on everywhere (until revealed again).
+  const [hidden, setHidden] = useState(false);
   const [copied, setCopied] = useState(false);
-  const recipes = visible(ALCHEMY_KEY) ? alchemyRecipes(seed) : null;
+  const recipes = !hidden && visible(ALCHEMY_KEY) ? alchemyRecipes(seed) : null;
   return (
     <CollapsibleSection id="run-seed" title="This seed" summary={<span className="font-mono">{seed}</span>}>
       <div className="space-y-3">
@@ -465,9 +464,24 @@ function ThisSeed({ seed }: { seed: number }) {
           <>
             <RecipeCard title="Lively Concoction" recipe={recipes.lc} />
             <RecipeCard title="Alchemic Precursor" recipe={recipes.ap} />
+            <button
+              onClick={() => {
+                hideAgain(ALCHEMY_KEY);
+                setHidden(true);
+              }}
+              className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink"
+            >
+              <EyeOff size={14} /> Hide the recipes again
+            </button>
           </>
         ) : (
-          <button onClick={() => reveal(ALCHEMY_KEY)} className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink">
+          <button
+            onClick={() => {
+              reveal(ALCHEMY_KEY);
+              setHidden(false);
+            }}
+            className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink"
+          >
             <Eye size={14} /> Reveal this seed's secret alchemy recipes
           </button>
         )}

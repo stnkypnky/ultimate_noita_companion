@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Maximize, Minus, Plus } from 'lucide-react';
+import { LocateFixed, Maximize, Minus, Plus } from 'lucide-react';
 import { gameUrl } from '@/data/store';
 import type { Material, WorldMap } from '@/data/types';
 import { GROUND_STEP, groundLine, surfaceAt, type GroundPoint } from './ground';
@@ -396,31 +396,42 @@ export function MapView({
     [map, left, top],
   );
 
-  const fit = useCallback(() => {
-    if (!size.w) return;
-    if (follow && marker) {
-      // About three chunks across: enough to see the area you're in and the next one.
-      const s = Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.min(size.w, size.h) / (map.chunk * 3)));
-      view.current = { s, x: marker.x - size.w / s / 2, y: marker.y - size.h / s / 2 };
-    } else {
-      // The main world (biome_map.png's rows); Heaven and Hell above and below are a zoom out or a pan away.
-      const mainTop = top + (map.mapTop ?? 0) * map.chunk;
-      const mainH = (map.mapRows ?? map.h) * map.chunk;
-      const s = Math.min(size.w / worldW, size.h / mainH);
-      view.current = { s, x: left - (size.w / s - worldW) / 2, y: mainTop - (size.h / s - mainH) / 2 };
-    }
-    redraw();
-    // The marker only places the first view; following it is the effect below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [size, worldW, left, top, redraw, follow, map.chunk, map.mapTop, map.mapRows, !!marker]);
   const mx = marker?.x;
   const my = marker?.y;
+  // Following the marker stops when you drag the map away (or ask for the whole map); the locate button resumes it.
+  const following = useRef(!!follow);
+  // Close enough to see the terrain around you: about a biome's height across the map's shorter side.
+  const followScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.min(size.w, size.h) / (map.chunk * 1.5)));
+  const fitWorld = useCallback(() => {
+    if (!size.w) return;
+    // The main world (biome_map.png's rows); Heaven and Hell above and below are a zoom out or a pan away.
+    const mainTop = top + (map.mapTop ?? 0) * map.chunk;
+    const mainH = (map.mapRows ?? map.h) * map.chunk;
+    const s = Math.min(size.w / worldW, size.h / mainH);
+    view.current = { s, x: left - (size.w / s - worldW) / 2, y: mainTop - (size.h / s - mainH) / 2 };
+    following.current = false;
+    redraw();
+  }, [size, worldW, left, top, redraw, map.chunk, map.mapTop, map.mapRows, map.h]);
+  /** Back to you: centred on the marker, zoomed in at least as far as the starting view. */
+  const locate = useCallback(() => {
+    if (!size.w || mx === undefined || my === undefined) return;
+    const s = Math.max(view.current?.s ?? 0, followScale);
+    view.current = { s, x: mx - size.w / s / 2, y: my - size.h / s / 2 };
+    following.current = !!follow;
+    redraw();
+  }, [size, mx, my, followScale, follow, redraw]);
+  useEffect(() => {
+    if (view.current || !size.w) return;
+    // The marker only places the first view; following it is the effect below.
+    if (follow && mx !== undefined) locate();
+    else fitWorld();
+  }, [fitWorld, locate, follow, mx, size.w]);
   useEffect(() => {
     const v = view.current;
-    if (!follow || !v || mx === undefined || my === undefined || !size.w) return;
+    if (!following.current || !v || mx === undefined || my === undefined || !size.w) return;
     view.current = { ...v, x: mx - size.w / v.s / 2, y: my - size.h / v.s / 2 };
     redraw();
-  }, [follow, mx, my, size, redraw]);
+  }, [mx, my, size, redraw]);
 
   useEffect(() => {
     const el = boxRef.current;
@@ -429,9 +440,6 @@ export function MapView({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  useEffect(() => {
-    if (!view.current) fit();
-  }, [fit]);
 
   const zoomAt = useCallback(
     (px: number, py: number, factor: number) => {
@@ -821,7 +829,10 @@ export function MapView({
     const dx = p.x - prev.x;
     const dy = p.y - prev.y;
     if (Math.abs(dx) + Math.abs(dy) > 0) {
-      if (Math.abs(dx) + Math.abs(dy) > 2) gesture.current.moved = true;
+      if (Math.abs(dx) + Math.abs(dy) > 2) {
+        gesture.current.moved = true;
+        following.current = false;
+      }
       view.current = { ...v, x: v.x - dx / v.s, y: v.y - dy / v.s };
       redraw();
     }
@@ -869,7 +880,12 @@ export function MapView({
         <button className={button} aria-label="Zoom out" onClick={() => zoomAt(size.w / 2, size.h / 2, 1 / 1.6)}>
           <Minus size={16} />
         </button>
-        <button className={button} aria-label="Whole map" onClick={fit}>
+        {marker && (
+          <button className={button} aria-label="Centre on you" title="Centre on you" onClick={locate}>
+            <LocateFixed size={16} />
+          </button>
+        )}
+        <button className={button} aria-label="Whole map" title="Whole map" onClick={fitWorld}>
           <Maximize size={16} />
         </button>
       </div>
