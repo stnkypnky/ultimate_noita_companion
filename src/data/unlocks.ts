@@ -57,8 +57,13 @@ export const FLAG_UNLOCKS: Record<string, MechanicNote> = {
 };
 
 const ESS = `${WIKI}Essences`;
-const PEDESTALS = 'Found on item pedestals and in chests (Treasure chests roll curiosities 6% of the time).';
-const pedestal = (extra = '') => n(`${PEDESTALS}${extra}`, 'data/scripts/items/chest_random.lua');
+/** The flask spawn list also fills item pedestals; `odds` of its 91 rolls give this item. */
+const spots = (odds: string) => n(`Takes ${odds} of the spots where a flask could lie, item pedestals included.`, 'data/scripts/item_spawnlists.lua');
+const curio = n('Treasure chests and Utility boxes can hold one: a 6% curiosity roll, then 1 in 8.', 'data/scripts/items/chest_random.lua');
+const RUNE = [
+  n('Takes 1 in 91 of the spots where a flask could lie (item pedestals included), split between the seven runestones. 1 in 10 of those are already switched on.', 'data/scripts/item_spawnlists.lua'),
+  n('Treasure chests and Utility boxes can hold one too: a 6% curiosity roll, then 1 in 8, then 1 in 7.', 'data/scripts/items/chest_random.lua'),
+];
 const eater = (essence: string) => n(`Or take ${essence}, then let an Essence Eater draw it out of you: it leaves this stone behind.`, `${WIKI}Items`);
 const SUN = `${WIKI}Sun_Quest`;
 
@@ -73,14 +78,15 @@ export const ITEM_UNLOCKS: Record<string, MechanicNote[]> = {
   essence_air: [n('In a grey brickwork diamond floating in a hidden room in the middle of the western Cloudscape.', ESS)],
   essence_water: [n('In a grey brickwork diamond in a hidden room at the far west of The Work (Hell).', ESS)],
   essence_alcohol: [n('In a hidden room in the deepest part of the Lake.', ESS)],
-  evil_eye: [n('One always sits on a small spire left of the Giant Tree.', `${WIKI}Paha_Silm%C3%A4`), pedestal()],
-  moon: [pedestal(' Great treasure chests can hold one too.')],
-  safe_haven: [pedestal(' It’s one of the rarer ones.')],
-  broken_wand: [pedestal()],
-  brimstone: [pedestal(), eater('Essence of Fire')],
-  waterstone: [pedestal(' Great treasure chests hold one 3% of the time.'), eater('Essence of Water')],
-  thunderstone: [pedestal(), eater('Essence of Air')],
-  poopstone: [pedestal(), eater('Essence of Spirits')],
+  evil_eye: [n('One always sits on a small spire left of the Giant Tree.', `${WIKI}Paha_Silm%C3%A4`), curio],
+  moon: [curio, n('Flask spots in the Ancient Laboratory hold one 6 times in 86.', 'data/scripts/item_spawnlists.lua')],
+  safe_haven: [curio],
+  ...Object.fromEntries(['disc', 'fireball', 'laser', 'lava', 'metal', 'null', 'slow'].map((r) => [`runestone_${r}`, RUNE])),
+  broken_wand: [spots('4 in 91')],
+  brimstone: [spots('4 in 91'), curio, eater('Essence of Fire')],
+  waterstone: [n('Great treasure chests hold one 3% of the time.', 'data/scripts/items/chest_random_super.lua'), eater('Essence of Water')],
+  thunderstone: [spots('2 in 91'), curio, eater('Essence of Air')],
+  poopstone: [n('Great treasure chests very rarely hold one: 1 in 30 of their Vuoksikivi rolls.', 'data/scripts/items/chest_random_super.lua'), eater('Essence of Spirits')],
   stonestone: [eater('Essence of Earth')],
   wandstone: [n('Dropped by Mestarien mestari.', `${WIKI}Items`)],
   musicstone: [n('In a hidden room above the Magical Temple in the Snowy Depths. It can also turn up in parallel worlds.', `${WIKI}Kuulokivi`)],

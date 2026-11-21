@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { EyeOff, Eye, Sparkles } from 'lucide-react';
+import { EyeOff, Eye, Gem, Sparkles } from 'lucide-react';
 import { Link } from 'react-router';
 
 /** Shown in place of something the player hasn't discovered yet. */
@@ -41,6 +41,18 @@ export function SecretCallout({ what }: { what: 'item' | 'material' }) {
       <span>
         <span className="font-game text-[16px]">Secret {what}.</span> One of the game’s hidden or late-game {what === 'item' ? 'finds' : 'materials'}.
         Until it’s revealed it shows as “???” in {what === 'item' ? 'this list' : 'lists and reactions'}, so it won’t spoil anyone browsing.
+      </span>
+    </p>
+  );
+}
+
+/** The gold "Rare item" box: how rare it is. Rare items are never hidden. */
+export function RareCallout({ odds }: { odds: string }) {
+  return (
+    <p className="rare-callout mt-4 flex items-start gap-2.5 px-3 py-2.5 text-[14px] leading-snug">
+      <Gem size={16} className="mt-0.5 shrink-0" />
+      <span>
+        <span className="font-game text-[16px]">Rare item.</span> {odds}
       </span>
     </p>
   );

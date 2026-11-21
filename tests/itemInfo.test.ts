@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ITEM_INFO, isPlaceholder } from '../src/data/itemInfo.ts';
-import { SECRET_ITEMS, itemKey } from '../src/data/spoilers.ts';
+import { RARE_ITEMS, SECRET_ITEMS, itemKey } from '../src/data/spoilers.ts';
 
 const items = JSON.parse(readFileSync(join(import.meta.dirname, '../public/game/data/items.json'), 'utf8')) as { id: string; name: string; description: string }[];
 const ids = new Set(items.map((i) => i.id));
@@ -34,6 +34,14 @@ describe('item descriptions', () => {
       expect(SECRET_ITEMS.has(id), id).toBe(false);
     }
     for (const id of SECRET_ITEMS) expect(ids.has(id), id).toBe(true);
+  });
+
+  it('rare finds are marked rare, never secret', () => {
+    for (const id of ['safe_haven', 'moon', 'evil_eye', 'runestone_null', 'chest_random_super']) expect(RARE_ITEMS[id], id).toBeTruthy();
+    for (const id of Object.keys(RARE_ITEMS)) {
+      expect(ids.has(id), id).toBe(true);
+      expect(SECRET_ITEMS.has(id), id).toBe(false);
+    }
   });
 
   it('the Chaos die stays hidden until the save has beaten Ylialkemisti; the perk reroll is not an item', () => {

@@ -73,7 +73,7 @@ export function WandStats({ collapsible }: { collapsible?: boolean }) {
     <div className="@container">
     <div className="slot mb-2 flex items-center justify-center gap-3 px-3 py-2">
       <WandPortrait wand={wand} />
-      {wand.rare && <span className="secret-name font-game text-[16px]">Rare</span>}
+      {wand.rare && <span className="rare-name font-game text-[16px]">Rare</span>}
     </div>
     <div className="grid grid-cols-2 gap-2 @md:grid-cols-4">
       <button

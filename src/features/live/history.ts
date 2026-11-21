@@ -1,6 +1,6 @@
 // Run history: the mod's snapshots folded into one record per run, with a timeline and what was discovered.
 // Pure (no storage, no UI) so it's easy to test; runs.ts stores and syncs the records.
-import { SECRET_ITEMS, SECRET_MATERIALS } from '@/data/spoilers';
+import { RARE_ITEMS, SECRET_ITEMS, SECRET_MATERIALS } from '@/data/spoilers';
 import type { LiveRun, LiveWand } from './parse';
 import { liveFlags } from './state';
 
@@ -57,13 +57,13 @@ const HP_SAMPLE_MS = 30_000;
 export type Known = (key: string) => boolean;
 
 /**
- * Discoveries worth listing: spells, perks, creatures, the secret items and materials (the rest are never hidden), and
+ * Discoveries worth listing: spells, perks, creatures, the secret and rare items, the secret materials, and
  * the hidden map areas you walk into (map:<biome>; a secret room inside one, map:scene:…, stays a secret).
  */
 export function isDiscovery(key: string) {
   if (key.startsWith('action_') || key.startsWith('perk_picked_') || key.startsWith('enemy:')) return true;
   if (key.startsWith('map:')) return !key.startsWith('map:scene:');
-  if (key.startsWith('item:')) return SECRET_ITEMS.has(key.slice(5));
+  if (key.startsWith('item:')) return SECRET_ITEMS.has(key.slice(5)) || key.slice(5) in RARE_ITEMS;
   if (key.startsWith('essence_')) return SECRET_ITEMS.has(key);
   if (key.startsWith('material:')) return SECRET_MATERIALS.has(key.slice(9));
   return false;
