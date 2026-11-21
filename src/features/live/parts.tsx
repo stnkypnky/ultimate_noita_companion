@@ -2,7 +2,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { AlertTriangle, ChevronDown, Wand2 } from 'lucide-react';
-import { useIsDesktop } from '@/ui/hooks';
+import { useIsDesktop, useIsShortLandscape } from '@/ui/hooks';
 import { useData } from '@/data/store';
 import { fmtNum, seconds } from '@/data/format';
 import { ALCHEMY_KEY } from '@/data/spoilers';
@@ -59,7 +59,9 @@ function WandCard({
   past?: boolean;
 }) {
   const navigate = useNavigate();
-  const desktop = useIsDesktop();
+  // A short landscape screen folds the stats too, so more of your wands fit on it.
+  const shortScreen = useIsShortLandscape();
+  const desktop = useIsDesktop() && !shortScreen;
   const [showStats, setShowStats] = useState(false);
   const key = wandKey(wand) + JSON.stringify(perks);
   // eslint-disable-next-line react-hooks/exhaustive-deps

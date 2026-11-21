@@ -13,6 +13,7 @@ export function Page({
   children,
   wide,
   full,
+  dense,
 }: {
   title: string;
   subtitle?: ReactNode;
@@ -24,6 +25,8 @@ export function Page({
   wide?: boolean;
   /** No width cap at all: dashboards that use every pixel of a big screen. */
   full?: boolean;
+  /** A slimmer title bar, for a page that has to fit a short screen. */
+  dense?: boolean;
 }) {
   const ref = useRef<HTMLElement>(null);
 
@@ -42,17 +45,19 @@ export function Page({
       {/* The shadow + clip-path stretch the header's backing across the whole content area, not just this column. */}
       <header
         ref={ref}
-        className="safe-top sticky top-0 z-20 -mx-4 bg-bg px-4 pt-5 pb-3 shadow-[0_0_0_100vmax_var(--bg)] [clip-path:inset(0_-100vmax)] md:-mx-8 md:px-8 md:pt-7"
+        className={`safe-top sticky top-0 z-20 -mx-4 bg-bg px-4 shadow-[0_0_0_100vmax_var(--bg)] [clip-path:inset(0_-100vmax)] md:-mx-8 md:px-8 ${
+          dense ? 'pt-3 pb-2' : 'pt-5 pb-3 md:pt-7'
+        }`}
       >
         <div className="flex items-end gap-3">
-          <div className="min-w-0 flex-1">
-            <h1 className="font-game text-[24px] leading-tight md:text-[32px]">{title}</h1>
+          <div className={`min-w-0 ${dense ? 'shrink-0' : 'flex-1'}`}>
+            <h1 className={`font-game leading-tight ${dense ? 'text-[24px]' : 'text-[24px] md:text-[32px]'}`}>{title}</h1>
             {subtitle && <p className="mt-0.5 text-sm text-muted">{subtitle}</p>}
           </div>
           {actions}
         </div>
         {progress && <div className="mt-2.5">{progress}</div>}
-        {toolbar &&<div className="mt-3 space-y-3">{toolbar}</div>}
+        {toolbar && <div className={dense ? 'mt-2 space-y-2' : 'mt-3 space-y-3'}>{toolbar}</div>}
       </header>
       <div className="pt-1 pb-8">{children}</div>
     </div>

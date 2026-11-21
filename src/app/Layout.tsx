@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { NavLink, useLocation, useOutlet } from 'react-router';
-import { Lock } from 'lucide-react';
+import { useState } from 'react';
+import { Lock, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { RUN_ITEM, bottomItems, isOpenPath, railItems, type NavItem } from './nav';
 import { UpdateToast } from './UpdateToast';
 import { Onboarding } from './Onboarding';
@@ -73,44 +74,84 @@ export function Layout() {
   );
 }
 
+const RAIL_KEY = 'rail-collapsed';
+const readCollapsed = () => {
+  try {
+    return localStorage.getItem(RAIL_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * The side menu. On a big screen it shows names and can fold down to icons (remembered), to give the page more
+ * room: a landscape tablet's Run dashboard, say. Smaller tablets always get the icon rail.
+ */
 function Rail() {
   const locked = useLocked();
   const run = useShowRun();
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const toggle = () => {
+    setCollapsed((c) => {
+      try {
+        localStorage.setItem(RAIL_KEY, c ? '0' : '1');
+      } catch {
+        /* this visit only */
+      }
+      return !c;
+    });
+  };
+  // Names show only on a big screen with the menu open.
+  const named = !collapsed;
   return (
     <nav
       aria-label="Main"
-      className="safe-top hidden w-[72px] shrink-0 flex-col border-r-2 border-line-strong/60 bg-raised md:flex lg:w-[var(--rail-w)]"
+      className={`safe-top hidden w-[72px] shrink-0 flex-col border-r-2 border-line-strong/60 bg-raised transition-[width] duration-150 md:flex ${
+        named ? 'lg:w-[var(--rail-w)]' : ''
+      }`}
     >
-      <div className="flex shrink-0 items-center gap-3 px-4 py-5 lg:px-5 short:py-2">
+      <div className={`flex shrink-0 items-center gap-3 px-4 py-5 short:py-2 ${named ? 'lg:px-5' : ''}`}>
         <img src={`${import.meta.env.BASE_URL}icons/favicon-64.png`} alt="" className="pixelated h-8 w-8" />
-        <div className="hidden leading-none lg:block">
+        <div className={`hidden leading-none ${named ? 'lg:block' : ''}`}>
           <div className="font-game-caps text-[8px] text-gold">Ultimate</div>
-          <div className="font-game mt-1 text-[16px]">Noita Companion</div>
+          <div className="font-game mt-1 text-[16px] whitespace-nowrap">Noita Companion</div>
         </div>
       </div>
       {/* A landscape phone gets the rail too: its items scroll when they don't fit the height. */}
-      <ul className="scrollbar-thin flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 pb-2 lg:px-3 short:gap-0.5">
+      <ul className={`scrollbar-thin flex min-h-0 flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 pb-2 short:gap-0.5 ${named ? 'lg:px-3' : ''}`}>
         {railItems(run.rail).map((item) => (
           <li key={item.to}>
-            <RailLink item={item} locked={locked(item.to)} live={run.active} />
+            <RailLink item={item} locked={locked(item.to)} live={run.active} named={named} />
           </li>
         ))}
       </ul>
-      <p className="hidden shrink-0 px-5 py-4 text-[11px] leading-snug text-faint lg:block short:hidden">
+      <button
+        onClick={toggle}
+        aria-label={collapsed ? 'Expand the menu' : 'Collapse the menu'}
+        aria-expanded={!collapsed}
+        title={collapsed ? 'Expand the menu' : 'Collapse the menu'}
+        className={`mx-2 mb-2 hidden shrink-0 items-center gap-3 px-3 py-2.5 text-muted transition-colors hover:bg-surface hover:text-ink lg:flex short:py-1.5 ${
+          named ? 'lg:mx-3' : 'justify-center'
+        }`}
+      >
+        {collapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}
+        {named && <span className="text-sm">Collapse</span>}
+      </button>
+      <p className={`hidden shrink-0 px-5 pb-4 text-[11px] leading-snug text-faint short:hidden ${named ? 'lg:block' : ''}`}>
         Unofficial fan project. Game data &amp; art © Nolla Games.
       </p>
     </nav>
   );
 }
 
-function RailLink({ item, locked, live }: { item: NavItem; locked: boolean; live: boolean }) {
+function RailLink({ item, locked, live, named }: { item: NavItem; locked: boolean; live: boolean; named: boolean }) {
   return (
     <NavLink
       to={item.to}
       end={item.to === '/'}
       title={locked ? `${item.label} (sync your save first)` : item.label}
       className={({ isActive }) =>
-        `group relative flex items-center gap-3 px-3 py-2.5 transition-colors max-lg:justify-center short:py-1.5 ${
+        `group relative flex items-center gap-3 px-3 py-2.5 transition-colors short:py-1.5 ${named ? 'max-lg:justify-center' : 'justify-center'} ${
           isActive ? 'slot text-ink' : 'text-muted hover:bg-surface hover:text-ink'
         }`
       }
@@ -124,9 +165,9 @@ function RailLink({ item, locked, live }: { item: NavItem; locked: boolean; live
               transition={{ type: 'spring', stiffness: 500, damping: 35 }}
             />
           )}
-          <NavIcon item={item} size={19} active={live} className={isActive ? 'text-ember' : locked ? 'opacity-50' : ''} />
-          <span className={`font-game hidden text-[16px] lg:inline ${locked ? 'opacity-50' : ''}`}>{item.label}</span>
-          {locked && <Lock size={12} aria-label="locked" className="ml-auto hidden text-faint lg:block" />}
+          <NavIcon item={item} size={19} active={live} className={`shrink-0 ${isActive ? 'text-ember' : locked ? 'opacity-50' : ''}`} />
+          <span className={`font-game hidden text-[16px] whitespace-nowrap ${named ? 'lg:inline' : ''} ${locked ? 'opacity-50' : ''}`}>{item.label}</span>
+          {locked && <Lock size={12} aria-label="locked" className={`ml-auto hidden text-faint ${named ? 'lg:block' : ''}`} />}
         </>
       )}
     </NavLink>

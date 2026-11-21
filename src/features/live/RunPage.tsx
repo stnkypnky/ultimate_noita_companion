@@ -10,7 +10,7 @@ import { useSpoilers } from '@/store/progress';
 import { Page } from '@/ui/Page';
 import { CollapsibleSection, Section, SectionStyleContext } from '@/ui/controls';
 import { HudBar } from '@/ui/game';
-import { useIsDesktop, useIsTablet, useIsWide } from '@/ui/hooks';
+import { useElementWidth, useIsDesktop, useIsShortLandscape, useIsTablet, useIsWide } from '@/ui/hooks';
 import { LiveCrystal } from '@/ui/LiveCrystal';
 import { timeAgo, useNow } from '@/ui/time';
 import { RecipeCard } from '@/features/alchemy/AlchemyPage';
@@ -88,38 +88,58 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'seed', label: 'Seed' },
   { id: 'log', label: 'Log' },
 ];
-const TAB_KEY = 'run-tab';
-const readTab = (): Tab => {
-  try {
-    const t = localStorage.getItem(TAB_KEY);
-    return TABS.some((x) => x.id === t) ? (t as Tab) : 'wands';
-  } catch {
-    return 'wands';
-  }
-};
-
-function RunView({ run, at, rec, past, status, switcher }: { run: LiveRun; at: number; rec?: RunRecord; past: boolean; status: ReactNode; switcher: ReactNode }) {
-  const [detail, setDetail] = useState<Detail | null>(null);
-  const [tab, setTabState] = useState<Tab>(readTab);
-  const setTab = (t: Tab) => {
-    setTabState(t);
+/** A remembered tab: the phone's tab, or the side pane's on a landscape tablet. */
+function useStoredTab(key: string, fallback: Tab): [Tab, (t: Tab) => void] {
+  const [tab, setTab] = useState<Tab>(() => {
     try {
-      localStorage.setItem(TAB_KEY, t);
+      const t = localStorage.getItem(key);
+      return TABS.some((x) => x.id === t) ? (t as Tab) : fallback;
+    } catch {
+      return fallback;
+    }
+  });
+  const set = (t: Tab) => {
+    setTab(t);
+    try {
+      localStorage.setItem(key, t);
     } catch {
       /* this visit only */
     }
+  };
+  return [tab, set];
+}
+
+/** The landscape dashboard's columns scroll on their own, filling the height under the title bar. */
+const PANE = 'scrollbar-thin sticky top-[calc(var(--page-header-h,88px)+4px)] h-[calc(100dvh-var(--page-header-h,88px)-16px)] min-w-0 overflow-y-auto overscroll-contain pr-1';
+/** Wide enough (after the menu) for wands, inventory and the seed side by side. */
+const THREE_PANES = 1100;
+
+function RunView({ run, at, rec, past, status, switcher }: { run: LiveRun; at: number; rec?: RunRecord; past: boolean; status: ReactNode; switcher: ReactNode }) {
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [tab, setTabState] = useStoredTab('run-tab', 'wands');
+  const setTab = (t: Tab) => {
+    setTabState(t);
     scrollTo({ top: 0 });
   };
+  const [sideTabState, setSideTab] = useStoredTab('run-side-tab', 'inventory');
   const desktop = useIsDesktop();
   const wide = useIsWide();
   const tablet = useIsTablet();
+  const landscape = useIsShortLandscape();
+  const [measure, width] = useElementWidth();
+  const three = width >= THREE_PANES;
+  // With three panes the inventory has a column of its own, so the side pane holds only the seed and the log.
+  const sideTabs = three ? TABS.filter((t) => t.id === 'seed' || t.id === 'log') : TABS.filter((t) => t.id !== 'wands');
+  const sideTab = sideTabs.some((t) => t.id === sideTabState) ? sideTabState : sideTabs[0]!.id;
   const { active } = useLiveRun();
   const now = useNow(1000);
   // The ground line sampled this run, kept on the record across game restarts.
   const recGround = rec?.seed === run.seed ? rec.last?.surface : undefined;
   const ground = useMemo(() => mergeSurface(recGround, run.surface), [recGround, run.surface]);
   // On a phone the map has a tab of its own, so it can take most of the screen.
-  const seed = useSeedCards(run, at, past, desktop ? 320 : Math.max(280, Math.round(innerHeight * 0.55)), ground);
+  // In the landscape dashboard it shares a short column, so about half the height.
+  const mapHeight = landscape ? Math.max(260, Math.round(innerHeight * 0.5)) : desktop ? 320 : Math.max(280, Math.round(innerHeight * 0.55));
+  const seed = useSeedCards(run, at, past, mapHeight, ground);
   const waiting = !past && run.status === 'no_player';
 
   const wands = <Wands run={run} onOpen={setDetail} past={past} />;
@@ -155,6 +175,7 @@ function RunView({ run, at, rec, past, status, switcher }: { run: LiveRun; at: n
 
   const items = <CarriedItems run={run} />;
   const fungal = fungalLeft(run, at, now);
+  const badges: Partial<Record<Tab, 'dot' | number>> = { seed: fungal === 0 ? 'dot' : undefined, log: rec?.found.length || undefined };
   const seedBlocks = (
     <>
       {seed.mountain}
@@ -167,6 +188,50 @@ function RunView({ run, at, rec, past, status, switcher }: { run: LiveRun; at: n
   let body: ReactNode;
   if (waiting) {
     body = <p className="panel mt-2 p-6 text-center text-sm text-muted">Noita is open — waiting for a run to start.</p>;
+  } else if (landscape) {
+    // A landscape tablet: everything on one screen, no page scrolling. The wands always show; each column scrolls
+    // by itself; the side column switches between the rest with its own tabs.
+    const inventory = (
+      <>
+        {flasks}
+        {perks}
+        {items}
+      </>
+    );
+    body = (
+      <div
+        ref={measure}
+        className={`grid items-start gap-x-4 ${three ? 'grid-cols-[minmax(0,1fr)_300px_360px]' : 'grid-cols-[minmax(0,1fr)_minmax(340px,42%)]'}`}
+      >
+        <div className={PANE}>
+          <Section title={`Wands (${run.wands.length})`}>{wands}</Section>
+          {bag}
+          {update}
+        </div>
+        {three && <div className={PANE}>{inventory}</div>}
+        <div className={PANE}>
+          <div className="sticky top-0 z-10 bg-bg pt-2 pr-1.5 pb-1">
+            <RunTabBar tabs={sideTabs} tab={sideTab} onTab={setSideTab} badges={badges} />
+          </div>
+          {sideTab === 'inventory' && inventory}
+          {sideTab === 'seed' && (
+            <>
+              {seed.mountain}
+              {seed.fungal}
+              {seed.map}
+              {thisSeed}
+            </>
+          )}
+          {sideTab === 'log' && (
+            <>
+              {stats}
+              {found}
+              {timeline}
+            </>
+          )}
+        </div>
+      </div>
+    );
   } else if (desktop) {
     // A dashboard: everything open at once. Wands take the free width (side by side as it grows); inventory and
     // the seed get columns of their own on wide screens.
@@ -236,27 +301,35 @@ function RunView({ run, at, rec, past, status, switcher }: { run: LiveRun; at: n
     );
   }
 
-  const toolbar = !waiting && (
-    <>
-      <Hud run={run} at={at} past={past} fungal={fungal} />
-      {!desktop && <RunTabBar tab={tab} onTab={setTab} badges={{ seed: fungal === 0 ? 'dot' : undefined, log: rec?.found.length || undefined }} />}
-    </>
+  const toolbar = landscape ? (
+    // The landscape dashboard fills the height, so the run picker moves up beside the HUD, all on one line.
+    <div className="flex items-center gap-4">
+      <div className="min-w-0 flex-1">{!waiting && <Hud run={run} at={at} past={past} fungal={fungal} oneLine />}</div>
+      <div className="max-w-[40%] min-w-0 [&>nav]:mt-0 [&>nav]:pb-0">{switcher}</div>
+    </div>
+  ) : (
+    !waiting && (
+      <>
+        <Hud run={run} at={at} past={past} fungal={fungal} />
+        {!desktop && <RunTabBar tabs={TABS} tab={tab} onTab={setTab} badges={badges} />}
+      </>
+    )
   );
 
   return (
-    <Page full title={past ? 'Run' : 'Current run'} subtitle={status} toolbar={toolbar}>
-      {switcher}
+    <Page full dense={landscape} title={past ? 'Run' : 'Current run'} subtitle={status} toolbar={toolbar}>
+      {!landscape && switcher}
       <SectionStyleContext.Provider value="card">{body}</SectionStyleContext.Provider>
       <DetailSheet detail={detail} onClose={() => setDetail(null)} />
     </Page>
   );
 }
 
-/** The Run page's sections on phones and tablets, pinned under the HUD. */
-function RunTabBar({ tab, onTab, badges }: { tab: Tab; onTab: (t: Tab) => void; badges: Partial<Record<Tab, 'dot' | number>> }) {
+/** The Run page's sections on phones and tablets, pinned under the HUD (or atop the landscape side column). */
+function RunTabBar({ tabs, tab, onTab, badges }: { tabs: typeof TABS; tab: Tab; onTab: (t: Tab) => void; badges: Partial<Record<Tab, 'dot' | number>> }) {
   return (
-    <div role="tablist" aria-label="Run sections" className="grid grid-cols-4 gap-1">
-      {TABS.map((t) => {
+    <div role="tablist" aria-label="Run sections" className="grid auto-cols-fr grid-flow-col gap-1">
+      {tabs.map((t) => {
         const b = badges[t.id];
         return (
           <button
@@ -322,14 +395,14 @@ function PastStatus({ rec }: { rec: RunRecord }) {
  * Health, gold, where you are, play time and the fungal shift: sticks under the title while you scroll. Two lines
  * on a phone, one on a wide screen.
  */
-function Hud({ run, at, past, fungal }: { run: LiveRun; at: number; past: boolean; fungal: number | null }) {
+function Hud({ run, at, past, fungal, oneLine }: { run: LiveRun; at: number; past: boolean; fungal: number | null; oneLine?: boolean }) {
   const { active } = useLiveRun();
   const now = useNow(1000);
   const playtime = playtimeNow(run, at, now, !past && active);
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted">
       {run.hp !== undefined && run.maxHp ? (
-        <div className="flex min-w-[220px] flex-1 items-center gap-2 lg:max-w-md">
+        <div className={`flex flex-1 items-center gap-2 ${oneLine ? 'max-w-xs min-w-[140px]' : 'min-w-[220px] lg:max-w-md'}`}>
           {run.status === 'dead' ? <Skull size={14} className="shrink-0" /> : <Heart size={14} className="shrink-0 text-blood" />}
           <span className="font-game shrink-0 text-[16px] text-ink tabular-nums">
             {Math.max(0, Math.round(run.hp))}/{Math.round(run.maxHp)}
@@ -343,7 +416,7 @@ function Hud({ run, at, past, fungal }: { run: LiveRun; at: number; past: boolea
         </span>
       )}
       {/* The second line on a phone: place, time, fungal shift. */}
-      <div className="flex min-w-0 basis-full flex-wrap items-center gap-x-3 gap-y-1 lg:basis-auto">
+      <div className={`flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 ${oneLine ? 'basis-auto' : 'basis-full lg:basis-auto'}`}>
         {run.biome && (
           <span className="inline-flex min-w-0 items-center gap-1.5">
             <MapPin size={14} className="shrink-0 text-ember" /> <span className="truncate text-ink">{run.biome.name}</span>
