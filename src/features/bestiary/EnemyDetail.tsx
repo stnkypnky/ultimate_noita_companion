@@ -252,7 +252,7 @@ function WhereItLives({ enemy: e }: { enemy: Enemy }) {
 }
 
 /** A creature named for linking: its icon and name, or "???" when you haven't met it. */
-function CreatureChip({ id, n }: { id: string; n?: number }) {
+export function CreatureChip({ id, n }: { id: string; n?: number }) {
   const { enemyById } = useData();
   const { visible } = useSpoilers();
   const c = enemyById.get(id);

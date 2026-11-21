@@ -13,6 +13,8 @@ import { materialTable, type FungalShift, type ShopItem, type ShopWand } from '@
 import { seedReport } from '@/seed/client';
 import type { SeedReport } from '@/seed/worker';
 import { MAX_SEED } from '@/features/alchemy/aplc';
+import { ModifierCard } from './ModifierCard';
+import { biomeName, type makeVisibility } from './world';
 
 let strings: Promise<Record<string, string>> | null = null;
 const loadStrings = () => (strings ??= fetchJson<Record<string, string>>('data/seed_strings.json').catch(() => ({})));
@@ -27,7 +29,18 @@ const remembered = () => {
 };
 
 /** A seed's Holy Mountains, shops, fungal shifts and biome modifiers, from the game's own scripts. */
-export function SeedPanel({ map, onReport, onSeed }: { map: WorldMap; onReport: (r: SeedReport | null) => void; onSeed?: (seed: number | null) => void }) {
+export function SeedPanel({
+  map,
+  vis,
+  onReport,
+  onSeed,
+}: {
+  map: WorldMap;
+  /** Which areas you can see (as the map shows them): modifiers of hidden ones aren't named. */
+  vis: ReturnType<typeof makeVisibility> | null;
+  onReport: (r: SeedReport | null) => void;
+  onSeed?: (seed: number | null) => void;
+}) {
   const { materials } = useData();
   const progress = useProgress((s) => s.progress);
   const recent = progress?.runs?.recent.slice(0, 4) ?? [];
@@ -140,7 +153,7 @@ export function SeedPanel({ map, onReport, onSeed }: { map: WorldMap; onReport: 
         <>
           <HolyMountains report={report} picks={picks} onPick={togglePick} />
           <Fungal shifts={report.fungal} />
-          <Modifiers report={report} map={map} texts={texts} />
+          <Modifiers report={report} map={map} vis={vis} texts={texts} />
           <Limits />
         </>
       )}
@@ -364,24 +377,55 @@ function Fungal({ shifts }: { shifts: FungalShift[] }) {
   );
 }
 
-function Modifiers({ report, map, texts }: { report: SeedReport; map: WorldMap; texts: Record<string, string> }) {
-  const names = useMemo(() => new Map(map.biomes.map((b) => [b.id, b.name])), [map]);
-  const entries = Object.entries(report.modifiers).sort(([a], [b]) => a.localeCompare(b));
+/**
+ * The overworld's pieces, under the name a player knows them by. The Mines' modifier also covers the mountain hall
+ * that leads into them.
+ */
+const PART_OF: Record<string, string> = {
+  mountain_hall: 'Mines',
+  mountain_top: 'Mountain',
+  mountain_floating_island: 'Floating island',
+  pyramid_entrance: 'Pyramid',
+  pyramid_left: 'Pyramid',
+  pyramid_top: 'Pyramid',
+  pyramid_right: 'Pyramid',
+  lavalake: 'Lava lake',
+};
+
+function Modifiers({ report, map, vis, texts }: { report: SeedReport; map: WorldMap; vis: ReturnType<typeof makeVisibility> | null; texts: Record<string, string> }) {
+  const byId = useMemo(() => new Map(map.biomes.map((b) => [b.id, b])), [map]);
   const text = (d: string) => texts[d.replace(/^\$/, '')] ?? d;
+  // One card per place and modifier (the Pyramid's four parts are one); places you haven't found are only counted.
+  const { entries, hidden } = useMemo(() => {
+    const seen = new Map<string, { name: string; m: SeedReport['modifiers'][string] }>();
+    const hidden = new Set<string>();
+    for (const [id, m] of Object.entries(report.modifiers)) {
+      const b = byId.get(id);
+      const name = PART_OF[id] ?? (b ? biomeName(b) : id.replace(/_/g, ' '));
+      if (b && vis && !vis.biome(b)) {
+        hidden.add(name);
+        continue;
+      }
+      if (!seen.has(`${name}|${m.id}`)) seen.set(`${name}|${m.id}`, { name, m });
+    }
+    return { entries: [...seen.values()].sort((a, b) => a.name.localeCompare(b.name)), hidden: hidden.size };
+  }, [report, byId, vis]);
   return (
     <Section title="Biome modifiers">
       <p className="mb-2 text-xs text-faint">The main biomes roll one at a time each run (the Mines only once you've died 8 times); the overworld ones are always there. Tap an area on the map to see its own.</p>
-      <ul className="grid gap-1 text-sm md:grid-cols-2">
-        {entries.map(([biome, m]) => {
-          const n = names.get(biome);
-          return (
-            <li key={biome} className="flex items-baseline gap-2">
-              <span className="text-ink">{n && n !== '_EMPTY_' ? n.charAt(0).toUpperCase() + n.slice(1) : biome.replace(/_/g, ' ')}</span>
-              <span className="text-xs text-muted">{text(m.description)}</span>
-            </li>
-          );
-        })}
+      <ul className="grid gap-3 text-sm md:grid-cols-2">
+        {entries.map(({ name, m }) => (
+          <li key={`${name}|${m.id}`} className="slot p-2.5" title={text(m.description)}>
+            <div className="mb-1 text-ink">{name}</div>
+            <ModifierCard modifier={m} compact />
+          </li>
+        ))}
       </ul>
+      {hidden > 0 && (
+        <p className="mt-2 text-xs text-faint">
+          {hidden} more in place{hidden === 1 ? '' : 's'} you haven't found yet.
+        </p>
+      )}
     </Section>
   );
 }

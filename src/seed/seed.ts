@@ -31,7 +31,8 @@ export function setupSeed(call: LuaCall, s: SeedSetup) {
 /** Modifiers that only change how an area looks or reveals itself (not shown as a modifier in the game). */
 const COSMETIC = new Set(['FOG_OF_WAR_CLEAR_AT_PLAYER', 'FREEZING_COSMETIC']);
 
-export type BiomeModifier = { id: string; description: string };
+/** decoration: the banner the game shows on entering (game/ui/modifiers/<name>.png); empty when it has none. */
+export type BiomeModifier = { id: string; description: string; decoration?: string };
 
 /** Biome id → its modifier this run (MOIST, HOT, GAS_FLOODED…), as get_modifier_mappings() decides. */
 export function biomeModifiers(call: LuaCall): Record<string, BiomeModifier> {

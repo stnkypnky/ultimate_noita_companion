@@ -12,6 +12,7 @@ import { Runes } from '@/ui/game';
 import { MapView, POI_COLOR } from './MapView';
 import { poiCentre, type MapPoi } from './pois';
 import { SeedPanel } from './SeedPanel';
+import { ModifierCard } from './ModifierCard';
 import { areaNotes } from './notes';
 import type { SeedReport } from '@/seed/worker';
 import { useSeedLayers } from './useSeedLayers';
@@ -174,7 +175,7 @@ export function MapPage() {
       {/* Kept mounted (just hidden) on the map tab, so the chosen seed's modifiers show in the area details. */}
       {map && (
         <div hidden={tab !== 'seed'}>
-          <SeedPanel map={map} onReport={setReport} onSeed={setSeed} />
+          <SeedPanel map={map} vis={vis} onReport={setReport} onSeed={setSeed} />
         </div>
       )}
     </Page>
@@ -254,9 +255,11 @@ function AreaDetail({
       )}
       {report && (report.modifiers[b.id] || namedInGame(b)) && (
         <Section title="This seed">
-          <p className="text-sm text-muted">
-            {report.modifiers[b.id] ? (texts[report.modifiers[b.id]!.description.replace(/^\$/, '')] ?? report.modifiers[b.id]!.id) : 'No biome modifier.'}
-          </p>
+          {report.modifiers[b.id] ? (
+            <ModifierCard modifier={report.modifiers[b.id]!} flavour={texts[report.modifiers[b.id]!.description.replace(/^\$/, '')]} />
+          ) : (
+            <p className="text-sm text-muted">No biome modifier.</p>
+          )}
         </Section>
       )}
       <AreaPois map={map} vis={vis} biome={map.cells[cy * map.w + cx]!} chunk={{ cx, cy }} pois={pois} seed={seed} onGo={onGo} />

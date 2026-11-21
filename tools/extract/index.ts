@@ -243,6 +243,11 @@ for (const f of ['9piece0.png', '9piece0_gray.png', '3piece_important_msg.png', 
 await mkdir(join(OUT, 'ui/icons'), { recursive: true });
 const statIcons = wak.list('data/ui_gfx/inventory/icon_').filter((f) => f.endsWith('.png'));
 for (const f of statIcons) await writeFile(join(OUT, 'ui/icons', f.split('/icon_').pop()!), wak.bytes(f));
+// The banners the game shows on entering a biome with a modifier (Humid, Booby-trapped…), for the map.
+await mkdir(join(OUT, 'ui/modifiers'), { recursive: true });
+for (const f of wak.list('data/ui_gfx/decorations_biome_modifier/').filter((f) => f.endsWith('.png'))) {
+  await writeFile(join(OUT, 'ui/modifiers', f.split('/').pop()!), wak.bytes(f));
+}
 // The HUD's health and gold icons, for creature stats.
 for (const f of ['health', 'money']) await writeFile(join(OUT, `ui/icons/hud_${f}.png`), wak.bytes(`data/ui_gfx/hud/${f}.png`));
 // The game's bitmap fonts live next to data.wak, not inside it.

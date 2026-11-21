@@ -66,7 +66,11 @@ function seed_biome_modifiers()
   end
   local out = {}
   for biome, modifier in pairs(get_modifier_mappings()) do
-    if modifier and modifier.id then out[biome] = { id = modifier.id, description = modifier.ui_description or "" } end
+    if modifier and modifier.id then
+      -- The banner the game shows on entering (data/ui_gfx/decorations_biome_modifier/<name>.png), by name.
+      local deco = (modifier.ui_decoration_file or ""):match("([%w_]+)%.png$") or ""
+      out[biome] = { id = modifier.id, description = modifier.ui_description or "", decoration = deco }
+    end
   end
   return json_encode(out)
 end
