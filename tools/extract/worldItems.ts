@@ -9,6 +9,31 @@ import type { Wak } from './wak.ts';
 
 const ITEMS = 'data/entities/items/';
 
+/** The gun stats a wand's file sets (the builder's keys, as generate_gun writes them): set wands keep these. */
+const GUN_KEYS = ['deck_capacity', 'actions_per_round', 'reload_time', 'shuffle_deck_when_empty'];
+const ACTION_KEYS = ['fire_rate_wait', 'spread_degrees', 'speed_multiplier'];
+const ABILITY_KEYS = ['mana_max', 'mana_charge_speed', 'ui_name', 'sprite_file'];
+const attrs = (tag: string | undefined) => Object.fromEntries([...(tag ?? '').matchAll(/(\w+)="([^"]*)"/g)].map((m) => [m[1]!, m[2]!]));
+
+/**
+ * A set wand (the Mines' altar wands, the experimental ones…): its stats from its AbilityComponent, the script that
+ * picks its spells where it lies (if any), and spells it always comes with.
+ */
+function wandPreset(xml: string): ItemEntity['preset'] {
+  const ability = /<AbilityComponent\b([^>]*)>/.exec(xml)?.[1];
+  if (!ability) return undefined;
+  const a = attrs(ability);
+  const g = attrs(/<gun_config\b([^>]*)>/.exec(xml)?.[1]);
+  const c = attrs(/<gunaction_config\b([^>]*)>/.exec(xml)?.[1]);
+  const stats: Record<string, string> = {};
+  for (const k of ABILITY_KEYS) if (a[k] !== undefined) stats[k] = a[k];
+  for (const k of GUN_KEYS) if (g[k] !== undefined) stats[k] = g[k];
+  for (const k of ACTION_KEYS) if (c[k] !== undefined) stats[k] = c[k];
+  const script = /script_source_file="([^"]+\.lua)"/.exec(xml)?.[1];
+  const spells = (a.add_these_child_actions ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  return { stats, ...(script ? { script } : {}), ...(spells.length ? { spells } : {}) };
+}
+
 /** A wand's script: generate_gun( cost, level, unshuffle ). */
 function wandRoll(wak: Wak, xml: string): ItemEntity['wand'] {
   const script = /script_source_file="([^"]+\.lua)"/.exec(xml)?.[1];
@@ -31,7 +56,8 @@ export function itemEntities(wak: Wak, items: Item[]): Record<string, ItemEntity
     if (/\/wands?\//.test(file) || /^wand_(level|unshuffle)_/.test(id)) {
       if (!/use_gun_script|AbilityComponent/.test(xml)) continue;
       const wand = wandRoll(wak, xml);
-      out[file] = { kind: 'wand', name: 'Wand', ...(wand ? { wand } : {}) };
+      const preset = wand ? undefined : wandPreset(xml);
+      out[file] = { kind: 'wand', name: 'Wand', ...(wand ? { wand } : {}), ...(preset ? { preset } : {}) };
       continue;
     }
     if (!file.startsWith(`${ITEMS}pickup/`)) continue;

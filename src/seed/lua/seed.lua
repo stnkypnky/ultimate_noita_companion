@@ -4,6 +4,11 @@
 
 __seed = { globals = {}, mats = {}, mat_index = {}, mat_tags = {}, flags_all = true, flags = {} }
 
+-- The spell types (ACTION_TYPE_PROJECTILE…) first, as the engine always has them: a script that loads gun_actions.lua
+-- before gun_procedural.lua does (chest_random.lua) would otherwise build the spell list with no types, and every
+-- typed spell pick after it (GetRandomActionWithType: wands' spells) would come out wrong.
+dofile_once("data/scripts/gun/gun_enums.lua")
+
 function GlobalsGetValue(k, d)
   local v = __seed.globals[k]
   if v == nil then return d end
@@ -318,6 +323,48 @@ function seed_shops(positions, extra_items, no_shuffle)
   for k, v in pairs(saved) do _G[k] = v end
   if not ok then error(err) end
   return json_encode(shops)
+end
+
+--- A set wand at (x, y): the stats its file sets ("key=value;…", the builder's keys) and its own script (level_1_wand.lua
+--- and the like), which reads those stats, picks its spells where it lies and may change a stat. Returns the result
+--- in seed_wand's shape: {stats, spells, always}.
+function seed_set_wand(x, y, script, stats)
+  -- Loaded before the stand-ins go in (as seed_wand does): its helpers define AddGunAction and the like, which would
+  -- otherwise replace ours the first time a script loads it.
+  dofile_once("data/scripts/gun/procedural/gun_procedural.lua")
+  local s = {}
+  for k, v in string.gmatch(stats or "", "([%w_]+)=([^;]*)") do s[k] = v end
+  local wand = { stats = s, spells = {}, always = {} }
+  local names = {
+    "GetUpdatedEntityID", "EntityGetTransform", "EntityGetFirstComponent", "EntityGetFirstComponentIncludingDisabled",
+    "ComponentGetValue", "ComponentGetValue2", "ComponentObjectGetValue", "ComponentObjectGetValue2", "ComponentSetValue",
+    "ComponentSetValue2", "ComponentObjectSetValue", "ComponentObjectSetValue2", "AddGunAction", "AddGunActionPermanent",
+    "SetWandSprite", "SetItemSprite",
+  }
+  local saved = {}
+  for _, n in ipairs(names) do saved[n] = rawget(_G, n) end
+  local get = function(c, k) return s[k] end
+  local get2 = function(c, k) local v = s[k] return tonumber(v) or v end
+  local set = function(c, k, v) s[k] = tostring(v) end
+  GetUpdatedEntityID = function() return 1 end
+  EntityGetTransform = function() return x, y end
+  EntityGetFirstComponent = function(e, type) return type end
+  EntityGetFirstComponentIncludingDisabled = EntityGetFirstComponent
+  ComponentGetValue, ComponentGetValue2 = get, get2
+  ComponentObjectGetValue = function(c, o, k) return s[k] end
+  ComponentObjectGetValue2 = function(c, o, k) local v = s[k] return tonumber(v) or v end
+  ComponentSetValue, ComponentSetValue2 = set, set
+  ComponentObjectSetValue = function(c, o, k, v) s[k] = tostring(v) end
+  ComponentObjectSetValue2 = ComponentObjectSetValue
+  AddGunAction = function(e, id) table.insert(wand.spells, id) end
+  AddGunActionPermanent = function(e, id) table.insert(wand.always, id) end
+  SetWandSprite = function() end
+  SetItemSprite = function() end
+  local ok, err = true, nil
+  if script and script ~= "" then ok, err = pcall(dofile, script) end
+  for _, n in ipairs(names) do _G[n] = saved[n] end
+  if not ok then error(err) end
+  return json_encode(wand)
 end
 
 --- One generate_gun(cost, level, unshuffle) at (x, y), as a wand's LuaComponent runs it (for checks against known wands).

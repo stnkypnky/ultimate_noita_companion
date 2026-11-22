@@ -130,6 +130,27 @@ export function generateWand(call: LuaCall, x: number, y: number, cost: number, 
 }
 
 /**
+ * A set wand at (x, y) (the Mines' altar wands and the like): the stats its file sets, run through its own script,
+ * which picks its spells there; plus any spells it always comes with.
+ */
+export function setWand(call: LuaCall, x: number, y: number, preset: { stats: Record<string, string>; script?: string; spells?: string[] }) {
+  const stats = Object.entries(preset.stats)
+    .map(([k, v]) => `${k}=${v.replace(/[;=]/g, '')}`)
+    .join(';');
+  const r = JSON.parse(call('seed_set_wand', x, y, preset.script ?? '', stats) as string) as { stats?: Record<string, string>; spells?: string[]; always?: string[] };
+  const s = Array.isArray(r.stats) ? {} : (r.stats ?? {});
+  return shopWand({
+    kind: 'wand',
+    sale: false,
+    row: 'bottom',
+    stats: s,
+    spells: [...(preset.spells ?? []), ...(Array.isArray(r.spells) ? r.spells : [])],
+    always: Array.isArray(r.always) ? r.always : [],
+    ...(s.sprite_file ? { sprite: s.sprite_file } : {}),
+  });
+}
+
+/**
  * The Holy Mountain shops at these spots (map.json shops), given perks that change them: Extra Shop Item (one
  * more item each) and No More Shuffle (every wand unshuffled).
  */

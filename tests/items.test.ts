@@ -65,10 +65,20 @@ describe('items for a seed', () => {
       expect(w.wand!.manaMax).toBeGreaterThan(0);
     }
     // The same roll as the game's generate_gun at that spot.
-    const w = rolled[0]!;
+    const w = rolled.find((r) => data.entities[r.file]!.wand)!;
     const e = data.entities[w.file]!.wand!;
     const again = JSON.parse(host.call('seed_wand', roundHalfEven(w.x), roundHalfEven(w.y), e.cost, e.level, e.unshuffle) as string) as { spells: string[] };
     expect(w.wand!.spells.filter(Boolean)).toEqual(again.spells.slice(0, w.wand!.capacity));
+  });
+
+  it("gives set wands (the Mines' altar wands) their own stats, name and spells", () => {
+    const set = kind('wand').filter((w) => data.entities[w.file]!.preset?.script?.endsWith('level_1_wand.lua'));
+    expect(set.length).toBeGreaterThan(0);
+    for (const w of set) {
+      expect(w.name).toMatch(/wand/i);
+      expect(w.name).not.toBe('Wand');
+      expect(w.wand!.spells.filter(Boolean).length).toBeGreaterThan(0);
+    }
   });
 
   it('opens chests and fills flasks', () => {
@@ -80,4 +90,15 @@ describe('items for a seed', () => {
     host.call('sim_set_world_seed', SEED);
     expect(itemDetails(host.call, data, placeItems(host.call, map, layouts, data))).toEqual(items);
   });
+
+  it("doesn't depend on what the engine did first (a chest opened before any wand: devices disagreed)", async () => {
+    const other = await createLuaHost((p) => (shipped.has(p) && existsSync(join(GAME, 'lua', p)) ? readFileSync(join(GAME, 'lua', p), 'utf8') : undefined));
+    await other.lua.doString(seedSource);
+    other.call('sim_set_world_seed', SEED);
+    other.call('seed_set_flags', true, '');
+    const chest = kind('chest')[0]!;
+    other.call('seed_chest', roundHalfEven(chest.x), roundHalfEven(chest.y));
+    expect(itemDetails(other.call, data, placeItems(other.call, map, layouts, data))).toEqual(items);
+    other.close();
+  }, 120_000);
 });

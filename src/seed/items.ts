@@ -5,7 +5,7 @@
 import type { WorldMap } from '@/data/types';
 import type { LuaCall } from '@/sim/protocol';
 import type { AreaLayout } from './layout';
-import { generateWand, type ShopWand } from './seed';
+import { generateWand, setWand, type ShopWand } from './seed';
 import { widthFromPix } from './wang';
 import { markerAt } from './poi';
 
@@ -15,7 +15,16 @@ export type ItemKind = 'wand' | 'chest' | 'heart' | 'flask' | 'refresh' | 'spell
  * An item entity file the scripts may load (data/items.json's item_entities): what it is, its items.json id, how a
  * wand one rolls (its generate_gun call), and the init script that picks a flask's material.
  */
-export type ItemEntity = { kind: ItemKind; name: string; item?: string; wand?: { cost: number; level: number; unshuffle: boolean }; init?: string };
+export type ItemEntity = {
+  kind: ItemKind;
+  name: string;
+  item?: string;
+  /** A procedural wand: its generate_gun( cost, level, unshuffle ). */
+  wand?: { cost: number; level: number; unshuffle: boolean };
+  /** A set wand: the stats its file sets, the script that picks its spells where it lies, spells it always has. */
+  preset?: { stats: Record<string, string>; script?: string; spells?: string[] };
+  init?: string;
+};
 /** A room's spawn markers (its material picture's marker pixels: rgb, dx, dy) and its size, by scene file. */
 export type SceneSpawns = Record<string, { w: number; h: number; m: [number, number, number][] }>;
 export type ItemData = { entities: Record<string, ItemEntity>; scenes: SceneSpawns };
@@ -220,6 +229,11 @@ function detail(call: LuaCall, data: ItemData, t: ItemThing, x: number, y: numbe
   const ry = roundHalfEven(y);
   try {
     if (ent?.wand) return { ...t, wand: generateWand(call, rx, ry, ent.wand.cost, ent.wand.level, ent.wand.unshuffle).wand };
+    if (ent?.preset) {
+      // Set wands carry the game's own name ("Slim Rapid bolt wand").
+      const wand = setWand(call, rx, ry, ent.preset);
+      return { ...t, name: ent.preset.stats.ui_name ? wand.name : t.name, wand };
+    }
     if (ent?.kind === 'flask' && ent.init) {
       const m = call('seed_flask', rx, ry, ent.init) as string;
       return m ? { ...t, material: m } : t;

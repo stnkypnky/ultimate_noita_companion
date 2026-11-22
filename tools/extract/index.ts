@@ -153,6 +153,8 @@ const seedOneLayouts = generateLayouts(world.map, 1, tilesets, overlay);
   const errors = stats.reduce((n, s) => n + s.errors, 0);
   console.log(`points of interest: seed 1 ran ${stats.reduce((n, s) => n + s.markers, 0)} room markers (${errors} failed, ${placed.length} kept)`);
 }
+/** Set wands' own scripts (level_1_wand.lua…): which run depends on the seed, so all are shipped. */
+const presetScripts: string[] = [];
 // The map's Items layer: the item entities, the markers inside the rooms (in any colour some biome spawns by), and
 // a whole item pass for seed 1, so the scripts chests, flasks and wands run are shipped too.
 {
@@ -163,6 +165,7 @@ const seedOneLayouts = generateLayouts(world.map, 1, tilesets, overlay);
     for (const c of Object.keys(r.spawns ?? {})) colours.add(parseInt(c, 16));
   }
   const worldItems: ItemData = { entities: itemEntities(wak, items), scenes: await sceneSpawns(wak, colours) };
+  presetScripts.push(...Object.values(worldItems.entities).flatMap((e) => (e.preset?.script && wak.has(e.preset.script) ? [e.preset.script] : [])));
   await writeJson('data/world_items.json', worldItems);
   seedHost.call('sim_set_world_seed', 1);
   const stats: ItemStats[] = [];
@@ -182,6 +185,7 @@ const seedLuaFiles = [
     ...seedHost.filesRead,
     ...wak.list('data/scripts/gun/procedural/').filter((f) => /\/wand_(level|unshuffle)_\d+\.lua$/.test(f)),
     ...wak.list('data/scripts/items/').filter((f) => f.endsWith('.lua')),
+    ...presetScripts,
   ]),
 ];
 for (const f of seedLuaFiles) {
