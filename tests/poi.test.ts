@@ -20,16 +20,17 @@ let layouts: AreaLayout[];
 let pois: SeedPoi[];
 const stats: PoiStats[] = [];
 const SEED = 123;
+const tilesets = new Map<string, Template>();
+let overlay: Uint8Array;
 
 beforeAll(async () => {
   host = await createLuaHost((p) => (shipped.has(p) && existsSync(join(GAME, 'lua', p)) ? readFileSync(join(GAME, 'lua', p), 'utf8') : undefined));
   await host.lua.doString(seedSource);
-  const tilesets = new Map<string, Template>();
   for (const n of new Set(map.biomes.flatMap((b) => (b.wangTemplate ? [b.wangTemplate] : [])))) {
     const { data: px, info } = await sharp(join(GAME, `wang/${n}.png`)).removeAlpha().raw().toBuffer({ resolveWithObject: true });
     tilesets.set(n, templateOf(new Uint8Array(px), info.width, info.height));
   }
-  const overlay = new Uint8Array(await sharp(join(GAME, 'wang/coalmine_overlay.png')).removeAlpha().raw().toBuffer());
+  overlay = new Uint8Array(await sharp(join(GAME, 'wang/coalmine_overlay.png')).removeAlpha().raw().toBuffer());
   layouts = generateLayouts(map, SEED, tilesets, overlay);
   host.call('sim_set_world_seed', SEED);
   pois = placePois(host.call, map, layouts, data, stats);
@@ -51,8 +52,8 @@ describe('points of interest for a seed', () => {
     // The Jungle's portal hint statues: two on each axis.
     expect(count('rainforest/rainforest_statue_01.png') + count('rainforest/rainforest_statue_02.png')).toBe(4);
     // Hiisi Base's random rooms for seed 123.
-    expect(count('snowcastle/kitchen.png')).toBe(1);
-    expect(count('snowcastle/bar.png')).toBe(1);
+    expect(count('snowcastle/greenhouse.png')).toBe(1);
+    expect(count('snowcastle/polymorphroom.png')).toBe(1);
     // Only curated rooms come back, each a known one.
     for (const p of pois) expect(data.scenes[p.file], p.file).toBeDefined();
   });
@@ -81,6 +82,17 @@ describe('points of interest for a seed', () => {
     }
   });
 
+  it('picks the rooms the game picked (seed 1643225457: two shops in the Mines, seen in a run)', () => {
+    host.call('sim_set_world_seed', 1643225457);
+    const other = generateLayouts(map, 1643225457, tilesets, overlay);
+    const mines = placePois(host.call, map, other, data).filter((p) => p.file.includes('/coalmine/'));
+    expect(mines.filter((p) => p.file.endsWith('coalmine/shop.png')).map((p) => [p.x, p.y])).toEqual([
+      [1165, 77],
+      [905, 857],
+    ]);
+    host.call('sim_set_world_seed', SEED);
+  });
+
   it('is the same every time for a seed', () => {
     host.call('sim_set_world_seed', SEED);
     expect(placePois(host.call, map, layouts, data)).toEqual(pois);
@@ -91,7 +103,7 @@ describe('points of interest for a seed', () => {
     expect(fixed.find((p) => p.name === 'Anvil')).toMatchObject({ x: 1464, y: 5976, fixed: true });
     expect(fixed.filter((p) => p.name === 'The Tree')).toHaveLength(1);
     const shown = placedPois(data, pois);
-    expect(shown.find((p) => p.name === 'Hiisi Kitchen')?.wiki).toContain('Hiisi_Base');
+    expect(shown.find((p) => p.name === 'Greenhouse')?.wiki).toContain('Hiisi_Base');
     expect(poiDirection({ x: 0, y: 0 }, { ...shown[0]!, x: 300, y: -10, w: 20, h: 20 })).toBe('310 m right');
     expect(poiDirection({ x: 0, y: 0 }, { ...shown[0]!, x: -1600, y: 1500, w: 0, h: 0 })).toBe('2.2 km down-left');
   });

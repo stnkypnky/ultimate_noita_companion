@@ -30,7 +30,21 @@ if tracing then
   for _, s in ipairs(TRACE_BIOMES) do ModLuaFileAppend(s, "mods/noita_companion/files/trace.lua") end
 end
 
+-- The biome scripts' trace lines arrive as tagged entities (files/trace.lua): write them out and remove them.
+local function collect_trace()
+  local list = EntityGetWithTag("companion_trace")
+  if not list or #list == 0 then return end
+  local lines = {}
+  for _, e in ipairs(list) do
+    local c = EntityGetFirstComponentIncludingDisabled(e, "VariableStorageComponent")
+    if c then lines[#lines + 1] = ComponentGetValue2(c, "value_string") end
+    EntityKill(e)
+  end
+  if #lines > 0 then trace_line(table.concat(lines, "\n")) end
+end
+
 function OnWorldPostUpdate()
+  if tracing then pcall(collect_trace) end
   companion_tick(GameGetFrameNum())
 end
 

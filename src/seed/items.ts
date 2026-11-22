@@ -7,6 +7,7 @@ import type { LuaCall } from '@/sim/protocol';
 import type { AreaLayout } from './layout';
 import { generateWand, type ShopWand } from './seed';
 import { widthFromPix } from './wang';
+import { markerAt } from './poi';
 
 export type ItemKind = 'wand' | 'chest' | 'heart' | 'flask' | 'refresh' | 'spell' | 'other';
 
@@ -115,7 +116,10 @@ export type ItemStats = { biome: string; markers: number; scenes: number; items:
 /** Rooms load rooms (a wand altar inside a structure): this many levels deep. */
 const MAX_DEPTH = 3;
 
-export function placeItems(call: LuaCall, map: WorldMap, layouts: AreaLayout[], data: ItemData, stats?: ItemStats[]): SeedItem[] {
+/** Everything the walk did, for checks against the game's own (the mod's trace): rooms asked for and markers run. */
+export type ItemWalk = { scenes: [string, number, number][]; calls: [string, number, number][] };
+
+export function placeItems(call: LuaCall, map: WorldMap, layouts: AreaLayout[], data: ItemData, stats?: ItemStats[], seen?: ItemWalk): SeedItem[] {
   const out: SeedItem[] = [];
   const chunkX = (cx: number) => (cx - map.w / 2) * map.chunk;
   const chunkY = (cy: number) => (cy - map.offsetY) * map.chunk;
@@ -138,6 +142,10 @@ export function placeItems(call: LuaCall, map: WorldMap, layouts: AreaLayout[], 
     const st: ItemStats = { biome: biome.id, markers: 0, scenes: 0, items: 0, errors: 0 };
     const run = (gx: number, gy: number, markers: string[], withInit: boolean) => {
       st.markers += markers.length;
+      if (seen) for (const m of markers) {
+        const [name, x, y] = m.split(',');
+        seen.calls.push([name!, Number(x), Number(y)]);
+      }
       const res = JSON.parse(call('seed_items_chunk', gx, gy, map.chunk, markers.join(';'), withInit) as string) as { rec?: Rec[] | Record<string, never>; errors: number };
       st.errors += res.errors;
       return Array.isArray(res.rec) ? res.rec : [];
@@ -156,6 +164,8 @@ export function placeItems(call: LuaCall, map: WorldMap, layouts: AreaLayout[], 
           st.items++;
           continue;
         }
+        // Every room the scripts ask for (the game's trace logs the same calls, before the engine's own check).
+        seen?.scenes.push([rec.f, rec.x, rec.y]);
         const scene = data.scenes[rec.f];
         if (!scene) continue;
         // The engine only loads a scene that stays inside its biome, unless the script says to skip that check.
@@ -189,7 +199,9 @@ export function placeItems(call: LuaCall, map: WorldMap, layouts: AreaLayout[], 
             if (lx >= l.width || ly >= l.height) continue;
             const o = (ly * l.width + lx) * 3;
             const name = s.spawns.get((l.rgb[o]! << 16) | (l.rgb[o + 1]! << 8) | l.rgb[o + 2]!);
-            if (name) markers.push(`${name},${gx + px * 10},${gy + py * 10},10`);
+            if (!name) continue;
+            const at = markerAt(map, cx, cy, px, py);
+            markers.push(`${name},${at.x},${at.y},10`);
           }
         }
         if (!markers.length && !s.init) continue;

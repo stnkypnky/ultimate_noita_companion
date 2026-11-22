@@ -261,8 +261,12 @@ const COFFEE = 0xc0ffee;
 const MINT = 0xcff7c8;
 const HELL_GREEN = 0x8aff80;
 const NO_PARENT = -1;
-/** Room markers whose rooms are walled off while the path is checked (load_pixel_scene*, gunpowder pools, oil tank). */
-const BLOCKED = new Set([0x00ac6e, 0x70d79e, 0x70d79f, 0x70d7a1, 0x7868ff, 0xc35700, 0xff0080, 0xff00ff, 0xff0aff]);
+/**
+ * Room markers whose rooms are walled off while the path is checked (load_pixel_scene*, gunpowder pools, oil tank).
+ * noita-tools' list plus 0x70d7a0, the Coal Pits' gunpowder pool 3: the game's own placement (a trace of seed
+ * 405841687) only comes out right with it blocked too.
+ */
+const BLOCKED = new Set([0x00ac6e, 0x70d79e, 0x70d79f, 0x70d7a0, 0x70d7a1, 0x7868ff, 0xc35700, 0xff0080, 0xff00ff, 0xff0aff]);
 const PATH_MIN_X = 159;
 const PATH_MAX_X = 223;
 

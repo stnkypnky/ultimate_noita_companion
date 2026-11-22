@@ -16,6 +16,20 @@ export type SeedPoi = { file: string; x: number; y: number };
 
 export type PoiStats = { biome: string; markers: number; placed: number; errors: number };
 
+/**
+ * Where the engine calls a spawn function for a layout pixel: one 10-pixel grid over the whole world, counted from
+ * its left edge and from the top of the biome map (51.2 layout pixels per chunk, cut where GetWidthFromPix cuts),
+ * less 5. Checked against the real game's own calls (the mod's "Record world generation" trace); counting from each
+ * chunk's corner instead drifts by up to 8 pixels, which picks different rooms.
+ */
+export function markerAt(map: WorldMap, cx: number, cy: number, px: number, py: number) {
+  const top = map.mapTop ?? 0;
+  return {
+    x: 10 * (Math.trunc((cx * map.chunk) / 10) + px) - (map.w / 2) * map.chunk - 5,
+    y: 10 * (Math.trunc(((cy - top) * map.chunk) / 10) + py) + (top - map.offsetY) * map.chunk - 5,
+  };
+}
+
 export function placePois(call: LuaCall, map: WorldMap, layouts: AreaLayout[], data: PoiData, stats?: PoiStats[]): SeedPoi[] {
   const out: SeedPoi[] = [];
   const chunkX = (cx: number) => (cx - map.w / 2) * map.chunk;
@@ -61,7 +75,9 @@ export function placePois(call: LuaCall, map: WorldMap, layouts: AreaLayout[], d
             if (lx >= l.width || ly >= l.height) continue;
             const o = (ly * l.width + lx) * 3;
             const name = s.spawns.get((l.rgb[o]! << 16) | (l.rgb[o + 1]! << 8) | l.rgb[o + 2]!);
-            if (name) markers.push(`${name},${gx + px * 10},${gy + py * 10}`);
+            if (!name) continue;
+            const at = markerAt(map, cx, cy, px, py);
+            markers.push(`${name},${at.x},${at.y}`);
           }
         }
         if (!markers.length && !s.init) continue;
