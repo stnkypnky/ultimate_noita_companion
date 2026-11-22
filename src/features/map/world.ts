@@ -184,6 +184,24 @@ export function biomeName(b: MapBiome) {
 }
 
 /**
+ * The overworld's pieces, under the name a player knows them by. The Mines' modifier also covers the mountain hall
+ * that leads into them.
+ */
+export const PART_OF: Record<string, string> = {
+  mountain_hall: 'Mines',
+  mountain_top: 'Mountain',
+  mountain_floating_island: 'Floating island',
+  pyramid_entrance: 'Pyramid',
+  pyramid_left: 'Pyramid',
+  pyramid_top: 'Pyramid',
+  pyramid_right: 'Pyramid',
+  lavalake: 'Lava lake',
+};
+
+/** The place a biome is part of, as a player names it (one biome modifier each). */
+export const placeName = (b: MapBiome) => PART_OF[b.id] ?? biomeName(b);
+
+/**
  * Cursed Rock (rock_static_cursed): the wall between parallel worlds at both edges, and around the Tower. Unnamed in
  * the game but no filler: the map draws it at full strength, not dimmed like the plain rock between areas.
  */

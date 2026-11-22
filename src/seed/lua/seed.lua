@@ -356,6 +356,30 @@ end
 -- generated layout, and init(x, y, w, h) once per chunk; the room functions end in LoadPixelScene, which we
 -- record instead of drawing. (The colour table and the walk over the layout follow TwoAbove/noita-tools.)
 ---------------------------------------------------------------------------
+--- A fresh environment for one biome script, as the game gives each biome a Lua state of its own: what the script
+--- and the files it loads define stays in it (the_end.lua's empty spawn_heart doesn't reach the next biome), and the
+--- shared files (biome_scripts.lua, director_helpers.lua) run again inside it. Engine functions come from _G.
+local function biome_env()
+  local env = setmetatable({}, { __index = _G })
+  local loaded = {}
+  env._G = env
+  env.dofile = function(path)
+    local src = __read_file(path)
+    if src == nil then error("missing file: " .. tostring(path)) end
+    local chunk, err = load(src, "@" .. path, "t", env)
+    if not chunk then error(err) end
+    return chunk()
+  end
+  env.dofile_once = function(path)
+    if loaded[path] then return loaded[path] end
+    loaded[path] = true
+    local result = env.dofile(path)
+    loaded[path] = result or true
+    return result
+  end
+  return env
+end
+
 -- Spawn colours the engine knows before any biome script registers its own.
 local ENGINE_SPAWNS = {
   [0xff0aff] = "load_pixel_scene", [0xff0080] = "load_pixel_scene2",
@@ -391,12 +415,13 @@ end
 
 --- Load a biome script fresh. Returns its room-placing spawn colours as JSON {"rrggbb": "function"}: those whose
 --- function (in the script's own text) loads a pixel scene.
+local poi_env = nil
 function seed_poi_load(script)
   poi_spawns = {}
   for c, n in pairs(ENGINE_SPAWNS) do poi_spawns[c] = n end
-  init = nil
+  poi_env = biome_env()
   poi_hooks(true)
-  local ok, err = pcall(dofile, script)
+  local ok, err = pcall(poi_env.dofile, script)
   poi_hooks(false)
   if not ok then return json_encode({ error = tostring(err) }) end
   local src = __read_file(script) or ""
@@ -418,9 +443,9 @@ function seed_poi_load(script)
   end
   local out = {}
   for c, n in pairs(poi_spawns) do
-    if placers[n] and type(_G[n]) == "function" then out[string.format("%06x", c)] = n end
+    if placers[n] and type(poi_env[n]) == "function" then out[string.format("%06x", c)] = n end
   end
-  return json_encode({ spawns = out, init = type(init) == "function" })
+  return json_encode({ spawns = out, init = type(rawget(poi_env, "init")) == "function" })
 end
 
 --- One chunk of the loaded biome: its init() at the chunk, then each marker "function,x,y;…" in order.
@@ -429,17 +454,148 @@ function seed_poi_chunk(cx, cy, size, markers)
   poi_rec = {}
   local errors = 0
   poi_hooks(true)
-  if type(init) == "function" then
-    if not pcall(init, cx, cy, size, size) then errors = errors + 1 end
+  local init_fn = poi_env and rawget(poi_env, "init")
+  if type(init_fn) == "function" then
+    if not pcall(init_fn, cx, cy, size, size) then errors = errors + 1 end
   end
   for name, x, y in string.gmatch(markers or "", "([%w_]+),([-%d]+),([-%d]+)") do
-    local fn = _G[name]
+    local fn = poi_env and poi_env[name]
     if type(fn) == "function" and not pcall(fn, tonumber(x), tonumber(y), 10, 10, false) then errors = errors + 1 end
   end
   poi_hooks(false)
   local rec = poi_rec
   poi_rec = nil
   return json_encode({ scenes = rec, errors = errors })
+end
+
+---------------------------------------------------------------------------
+-- Items: everything a biome's spawn functions load as its chunks generate (wands, chests, hearts, flasks…), and
+-- the rooms they place, whose own markers the caller runs next (as the engine does when it loads a pixel scene).
+---------------------------------------------------------------------------
+local item_rec = nil
+local item_spawns = {}
+
+local function item_hooks(on)
+  if on then
+    __item_saved = {
+      LoadPixelScene = LoadPixelScene, EntityLoad = EntityLoad, RegisterSpawnFunction = RegisterSpawnFunction,
+      RaytracePlatforms = RaytracePlatforms, CreateItemActionEntity = CreateItemActionEntity, EntityLoadCameraBound = EntityLoadCameraBound,
+    }
+    LoadPixelScene = function(file, visual, x, y, background, skip_biome_checks)
+      if item_rec then table.insert(item_rec, { f = file, x = x, y = y, any = skip_biome_checks == true }) end
+    end
+    EntityLoad = function(file, x, y)
+      if item_rec then table.insert(item_rec, { e = file, x = x, y = y }) end
+      return 0
+    end
+    -- spawn() and its tables load through this one (the entity waits until the camera is near; same spot).
+    EntityLoadCameraBound = EntityLoad
+    CreateItemActionEntity = function(id, x, y)
+      if item_rec then table.insert(item_rec, { s = id, x = x, y = y }) end
+      return 0
+    end
+    RaytracePlatforms = function(x1, y1) return true, x1, y1 end
+    RegisterSpawnFunction = function(color, name) item_spawns[math.tointeger(color) % 0x1000000] = name end
+  else
+    for k, v in pairs(__item_saved) do _G[k] = v end
+  end
+end
+
+--- Load a biome script fresh for the item pass. engine: the engine's own spawn colours as "rrggbb=name;…"; skip:
+--- comma-separated parts of function names left out (enemies, props). Returns {"rrggbb": "function"} of every
+--- spawn function the script has, and whether it has an init.
+local item_env = nil
+function seed_items_load(script, engine, skip)
+  item_spawns = {}
+  for c, n in string.gmatch(engine or "", "(%x+)=([%w_]+)") do item_spawns[tonumber(c, 16)] = n end
+  item_env = biome_env()
+  item_hooks(true)
+  local ok, err = pcall(item_env.dofile, script)
+  item_hooks(false)
+  if not ok then return json_encode({ error = tostring(err) }) end
+  local function skipped(n)
+    for s in string.gmatch(skip or "", "[^,]+") do
+      if string.find(n, s, 1, true) then return true end
+    end
+    return false
+  end
+  local out = {}
+  for c, n in pairs(item_spawns) do
+    if type(item_env[n]) == "function" and not skipped(n) then out[string.format("%06x", c)] = n end
+  end
+  return json_encode({ spawns = out, init = type(rawget(item_env, "init")) == "function" })
+end
+
+--- Markers "function,x,y;…" of the loaded biome (with its init() first when with_init). Returns what they loaded:
+--- [{f, x, y, any}] pixel scenes, [{e, x, y}] entities, [{s, x, y}] spells, and how many calls failed.
+function seed_items_chunk(cx, cy, size, markers, with_init)
+  item_rec = {}
+  local errors = 0
+  item_hooks(true)
+  local init_fn = item_env and rawget(item_env, "init")
+  if with_init and type(init_fn) == "function" then
+    if not pcall(init_fn, cx, cy, size, size) then errors = errors + 1 end
+  end
+  for name, x, y, w in string.gmatch(markers or "", "([%w_]+),([-%d.]+),([-%d.]+),(%d+)") do
+    local fn = item_env and item_env[name]
+    local n = tonumber(w)
+    if type(fn) == "function" and not pcall(fn, tonumber(x), tonumber(y), n, n, false) then errors = errors + 1 end
+  end
+  item_hooks(false)
+  local rec = item_rec
+  item_rec = nil
+  return json_encode({ rec = rec, errors = errors })
+end
+
+--- What a chest at (x, y) gives when opened: chest_random.lua's on_open, seeded by where it spawned
+--- (PositionSeedComponent). Returns [{e = file, x, y} | {s = spell}]: gold comes as its nugget entities.
+function seed_chest(x, y, script)
+  local drops = {}
+  local saved = {
+    EntityLoad = EntityLoad, CreateItemActionEntity = CreateItemActionEntity, EntityGetTransform = EntityGetTransform,
+    EntityGetFirstComponent = EntityGetFirstComponent, ComponentGetValue = ComponentGetValue, ComponentGetValue2 = ComponentGetValue2,
+    EntityKill = EntityKill, GamePlaySound = GamePlaySound, GameCreateParticle = GameCreateParticle,
+  }
+  EntityLoad = function(file, ex, ey)
+    if type(file) == "string" and not string.find(file, "particles/", 1, true) then table.insert(drops, { e = file, x = ex, y = ey }) end
+    return 0
+  end
+  CreateItemActionEntity = function(id) table.insert(drops, { s = id }) return 0 end
+  EntityGetTransform = function() return x, y end
+  EntityGetFirstComponent = function(e, type) return type end
+  ComponentGetValue = function(c, k)
+    if c == "PositionSeedComponent" then return tostring(k == "pos_x" and x or y) end
+    return nil
+  end
+  ComponentGetValue2 = ComponentGetValue
+  EntityKill = function() end
+  GamePlaySound = function() end
+  GameCreateParticle = function() end
+  local ok, err = pcall(function()
+    dofile(script or "data/scripts/items/chest_random.lua")
+    on_open(1)
+  end)
+  for k, v in pairs(saved) do _G[k] = v end
+  if not ok then error(err) end
+  return json_encode(drops)
+end
+
+--- A flask's or pouch's material: its init script (potion.lua) at (x, y), where the engine placed it.
+function seed_flask(x, y, script)
+  local material = nil
+  local saved = { EntityGetTransform = EntityGetTransform, AddMaterialInventoryMaterial = AddMaterialInventoryMaterial, GameGetDateAndTimeLocal = GameGetDateAndTimeLocal }
+  EntityGetTransform = function() return x, y end
+  AddMaterialInventoryMaterial = function(e, m) if not material then material = m end end
+  -- An ordinary day: no holiday drinks.
+  GameGetDateAndTimeLocal = function() return 2024, 6, 15, 12, 0, 0, false, false end
+  local ok, err = pcall(function()
+    init = nil
+    dofile(script)
+    if type(init) == "function" then init(1) end
+  end)
+  for k, v in pairs(saved) do _G[k] = v end
+  if not ok then error(err) end
+  return material or ""
 end
 
 ---------------------------------------------------------------------------

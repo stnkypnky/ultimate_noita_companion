@@ -11,11 +11,13 @@ import { MasterDetail } from '@/ui/MasterDetail';
 import { Runes } from '@/ui/game';
 import { MapView, POI_COLOR } from './MapView';
 import { poiCentre, type MapPoi } from './pois';
-import { SeedPanel } from './SeedPanel';
+import { MountainCard, SeedPanel } from './SeedPanel';
 import { ModifierCard } from './ModifierCard';
 import { areaNotes } from './notes';
 import type { SeedReport } from '@/seed/worker';
 import { useSeedLayers } from './useSeedLayers';
+import { AreaItems } from './AreaItems';
+import type { SeedItem } from '@/seed/items';
 import { biomeKey, biomeName, chunkOf, chunkWorld, holyMountains, isCursedRock, loadMap, makeVisibility, namedInGame, onPath, orbOf, sceneKey } from './world';
 
 /** Whose caves the map shows before you pick a seed. */
@@ -72,7 +74,7 @@ export function MapPage() {
   // The caves are drawn for the chosen seed; until one is chosen, for an example seed.
   const [seed, setSeed] = useState<number | null>(null);
   const caveSeed = seed ?? EXAMPLE_SEED;
-  const { layouts, wangColors, pois } = useSeedLayers(caveSeed, map);
+  const { layouts, wangColors, pois, items } = useSeedLayers(caveSeed, map);
   const all = mode === 'all' || spoilers;
   const enemies = useProgress((s) => s.progress?.enemies);
   const vis = useMemo(() => (map ? makeVisibility(map, { all, visible, orbs: orbs ?? [], enemies }) : null), [map, all, visible, orbs, enemies]);
@@ -140,7 +142,7 @@ export function MapPage() {
         <MasterDetail
           detailKey={place}
           onClose={close}
-          detail={selected ? <AreaDetail map={map} vis={vis} cx={selected.cx} cy={selected.cy} orbs={orbs ?? []} onReveal={reveal} report={report} pois={pois} seed={caveSeed} onGo={select} /> : null}
+          detail={selected ? <AreaDetail map={map} vis={vis} cx={selected.cx} cy={selected.cy} orbs={orbs ?? []} onReveal={reveal} report={report} pois={pois} items={items} seed={caveSeed} onGo={select} /> : null}
           empty={
             <div className="mt-24 text-center text-sm text-faint">
               <Runes className="mb-2 block text-[16px] text-gold/40">the world below</Runes>
@@ -152,7 +154,20 @@ export function MapPage() {
             // Phones: tall, to pan and zoom in. Laptops: the world's own shape (70 × 48 chunks), up to the screen's height.
             <div>
               <div className="h-[calc(100dvh-var(--page-header-h,88px)-140px)] md:aspect-[70/48] md:h-auto md:max-h-[calc(100vh-var(--page-header-h,88px)-60px)]">
-                <MapView map={map} vis={vis} materialById={materialById} selected={selected} onSelect={select} layouts={layouts} wangColors={wangColors} pois={pois} />
+                <MapView
+                  map={map}
+                  vis={vis}
+                  materialById={materialById}
+                  selected={selected}
+                  onSelect={select}
+                  layouts={layouts}
+                  wangColors={wangColors}
+                  pois={pois}
+                  items={items}
+                  // The example seed's caves have no report: its modifiers and mountains aren't offered.
+                  report={seed === null ? undefined : report}
+                  layersKey="map"
+                />
               </div>
               <p className="mt-1.5 text-xs text-faint">
                 {layouts ? `Caves laid out as in seed ${caveSeed}` : 'Laying out the caves…'}
@@ -191,6 +206,7 @@ function AreaDetail({
   onReveal,
   report,
   pois,
+  items,
   seed,
   onGo,
 }: {
@@ -202,6 +218,7 @@ function AreaDetail({
   onReveal: (key: string) => void;
   report: SeedReport | null;
   pois: MapPoi[] | null;
+  items: SeedItem[] | null;
   seed: number;
   onGo: (cx: number, cy: number) => void;
 }) {
@@ -253,6 +270,12 @@ function AreaDetail({
           </ul>
         </Section>
       )}
+      {report && hm !== undefined && report.perks.mountains[hm - 1] && (
+        <Section title="This mountain">
+          <MountainCard report={report} index={hm - 1} />
+          <p className="mt-2 text-[11px] text-faint">Perks you tick on the Seed tab change the mountains after it.</p>
+        </Section>
+      )}
       {report && (report.modifiers[b.id] || namedInGame(b)) && (
         <Section title="This seed">
           {report.modifiers[b.id] ? (
@@ -263,6 +286,7 @@ function AreaDetail({
         </Section>
       )}
       <AreaPois map={map} vis={vis} biome={map.cells[cy * map.w + cx]!} chunk={{ cx, cy }} pois={pois} seed={seed} onGo={onGo} />
+      <AreaItems map={map} vis={vis} biome={map.cells[cy * map.w + cx]!} chunk={{ cx, cy }} items={items} onGo={onGo} />
       {hidden.length > 0 && (
         <button
           onClick={() => hidden.forEach((s) => onReveal(sceneKey(s)))}

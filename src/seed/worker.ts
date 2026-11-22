@@ -9,6 +9,7 @@ import type { LuaCall } from '../sim/protocol';
 import { biomeModifiers, fungalShifts, generateWand, holyMountainPerks, holyMountainShops, setupSeed, type SeedSetup, type ShopWand } from './seed';
 import { generateLayouts, templateOf, type AreaLayout, type Template } from './layout';
 import { placePois, type PoiData, type PoiStats, type SeedPoi } from './poi';
+import { itemDetails, placeItems, type ItemData, type ItemStats, type SeedItem } from './items';
 import type { WorldMap } from '../data/types';
 
 export type SeedQuery = SeedSetup & {
@@ -24,13 +25,16 @@ export type SeedReport = {
 };
 /** One random wand from generate_gun (cost, level as a wand_level_XX.lua passes them), at a random spot and seed. */
 export type WandRoll = { seed: number; x: number; y: number; cost: number; level: number };
+/** The seed's items, with the unlocks that decide which spells their wands and chests can hold. */
+export type ItemQuery = { seed: number; allUnlocked: boolean; flags: string[] };
 export type SeedIn =
   | { id: number; base: string; query: SeedQuery }
   | { id: number; base: string; layoutSeed: number }
   | { id: number; base: string; poiSeed: number }
+  | { id: number; base: string; items: ItemQuery }
   | { id: number; base: string; roll: WandRoll };
 export type SeedOut =
-  | { id: number; ok: true; report?: SeedReport; layouts?: AreaLayout[]; wand?: ShopWand; pois?: SeedPoi[] }
+  | { id: number; ok: true; report?: SeedReport; layouts?: AreaLayout[]; wand?: ShopWand; pois?: SeedPoi[]; items?: SeedItem[] }
   | { id: number; ok: false; error: string };
 
 // ---- Cave layouts (wang.ts): the map and the templates, decoded once ----
@@ -84,18 +88,45 @@ async function createEngine(base: string): Promise<LuaCall> {
 // so they can't disturb the scripts the seed report runs.
 let poiEngine: Promise<LuaCall> | null = null;
 let poiData: Promise<PoiData> | null = null;
+let itemData: Promise<ItemData> | null = null;
+
+/** The last seed's layouts: the points of interest and then the items walk the same ones. */
+let lastLayouts: { seed: number; layouts: AreaLayout[] } | null = null;
+async function layoutsFor(base: string, seed: number) {
+  const d = await (layoutData ??= loadLayoutData(base));
+  if (lastLayouts?.seed !== seed) lastLayouts = { seed, layouts: generateLayouts(d.map, seed, d.tilesets, d.overlay) };
+  return { map: d.map, layouts: lastLayouts.layouts };
+}
 
 self.onmessage = async (e: MessageEvent<SeedIn>) => {
   const { id, base } = e.data;
+  if ('items' in e.data) {
+    try {
+      const q = e.data.items;
+      const seed = q.seed >>> 0;
+      const { map, layouts } = await layoutsFor(base, seed);
+      const data = await (itemData ??= fetch(`${base}game/data/world_items.json`).then((r) => r.json() as Promise<ItemData>));
+      const call = await (poiEngine ??= createEngine(base));
+      call('sim_set_world_seed', seed);
+      call('seed_set_flags', q.allUnlocked, q.flags.join(','));
+      const stats: ItemStats[] = [];
+      const items = itemDetails(call, data, placeItems(call, map, layouts, data, stats));
+      if (import.meta.env.DEV) console.debug('[items]', seed, items.length, stats.filter((s) => s.markers));
+      postMessage({ id, ok: true, items } satisfies SeedOut);
+    } catch (err) {
+      postMessage({ id, ok: false, error: String((err as Error)?.message ?? err) } satisfies SeedOut);
+    }
+    return;
+  }
   if ('poiSeed' in e.data) {
     try {
       const seed = e.data.poiSeed >>> 0;
-      const d = await (layoutData ??= loadLayoutData(base));
+      const { map, layouts } = await layoutsFor(base, seed);
       const data = await (poiData ??= fetch(`${base}game/data/pois.json`).then((r) => r.json() as Promise<PoiData>));
       const call = await (poiEngine ??= createEngine(base));
       call('sim_set_world_seed', seed);
       const stats: PoiStats[] = [];
-      const pois = placePois(call, d.map, generateLayouts(d.map, seed, d.tilesets, d.overlay), data, stats);
+      const pois = placePois(call, map, layouts, data, stats);
       if (import.meta.env.DEV) console.debug('[poi]', seed, stats.filter((s) => s.markers));
       postMessage({ id, ok: true, pois } satisfies SeedOut);
     } catch (err) {
@@ -106,6 +137,7 @@ self.onmessage = async (e: MessageEvent<SeedIn>) => {
   if ('layoutSeed' in e.data) {
     try {
       const d = await (layoutData ??= loadLayoutData(base));
+      // A copy of its own (the buffers go to the page), so the walks after it use the kept ones.
       const layouts = generateLayouts(d.map, e.data.layoutSeed, d.tilesets, d.overlay);
       postMessage({ id, ok: true, layouts } satisfies SeedOut, { transfer: layouts.map((l) => l.rgb.buffer) });
     } catch (err) {

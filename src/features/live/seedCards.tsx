@@ -79,7 +79,7 @@ export function useSeedCards(run: LiveRun, at: number, past: boolean, mapHeight 
   if (run.x === undefined || run.y === undefined) return { map: null, mountain: null, fungal: null };
   const marker = past ? (run.status === 'dead' ? 'died' : 'last') : 'here';
   return {
-    map: map && <MiniMap map={map} x={run.x} y={run.y} seed={run.seed} kind={marker} biome={run.biome?.name} height={mapHeight} ground={ground ?? run.surface} />,
+    map: map && <MiniMap map={map} x={run.x} y={run.y} seed={run.seed} kind={marker} biome={run.biome?.name} height={mapHeight} ground={ground ?? run.surface} report={report} />,
     mountain: past ? <MountainsReached next={next} seed={run.seed} /> : <NextMountain next={next} report={report} />,
     fungal: run.fungal ? past ? <FungalsDone count={run.fungal.count} report={report} /> : <NextFungal fungal={run.fungal} at={at} report={report} /> : null,
   };
@@ -104,6 +104,7 @@ function MiniMap({
   biome,
   height,
   ground,
+  report,
 }: {
   map: WorldMap;
   x: number;
@@ -113,6 +114,7 @@ function MiniMap({
   biome?: string;
   height: number;
   ground?: GroundPoint[];
+  report: SeedReport | null;
 }) {
   const { materialById } = useData();
   const { mode, visible } = useSpoilers();
@@ -126,7 +128,7 @@ function MiniMap({
     // Where you're standing isn't a secret.
     return { ...base, biome: (b: Parameters<typeof base.biome>[0]) => b === here || base.biome(b) };
   }, [map, mode, visible, orbs, enemies, x, y]);
-  const { layouts, wangColors, pois } = useSeedLayers(seed > 0 ? seed : null, map);
+  const { layouts, wangColors, pois, items } = useSeedLayers(seed > 0 ? seed : null, map);
   // The closest points of interest you could see on the map (spoilers stay hidden), nearest first.
   const near = useMemo(() => {
     if (!pois) return [];
@@ -158,7 +160,10 @@ function MiniMap({
           layouts={layouts}
           wangColors={wangColors}
           pois={pois}
+          items={items}
+          report={report}
           ground={ground}
+          layersKey="run"
         />
       </div>
       {near.length > 0 && (

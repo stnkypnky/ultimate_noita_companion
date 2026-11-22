@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LocateFixed, Maximize, Minus, Plus } from 'lucide-react';
-import { gameUrl } from '@/data/store';
-import type { Material, WorldMap } from '@/data/types';
+import { gameUrl, useData } from '@/data/store';
+import type { Icon, Material, WorldMap } from '@/data/types';
+import { BIOME_MODIFIERS } from '@/data/biomeModifiers';
+import { SECRET_ITEMS, itemKey } from '@/data/spoilers';
+import { useSpoilers } from '@/store/progress';
 import { GROUND_STEP, groundLine, surfaceAt, type GroundPoint } from './ground';
-import { biomeName, bodyMaterial, chunkWorld, displayMaterial, groundBands, isCursedRock, isLayered, namedInGame, surfaceWave, type makeVisibility } from './world';
+import { biomeName, bodyMaterial, chunkWorld, displayMaterial, groundBands, isCursedRock, isLayered, namedInGame, placeName, surfaceWave, type makeVisibility } from './world';
 import type { AreaLayout } from '@/seed/layout';
-import type { PoiKind } from '@/seed/poi';
+import type { BiomeModifier } from '@/seed/seed';
+import type { SeedReport } from '@/seed/worker';
+import type { SeedItem } from '@/seed/items';
 import { poiCentre, type MapPoi } from './pois';
+import { ITEM_COLOR, MODIFIER_COLOR, MOUNTAIN_COLOR, POI_COLOR, useMapLayers } from './layers';
+import { LayersControl, type LayerCounts } from './LayersControl';
 
 type Vis = ReturnType<typeof makeVisibility>;
 type View = { x: number; y: number; s: number };
@@ -113,8 +120,8 @@ function materialPicture(
   return null;
 }
 
-/** Connected areas of each named biome, for labels: [biome index, centre x, centre y, chunks]. */
-function labelSpots(map: WorldMap) {
+/** Every connected area of one biome: [biome index, centre x, centre y, chunks] (in chunks). */
+function connectedAreas(map: WorldMap) {
   const seen = new Uint8Array(map.cells.length);
   const out: [number, number, number, number][] = [];
   for (let i = 0; i < map.cells.length; i++) {
@@ -141,8 +148,14 @@ function labelSpots(map: WorldMap) {
         }
       }
     }
-    if (namedInGame(map.biomes[k]!) && n >= 2) out.push([k, sx / n + 0.5, sy / n + 0.5, n]);
+    out.push([k, sx / n + 0.5, sy / n + 0.5, n]);
   }
+  return out;
+}
+
+/** Connected areas of each named biome, for labels: [biome index, centre x, centre y, chunks]. */
+function labelSpots(map: WorldMap, areas: [number, number, number, number][]) {
+  const out = areas.filter(([k, , , n]) => namedInGame(map.biomes[k]!) && n >= 2);
   // One label per name, on its biggest area (plus any other area that's large in its own right).
   const best = new Map<string, number>();
   for (const [k, , , n] of out) {
@@ -238,16 +251,7 @@ const MARKER_LOOK: Record<MarkerKind, { glow: string; edge: string; body: string
   died: { glow: 'rgba(226,68,92,0.85)', edge: '#1a0507', body: '#f2e6c9', shine: '#ffffff' },
   last: { glow: 'rgba(200,190,180,0.6)', edge: '#2a2420', body: '#b9aa9c', shine: '#f3ede6' },
 };
-/** Pin colours by kind, from the app's palette. */
-export const POI_COLOR: Record<PoiKind, string> = {
-  room: '#eda949',
-  puzzle: '#9b7bff',
-  shop: '#7bd65c',
-  treasure: '#f89000',
-  secret: '#6cc8ff',
-  hazard: '#e2445c',
-  portal: '#b46bff',
-};
+export { POI_COLOR };
 /** The game's portal sprite is 96 × 96 world pixels, centred on the portal. */
 const PORTAL_SPRITE = 96;
 
@@ -296,6 +300,20 @@ const DIAMOND_RIM: [number, number, number, number][] = [
 ];
 /** 7 × 7, centred on the marker. */
 const SKULL = [' ##### ', '#######', '#  #  #', '#######', ' ## ## ', ' # # # ', '       '];
+/** A Holy Mountain: a small peak with a doorway. */
+const PEAK = ['   #   ', '  ###  ', '  ###  ', ' ##### ', ' ## ## ', '### ###', '### ###'];
+
+/** A pixel picture (rows of '#'), centred, each pixel `px` screen pixels, on a dark rim. */
+function pixelGlyph(ctx: CanvasRenderingContext2D, rows: string[], x: number, y: number, px: number, color: string) {
+  const w = rows[0]!.length;
+  const h = rows.length;
+  const ox = x - Math.floor((w * px) / 2);
+  const oy = y - Math.floor((h * px) / 2);
+  ctx.fillStyle = '#0a0807';
+  rows.forEach((row, r) => [...row].forEach((c, k) => c === '#' && ctx.fillRect(ox + k * px - 1, oy + r * px - 1, px + 2, px + 2)));
+  ctx.fillStyle = color;
+  rows.forEach((row, r) => [...row].forEach((c, k) => c === '#' && ctx.fillRect(ox + k * px, oy + r * px, px, px)));
+}
 
 /** The world map: biomes in their own rock, the game's fixed rooms on top. Drag to pan, wheel or pinch to zoom. */
 export function MapView({
@@ -311,6 +329,9 @@ export function MapView({
   markerKind = 'here',
   pois,
   ground,
+  layersKey,
+  report,
+  items,
 }: {
   map: WorldMap;
   vis: Vis;
@@ -330,18 +351,29 @@ export function MapView({
   pois?: MapPoi[] | null;
   /** The real overworld ground line where the mod sampled it (live runs, mod 5). */
   ground?: GroundPoint[] | null;
+  /** Gives the map a Layers panel, its choices remembered under this name. */
+  layersKey?: string;
+  /** The seed's report (biome modifiers, Holy Mountain perks); null while it's worked out, absent where it doesn't apply. */
+  report?: SeedReport | null;
+  /** The seed's items; null while they're placed, absent where they don't apply. */
+  items?: SeedItem[] | null;
 }) {
+  const layers = useMapLayers(layersKey);
+  const { perkById, spellById, items: itemList } = useData();
+  const itemById = useMemo(() => new Map(itemList.map((i) => [i.id, i])), [itemList]);
+  const { visible } = useSpoilers();
   const line = useMemo(() => (ground?.length ? groundLine(ground) : null), [ground]);
+  const showCaves = layers.on('caves');
   const caves = useMemo(() => {
     const out = new Map<number, HTMLCanvasElement>();
-    if (layouts && wangColors) for (const l of layouts) out.set(l.area, layoutCanvas(map, l, wangColors, materialById));
+    if (layouts && wangColors && showCaves) for (const l of layouts) out.set(l.area, layoutCanvas(map, l, wangColors, materialById));
     return out;
-  }, [layouts, wangColors, map, materialById]);
+  }, [layouts, wangColors, map, materialById, showCaves]);
   // Heaven and Hell (the world one map-height up and down) show the main world's caves again, wherever their own
   // biome is a cave biome (the_sky, the_end, robobase's column), in that biome's rock (as noita-telescope draws them).
   const copies = useMemo(() => {
     const out: { area: number; rows: number; biome: number; canvas: HTMLCanvasElement }[] = [];
-    if (!layouts || !wangColors || !map.mapRows) return out;
+    if (!layouts || !wangColors || !map.mapRows || !showCaves) return out;
     // The world repeats every biome_map.png height (48 rows, 24576 px) up and down.
     const period = map.mapRows;
     for (const l of layouts) {
@@ -359,7 +391,7 @@ export function MapView({
       }
     }
     return out;
-  }, [layouts, wangColors, map, materialById]);
+  }, [layouts, wangColors, map, materialById, showCaves]);
   const caveBiomes = useMemo(() => new Set([...[...caves.keys()].map((i) => map.areas[i]!.biome), ...copies.map((c) => c.biome)]), [caves, copies, map]);
   // Areas a picture lays out whole (the Lava Lake): drawn as a room, the picture's rock over the backdrop.
   const sceneAreas = useMemo(() => new Set(map.scenes.flatMap((s) => (s.area ? [s.area] : []))), [map]);
@@ -379,7 +411,21 @@ export function MapView({
   const view = useRef<View | null>(null);
   const [tick, setTick] = useState(0);
   const redraw = useCallback(() => setTick((t) => t + 1), []);
-  const spots = useMemo(() => labelSpots(map), [map]);
+  const areas = useMemo(() => connectedAreas(map), [map]);
+  const spots = useMemo(() => labelSpots(map, areas), [map, areas]);
+  // Each place's modifier, on its biggest area (the Pyramid's parts and the Mines' hall count as their place).
+  const modifierSpots = useMemo(() => {
+    const best = new Map<string, { k: number; x: number; y: number; n: number; m: BiomeModifier }>();
+    if (!report) return [];
+    for (const [k, x, y, n] of areas) {
+      const b = map.biomes[k]!;
+      const m = report.modifiers[b.id];
+      if (!m) continue;
+      const key = `${placeName(b)}|${m.id}`;
+      if ((best.get(key)?.n ?? 0) < n) best.set(key, { k, x, y, n, m });
+    }
+    return [...best.values()].sort((a, b) => b.n - a.n);
+  }, [areas, map, report]);
   /** By biome index: drawn in ground layers (the overworld). */
   const layered = useMemo(() => map.biomes.map(isLayered), [map]);
   const biomeById = useMemo(() => new Map(map.biomes.map((b) => [b.id, b])), [map]);
@@ -395,6 +441,32 @@ export function MapView({
     },
     [map, left, top],
   );
+  /** Whether a spot is in an area you can see (nothing is pinned, or counted, in one you haven't found). */
+  const inSight = useCallback(
+    (x: number, y: number) => {
+      const k = cellAt(x, y);
+      return k >= 0 && vis.biome(map.biomes[k]!);
+    },
+    [cellAt, vis, map],
+  );
+  const seenPois = useMemo(() => (pois ?? []).filter((p) => inSight(poiCentre(p).x, poiCentre(p).y) && (!p.scene || vis.scene(p.scene))), [pois, inSight, vis]);
+  const seenItems = useMemo(() => (items ?? []).filter((it) => inSight(it.x, it.y)), [items, inSight]);
+  const seenModifiers = useMemo(() => modifierSpots.filter((s) => vis.biome(map.biomes[s.k]!)), [modifierSpots, vis, map]);
+  // The Holy Mountains, where their shops stand, with what each offers this seed.
+  const mountains = useMemo(
+    () => (report ? map.shops.map((at, i) => ({ at, n: i + 1, perks: report.perks.mountains[i] ?? [], shop: report.shops[i] })).filter((m) => inSight(m.at.x, m.at.y)) : []),
+    [report, map, inSight],
+  );
+  const counts = useMemo(() => {
+    const c: LayerCounts = {};
+    const poiKinds = ['room', 'puzzle', 'shop', 'treasure', 'secret', 'hazard', 'portal'] as const;
+    for (const k of poiKinds) c[`poi:${k}`] = pois === undefined ? null : pois === null ? 'loading' : seenPois.filter((p) => p.kind === k).length;
+    for (const k of Object.keys(ITEM_COLOR) as (keyof typeof ITEM_COLOR)[]) c[`item:${k}`] = items === undefined ? null : items === null ? 'loading' : seenItems.filter((it) => it.kind === k).length;
+    c.modifiers = report === undefined ? null : report === null ? 'loading' : seenModifiers.length;
+    c.mountains = report === undefined ? null : report === null ? 'loading' : mountains.length;
+    if (!layouts && !wangColors) c.caves = 'loading';
+    return c;
+  }, [pois, items, report, seenPois, seenItems, seenModifiers, mountains, layouts, wangColors]);
 
   const mx = marker?.x;
   const my = marker?.y;
@@ -682,37 +754,71 @@ export function MapView({
         }
       }
     }
+    // Labels and pins skip a spot that would overlap one already drawn (biggest areas first).
+    const taken: [number, number, number, number][] = [];
+    const free = (box: [number, number, number, number]) => {
+      if (taken.some((t) => box[0] < t[2] && box[2] > t[0] && box[1] < t[3] && box[3] > t[1])) return false;
+      taken.push(box);
+      return true;
+    };
+    const outlined = (text: string, x: number, y: number, color: string) => {
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.strokeText(text, x, y);
+      ctx.fillStyle = color;
+      ctx.fillText(text, x, y);
+    };
+    const offScreen = (x: number, y: number, reach: number) => x < -reach || y < -reach || x > size.w + reach || y > size.h + reach;
     // Names of the areas you can see.
+    const names = layers.on('names');
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = `600 ${cs > 40 ? 15 : 12}px ui-sans-serif, system-ui`;
-    // Biggest areas first; a label that would overlap one already drawn is left out.
-    const taken: [number, number, number, number][] = [];
-    for (const [k, mx, my] of spots) {
-      const b = map.biomes[k]!;
-      if (!vis.biome(b)) continue;
-      const [sx, sy] = toScreen(left + mx * map.chunk, top + my * map.chunk);
-      if (sx < -80 || sy < -20 || sx > size.w + 80 || sy > size.h + 20) continue;
-      const label = biomeName(b);
-      const half = ctx.measureText(label).width / 2 + 3;
-      const box: [number, number, number, number] = [sx - half, sy - 9, sx + half, sy + 9];
-      if (taken.some((t) => box[0] < t[2] && box[2] > t[0] && box[1] < t[3] && box[3] > t[1])) continue;
-      taken.push(box);
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-      ctx.strokeText(label, sx, sy);
-      ctx.fillStyle = '#f2e6c9';
-      ctx.fillText(label, sx, sy);
+    if (names) {
+      for (const [k, mx, my] of spots) {
+        const b = map.biomes[k]!;
+        if (!vis.biome(b)) continue;
+        const [sx, sy] = toScreen(left + mx * map.chunk, top + my * map.chunk);
+        if (offScreen(sx, sy, 80)) continue;
+        const label = biomeName(b);
+        const half = ctx.measureText(label).width / 2 + 3;
+        if (free([sx - half, sy - 9, sx + half, sy + 9])) outlined(label, sx, sy, '#f2e6c9');
+      }
+    }
+    // This seed's biome modifiers: under the area's name, on the game's banner close up.
+    if (layers.on('modifiers')) {
+      ctx.font = `600 11px ui-sans-serif, system-ui`;
+      for (const s of seenModifiers) {
+        const b = map.biomes[s.k]!;
+        const [sx, sy0] = toScreen(left + s.x * map.chunk, top + s.y * map.chunk);
+        const labelled = names && namedInGame(b) && s.n >= 2;
+        const sy = sy0 + (labelled ? (cs > 40 ? 18 : 15) : 0);
+        if (offScreen(sx, sy, 80)) continue;
+        const name = BIOME_MODIFIERS[s.m.id]?.name ?? s.m.id.toLowerCase().replace(/_/g, ' ');
+        const tw = ctx.measureText(name).width;
+        const banner = cs >= 40 && s.m.decoration ? image(gameUrl(`ui/modifiers/${s.m.decoration}.png`), redraw) : null;
+        const half = Math.ceil(tw / 2 + (banner ? 20 : 3));
+        if (!free([sx - half, sy - (banner ? 12 : 8), sx + half, sy + (banner ? 12 : 8)])) continue;
+        if (banner) {
+          // 72 × 24: the 17 px ends hold the emblems, the middle stretches.
+          const bx = Math.round(sx - half);
+          const by = Math.round(sy - 12);
+          const bw = half * 2;
+          ctx.drawImage(banner, 0, 0, 17, 24, bx, by, 17, 24);
+          ctx.drawImage(banner, 17, 0, 38, 24, bx + 17, by, bw - 34, 24);
+          ctx.drawImage(banner, 55, 0, 17, 24, bx + bw - 17, by, 17, 24);
+        }
+        outlined(name, sx, sy, banner ? '#f2e6c9' : MODIFIER_COLOR);
+      }
     }
     // Points of interest: a pin each, the room's outline close up, and its name closer still (labels that would
     // overlap an area name or another pin's are left out).
-    if (pois?.length) {
+    if (seenPois.length) {
       ctx.font = `600 11px ui-sans-serif, system-ui`;
       const portalSprite = map.portalImage ? image(gameUrl(`map/${map.portalImage}.png`), redraw) : null;
-      for (const p of pois) {
+      for (const p of seenPois) {
+        if (!layers.on(`poi:${p.kind}`)) continue;
         const c = poiCentre(p);
-        const k = cellAt(c.x, c.y);
-        if (k < 0 || !vis.biome(map.biomes[k]!) || (p.scene && !vis.scene(p.scene))) continue;
         const [fx, fy] = toScreen(c.x, c.y);
         const reach = p.kind === 'portal' ? Math.max(40, PORTAL_SPRITE * v.s) : 40;
         if (fx < -reach || fy < -reach || fx > size.w + reach || fy > size.h + reach) continue;
@@ -757,6 +863,82 @@ export function MapView({
         }
       }
     }
+    // The Holy Mountains: a gold peak at each shop, and close up the perks it offers this seed ("?" for ones you
+    // haven't discovered) and which shop it has.
+    if (layers.on('mountains') && mountains.length) {
+      const perkAtlas = image(gameUrl('sprites/perks.png'), redraw);
+      ctx.font = `600 11px ui-sans-serif, system-ui`;
+      for (const m of mountains) {
+        const [fx, fy] = toScreen(m.at.x, m.at.y);
+        if (offScreen(fx, fy, 80)) continue;
+        const sx = Math.round(fx);
+        const sy = Math.round(fy);
+        pixelGlyph(ctx, PEAK, sx, sy, 2, MOUNTAIN_COLOR);
+        if (cs < 150) continue;
+        const step = 20;
+        const x0 = Math.round(sx - (m.perks.length * step) / 2 + 2);
+        const py = sy - 34;
+        if (m.perks.length && free([x0 - 2, py - 2, x0 + m.perks.length * step, py + 18])) {
+          m.perks.forEach((id, i) => {
+            const p = perkById.get(id);
+            const px = x0 + i * step;
+            ctx.fillStyle = 'rgba(10,8,7,0.85)';
+            ctx.fillRect(px - 1, py - 1, 18, 18);
+            if (p && visible(p.discoverFlag) && perkAtlas) ctx.drawImage(perkAtlas, p.icon.x, p.icon.y, p.icon.w, p.icon.h, px + 8 - p.icon.w / 2, py + 8 - p.icon.h / 2, p.icon.w, p.icon.h);
+            else {
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              outlined('?', px + 8, py + 8, '#8a7f73');
+            }
+          });
+        }
+        const label = `Holy Mountain ${m.n}${m.shop ? ` · ${m.shop.type === 'wand' ? 'wand shop' : 'spell shop'}` : ''}`;
+        const half = ctx.measureText(label).width / 2 + 3;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        if (free([sx - half, sy + 8, sx + half, sy + 22])) outlined(label, sx, sy + 9, MOUNTAIN_COLOR);
+      }
+    }
+    // Items: a dot each once zoomed in a little (the whole world's would bury the area names), and close up its
+    // picture (a secret item, or a spell you haven't found, stays a dot).
+    if (seenItems.length && cs >= 40) {
+      const atlas = image(gameUrl('sprites/items.png'), redraw);
+      const spellAtlas = image(gameUrl('sprites/spells.png'), redraw);
+      const wandPic = image(`${import.meta.env.BASE_URL}icons/wand.png`, redraw);
+      for (const it of seenItems) {
+        if (!layers.on(`item:${it.kind}`)) continue;
+        const [fx, fy] = toScreen(it.x, it.y);
+        if (offScreen(fx, fy, 20)) continue;
+        const sx = Math.round(fx);
+        const sy = Math.round(fy);
+        const spell = it.kind === 'spell' ? spellById.get(it.file) : undefined;
+        const hidden = (it.item && SECRET_ITEMS.has(it.item) && !visible(itemKey(it.item))) || (it.kind === 'spell' && !(spell && visible(spell.discoverFlag)));
+        const icon: { img: HTMLImageElement | null; r: Icon } | null =
+          cs < 150 || hidden
+            ? null
+            : it.kind === 'wand'
+              ? wandPic && { img: wandPic, r: { x: 0, y: 0, w: wandPic.width, h: wandPic.height } }
+              : spell
+                ? { img: spellAtlas, r: spell.icon }
+                : it.item && itemById.get(it.item)?.icon.w
+                  ? { img: atlas, r: itemById.get(it.item)!.icon }
+                  : null;
+        if (icon?.img) {
+          // At most 16 px across, as the game's own icons.
+          const k = Math.min(1, 16 / Math.max(icon.r.w, icon.r.h));
+          const w = Math.round(icon.r.w * k);
+          const h = Math.round(icon.r.h * k);
+          ctx.fillStyle = 'rgba(10,8,7,0.6)';
+          ctx.fillRect(sx - w / 2 - 1, sy - h / 2 - 1, w + 2, h + 2);
+          ctx.drawImage(icon.img, icon.r.x, icon.r.y, icon.r.w, icon.r.h, sx - w / 2, sy - h / 2, w, h);
+          continue;
+        }
+        ctx.fillStyle = '#0a0807';
+        ctx.fillRect(sx - 3, sy - 3, 6, 6);
+        ctx.fillStyle = hidden ? '#8a7f73' : ITEM_COLOR[it.kind];
+        ctx.fillRect(sx - 2, sy - 2, 4, 4);
+      }
+    }
     if (selected) {
       const w = chunkWorld(map, selected.cx, selected.cy);
       const [sx, sy] = toScreen(w.x, w.y);
@@ -795,7 +977,7 @@ export function MapView({
         ctx.fillRect(sx - 2, sy - 2, 2, 2);
       }
     }
-  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, copies, caveBiomes, sceneAreas, wangColors, sceneColor, mx, my, markerKind, pois, cellAt, layered, biomeById, line]);
+  }, [tick, size, map, vis, materialById, selected, spots, left, top, redraw, caves, copies, caveBiomes, sceneAreas, wangColors, sceneColor, mx, my, markerKind, layered, biomeById, line, layers, seenPois, seenItems, seenModifiers, mountains, perkById, spellById, itemById, visible]);
 
   // Pointer: drag pans, two fingers pinch, a tap selects.
   const pointers = useRef(new Map<number, { x: number; y: number }>());
@@ -873,6 +1055,7 @@ export function MapView({
         onPointerUp={onPointerUp}
         onPointerCancel={(e) => pointers.current.delete(e.pointerId)}
       />
+      {layersKey && <LayersControl layers={layers} counts={counts} />}
       <div className="absolute right-2 bottom-2 flex flex-col gap-1">
         <button className={button} aria-label="Zoom in" onClick={() => zoomAt(size.w / 2, size.h / 2, 1.6)}>
           <Plus size={16} />

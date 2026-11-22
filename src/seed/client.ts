@@ -1,13 +1,14 @@
-import type { SeedIn, SeedOut, SeedQuery, SeedReport, WandRoll } from './worker';
+import type { ItemQuery, SeedIn, SeedOut, SeedQuery, SeedReport, WandRoll } from './worker';
 import type { AreaLayout } from './layout';
 import type { ShopWand } from './seed';
 import type { SeedPoi } from './poi';
+import type { SeedItem } from './items';
 
 let worker: Worker | null = null;
 let nextId = 1;
 const pending = new Map<number, (r: SeedOut) => void>();
 
-type Request = { query: SeedQuery } | { layoutSeed: number } | { poiSeed: number } | { roll: WandRoll };
+type Request = { query: SeedQuery } | { layoutSeed: number } | { poiSeed: number } | { items: ItemQuery } | { roll: WandRoll };
 
 function send(req: Request): Promise<SeedOut & { ok: true }> {
   if (!worker) {
@@ -51,3 +52,6 @@ export const seedLayouts = (seed: number): Promise<AreaLayout[]> => send({ layou
 
 /** Where the seed's biome scripts put their rooms (the curated points of interest). */
 export const seedPois = (seed: number): Promise<SeedPoi[]> => send({ poiSeed: seed }).then((r) => r.pois ?? []);
+
+/** The items the seed's biome scripts place (wands with their stats, chests with what they give, flasks…). */
+export const seedItems = (q: ItemQuery): Promise<SeedItem[]> => send({ items: q }).then((r) => r.items ?? []);

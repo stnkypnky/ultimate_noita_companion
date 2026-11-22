@@ -14,7 +14,7 @@ import { seedReport } from '@/seed/client';
 import type { SeedReport } from '@/seed/worker';
 import { MAX_SEED } from '@/features/alchemy/aplc';
 import { ModifierCard } from './ModifierCard';
-import { biomeName, type makeVisibility } from './world';
+import { PART_OF, biomeName, type makeVisibility } from './world';
 
 let strings: Promise<Record<string, string>> | null = null;
 const loadStrings = () => (strings ??= fetchJson<Record<string, string>>('data/seed_strings.json').catch(() => ({})));
@@ -192,7 +192,7 @@ export function PerkChip({ id, taken, onClick }: { id: string; taken?: boolean; 
   );
 }
 
-function SpellChip({ id }: { id: string }) {
+export function SpellChip({ id }: { id: string }) {
   const { spellById } = useData();
   const { visible } = useSpoilers();
   const s = spellById.get(id);
@@ -205,20 +205,23 @@ function SpellChip({ id }: { id: string }) {
   );
 }
 
-function WandLink({ wand, cost, sale }: { wand: ShopWand; cost: number; sale: boolean }) {
+/** A wand's stats and spells, with a link to try it in the builder; a shop's shows its price. */
+export function WandLink({ wand, cost, sale, name = 'Shop wand' }: { wand: ShopWand; cost?: number; sale?: boolean; name?: string }) {
   const [href, setHref] = useState<string | null>(null);
   useEffect(() => {
-    void encodeWand({ ...wand, name: 'Shop wand' }).then((c) => setHref(`/wand#w=${c}`));
-  }, [wand]);
+    void encodeWand({ ...wand, name }).then((c) => setHref(`/wand#w=${c}`));
+  }, [wand, name]);
   return (
     <div className="rounded-lg border border-line p-2">
       <div className="flex items-center justify-between gap-2 text-xs">
         <span className="text-muted">
           {wand.shuffle ? 'Shuffle' : 'No shuffle'} · {wand.spellsPerCast}/cast · {wand.capacity} slots
         </span>
-        <span className={sale ? 'text-ember' : 'text-gold'}>
-          {Math.round(cost)}${sale ? ' sale' : ''}
-        </span>
+        {cost !== undefined && (
+          <span className={sale ? 'text-ember' : 'text-gold'}>
+            {Math.round(cost)}${sale ? ' sale' : ''}
+          </span>
+        )}
       </div>
       <div className="mt-1 text-[11px] text-faint tabular-nums">
         delay {(wand.castDelay / 60).toFixed(2)}s · recharge {(wand.rechargeTime / 60).toFixed(2)}s · mana {Math.round(wand.manaMax)} (+{Math.round(wand.manaChargeSpeed)}/s) · spread {wand.spread}°
@@ -281,35 +284,43 @@ export function ShopView({ items, type }: { items: ShopItem[]; type: 'spell' | '
   );
 }
 
+/** One Holy Mountain this seed: the perks it offers (tickable where `onPick` is given), what Gamble gave, its shop. */
+export function MountainCard({ report, index: i, picks, onPick }: { report: SeedReport; index: number; picks?: string[][]; onPick?: (level: number, perk: string) => void }) {
+  const offered = report.perks.mountains[i] ?? [];
+  const shop = report.shops[i];
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-game w-28 shrink-0 text-[16px] text-gold">Mountain {i + 1}</span>
+        {offered.map((p, j) => (
+          <PerkChip key={`${p}${j}`} id={p} taken={picks?.[i]?.includes(p)} onClick={onPick && (() => onPick(i, p))} />
+        ))}
+      </div>
+      {(report.perks.gambles[i]?.length ?? 0) > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted">
+          Gamble gave: {report.perks.gambles[i]!.map((p) => <PerkChip key={p} id={p} />)}
+        </div>
+      )}
+      {shop && (
+        <div className="mt-3">
+          <div className="mb-1.5 text-xs text-muted">Shop: {shop.type === 'wand' ? 'wands' : 'spells'}</div>
+          <ShopView items={shop.items} type={shop.type} />
+        </div>
+      )}
+    </>
+  );
+}
+
 function HolyMountains({ report, picks, onPick }: { report: SeedReport; picks: string[][]; onPick: (level: number, perk: string) => void }) {
   return (
     <Section title="Holy Mountains">
       <p className="mb-2 text-xs text-faint">Tick the perks you take: perks that don't stack leave the deck, and Extra Perk, Gamble, Extra Shop Item and No More Shuffle change what comes later.</p>
       <ol className="space-y-3">
-        {report.perks.mountains.map((offered, i) => {
-          const shop = report.shops[i];
-          return (
-            <li key={i} className="rounded-xl border border-line p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-game w-28 shrink-0 text-[16px] text-gold">Mountain {i + 1}</span>
-                {offered.map((p, j) => (
-                  <PerkChip key={`${p}${j}`} id={p} taken={picks[i]?.includes(p)} onClick={() => onPick(i, p)} />
-                ))}
-              </div>
-              {(report.perks.gambles[i]?.length ?? 0) > 0 && (
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted">
-                  Gamble gave: {report.perks.gambles[i]!.map((p) => <PerkChip key={p} id={p} />)}
-                </div>
-              )}
-              {shop && (
-                <div className="mt-3">
-                  <div className="mb-1.5 text-xs text-muted">Shop: {shop.type === 'wand' ? 'wands' : 'spells'}</div>
-                  <ShopView items={shop.items} type={shop.type} />
-                </div>
-              )}
-            </li>
-          );
-        })}
+        {report.perks.mountains.map((_, i) => (
+          <li key={i} className="rounded-xl border border-line p-3">
+            <MountainCard report={report} index={i} picks={picks} onPick={onPick} />
+          </li>
+        ))}
       </ol>
       {report.perks.rerolls.length > 0 && (
         <div className="mt-3 text-xs text-muted">
@@ -376,21 +387,6 @@ function Fungal({ shifts }: { shifts: FungalShift[] }) {
     </Section>
   );
 }
-
-/**
- * The overworld's pieces, under the name a player knows them by. The Mines' modifier also covers the mountain hall
- * that leads into them.
- */
-const PART_OF: Record<string, string> = {
-  mountain_hall: 'Mines',
-  mountain_top: 'Mountain',
-  mountain_floating_island: 'Floating island',
-  pyramid_entrance: 'Pyramid',
-  pyramid_left: 'Pyramid',
-  pyramid_top: 'Pyramid',
-  pyramid_right: 'Pyramid',
-  lavalake: 'Lava lake',
-};
 
 function Modifiers({ report, map, vis, texts }: { report: SeedReport; map: WorldMap; vis: ReturnType<typeof makeVisibility> | null; texts: Record<string, string> }) {
   const byId = useMemo(() => new Map(map.biomes.map((b) => [b.id, b])), [map]);

@@ -27,6 +27,8 @@ import { bitmapFont } from './fonts.ts';
 import { FIXED_POIS, POI_TABLE } from './pois.ts';
 import { placePois, type PoiData, type PoiInfo, type PoiStats } from '../../src/seed/poi.ts';
 import { generateLayouts, templateOf, type Template } from '../../src/seed/layout.ts';
+import { ENGINE_SPAWNS, itemDetails, itemSpawnsOf, placeItems, type ItemData, type ItemStats } from '../../src/seed/items.ts';
+import { itemEntities, sceneSpawns } from './worldItems.ts';
 
 const ROOT = join(import.meta.dirname, '../..');
 const OUT = join(ROOT, 'public/game');
@@ -137,21 +139,51 @@ for (const s of poiScripts) {
   if (r.error) console.warn(`points of interest: ${s} failed to load: ${r.error}`);
 }
 // A whole placement for one seed, so whatever the room functions load as they run is shipped too.
+const tilesets = new Map<string, Template>();
+for (const [key, png] of world.wangImages) {
+  const { data, info } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  tilesets.set(key, templateOf(new Uint8Array(data), info.width, info.height));
+}
+const overlay = new Uint8Array(await sharp(readFileSync(join(import.meta.dirname, 'assets/coalmine_overlay.png'))).removeAlpha().raw().toBuffer());
+const seedOneLayouts = generateLayouts(world.map, 1, tilesets, overlay);
 {
-  const tilesets = new Map<string, Template>();
-  for (const [key, png] of world.wangImages) {
-    const { data, info } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-    tilesets.set(key, templateOf(new Uint8Array(data), info.width, info.height));
-  }
-  const overlay = new Uint8Array(await sharp(readFileSync(join(import.meta.dirname, 'assets/coalmine_overlay.png'))).removeAlpha().raw().toBuffer());
   seedHost.call('sim_set_world_seed', 1);
   const stats: PoiStats[] = [];
-  const placed = placePois(seedHost.call, world.map, generateLayouts(world.map, 1, tilesets, overlay), { scenes: new Proxy({}, { get: () => undefined }) }, stats);
+  const placed = placePois(seedHost.call, world.map, seedOneLayouts, { scenes: new Proxy({}, { get: () => undefined }) }, stats);
   const errors = stats.reduce((n, s) => n + s.errors, 0);
   console.log(`points of interest: seed 1 ran ${stats.reduce((n, s) => n + s.markers, 0)} room markers (${errors} failed, ${placed.length} kept)`);
 }
+// The map's Items layer: the item entities, the markers inside the rooms (in any colour some biome spawns by), and
+// a whole item pass for seed 1, so the scripts chests, flasks and wands run are shipped too.
+{
+  const colours = new Set(Object.keys(ENGINE_SPAWNS).map((c) => parseInt(c, 16)));
+  for (const s of poiScripts) {
+    const r = itemSpawnsOf(seedHost.call, s);
+    if (r.error) console.warn(`items: ${s} failed to load: ${r.error}`);
+    for (const c of Object.keys(r.spawns ?? {})) colours.add(parseInt(c, 16));
+  }
+  const worldItems: ItemData = { entities: itemEntities(wak, items), scenes: await sceneSpawns(wak, colours) };
+  await writeJson('data/world_items.json', worldItems);
+  seedHost.call('sim_set_world_seed', 1);
+  const stats: ItemStats[] = [];
+  const placed = itemDetails(seedHost.call, worldItems, placeItems(seedHost.call, world.map, seedOneLayouts, worldItems, stats));
+  const by = new Map<string, number>();
+  for (const it of placed) by.set(it.kind, (by.get(it.kind) ?? 0) + 1);
+  console.log(
+    `items: ${Object.keys(worldItems.entities).length} entities, ${Object.keys(worldItems.scenes).length} rooms with markers; seed 1 placed ${placed.length} (${[...by].map(([k, n]) => `${k} ${n}`).join(', ')}), ` +
+      `${stats.reduce((n, s) => n + s.markers, 0)} markers (${stats.reduce((n, s) => n + s.errors, 0)} failed); ` +
+      `${placed.filter((i) => i.wand).length} wands rolled, ${placed.filter((i) => i.contents?.length).length} chests opened, ${placed.filter((i) => i.material).length} flasks filled`,
+  );
+}
 // Shop wands load data/scripts/gun/procedural/wand_<kind>_<level>.lua by level, which depends on the seed: take them all.
-const seedLuaFiles = [...new Set([...seedHost.filesRead, ...wak.list('data/scripts/gun/procedural/').filter((f) => /\/wand_(level|unshuffle)_\d+\.lua$/.test(f))])];
+// The item scripts too (chests, flasks): which of their branches run depends on the seed.
+const seedLuaFiles = [
+  ...new Set([
+    ...seedHost.filesRead,
+    ...wak.list('data/scripts/gun/procedural/').filter((f) => /\/wand_(level|unshuffle)_\d+\.lua$/.test(f)),
+    ...wak.list('data/scripts/items/').filter((f) => f.endsWith('.lua')),
+  ]),
+];
 for (const f of seedLuaFiles) {
   const dest = join(OUT, 'lua', f);
   await mkdir(dirname(dest), { recursive: true });
