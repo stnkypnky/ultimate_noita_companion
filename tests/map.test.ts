@@ -6,14 +6,12 @@ import type { Material, WorldMap } from '../src/data/types.ts';
 import { biomeKey, biomeName, groundBands, holyMountains, isLayered, makeVisibility, orbOf, OVERWORLD_LAYERED, sceneKey } from '../src/features/map/world.ts';
 import { SHOP_SPOTS } from '../src/seed/seed.ts';
 import { evalCond, initSceneCalls } from '../tools/extract/map.ts';
-import { portalDestination } from '../src/features/map/pois.ts';
 
 const GAME = join(import.meta.dirname, '../public/game');
 const map = JSON.parse(readFileSync(join(GAME, 'data/map.json'), 'utf8')) as WorldMap;
 const materials = JSON.parse(readFileSync(join(GAME, 'data/materials.json'), 'utf8')) as Material[];
 const byId = (id: string) => map.biomes.find((b) => b.id === id)!;
 const hidden = makeVisibility(map, { all: false, visible: () => false, orbs: [] });
-const byIdAt = (x: number, y: number) => hidden.chunkAt(x, y)?.id;
 
 describe('world map', () => {
   it('has a biome for every chunk of the 70 × 48 map, and the world past it above and below', () => {
@@ -90,11 +88,8 @@ describe('world map', () => {
     expect(rows.size).toBe(6);
     expect(of('teleport_ending').length).toBeGreaterThan(0);
     expect(of('teleport_teleroom_1').length + of('teleport_teleroom_6').length).toBe(2);
-    // The Lava Lake's portal (in its spliced scene) leads back west into the Mines.
-    const lava = of('teleport_lavalake');
-    expect(lava).toHaveLength(1);
-    const to = portalDestination(map, lava[0]!.entity, lava[0]!.x, lava[0]!.y)!;
-    expect(byIdAt(to.x, to.y)).toBe('coalmine');
+    // The Lava Lake's scene has a portal marker, but outside the chunk that knows it: the game spawns nothing there.
+    expect(of('teleport_lavalake')).toHaveLength(0);
     expect(map.portalImage && existsSync(join(GAME, 'map', `${map.portalImage}.png`))).toBe(true);
   });
 

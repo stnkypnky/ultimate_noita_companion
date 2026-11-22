@@ -418,7 +418,7 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
     if (!wak.has(f)) continue;
     for (const s of wak.text(f).matchAll(/<PixelScene\s[\s\S]*?>/g)) await addScene(s[0], f.split('/').pop()!.replace(/\.xml$/, ''));
   }
-  // Portals in the fixed scenes: a marker pixel runs the spawn function of the biome it lands in (the Lava Lake's).
+  // Portals in the fixed scenes: a marker pixel runs the spawn function of the biome it lands in.
   const anyColor = new Set([...spawnersByBiome.values()].flatMap((m) => [...m.keys()]));
   const biomeIndexAt = (x: number, y: number) => {
     const cx = Math.floor((x - x0) / CHUNK);
@@ -439,18 +439,15 @@ export async function buildWorldMap(wak: Wak, t: Translations) {
   for (const s of [...scenes.filter((s) => s.from !== 'biome'), ...spliced]) {
     if (!s.file.endsWith('.png') || !wak.has(s.file)) continue;
     const px = await sharp(wak.bytes(s.file)).raw().ensureAlpha().toBuffer({ resolveWithObject: true });
-    // The biomes under the scene, for a marker whose own chunk's script doesn't know its colour (the Lava Lake portal
-    // sits just outside the pit's chunk that registers it).
-    const under = new Set<number>();
-    for (let y = s.y; y < s.y + px.info.height; y += CHUNK / 2) for (let x = s.x; x < s.x + px.info.width; x += CHUNK / 2) under.add(biomeIndexAt(x, y));
+    // Only the marker's own biome runs it: the Lava Lake's portal marker sits just outside the pit's chunk that knows
+    // its colour, so the game never spawns it there.
     for (let i = 0; i < px.info.width * px.info.height; i++) {
       if (!px.data[i * 4 + 3]) continue;
       const hex = [px.data[i * 4], px.data[i * 4 + 1], px.data[i * 4 + 2]].map((v) => v!.toString(16).padStart(2, '0')).join('');
       if (!anyColor.has(hex)) continue;
       const x = s.x + (i % px.info.width);
       const y = s.y + Math.floor(i / px.info.width);
-      const k = [biomeIndexAt(x, y), ...under].find((b) => spawnersByBiome.get(b)?.has(hex));
-      for (const e of k === undefined ? [] : spawnersByBiome.get(k)!.get(hex)!) portals.push({ entity: e.file, x: x + e.dx, y: y + e.dy });
+      for (const e of spawnersByBiome.get(biomeIndexAt(x, y))?.get(hex) ?? []) portals.push({ entity: e.file, x: x + e.dx, y: y + e.dy });
     }
   }
   // And drawn: the whole material picture over its pieces' backgrounds (the Lava Lake is nothing but this).
