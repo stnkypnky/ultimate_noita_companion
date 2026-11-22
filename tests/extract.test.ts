@@ -107,7 +107,31 @@ describe('bestiary', () => {
     // Kalmamato: the head with body parts trailing behind it.
     const worm = byId.get('worm_skull')!;
     expect(worm.anims?.[0]?.layers.length).toBeGreaterThan(2);
-    expect(enemies.filter((e) => e.anims).length).toBeGreaterThan(160);
+  });
+
+  // The README promises "Every creature, animated": each one opens on a picture that moves.
+  it('animates every creature', () => {
+    const drawn = (e: (typeof enemies)[number]) => e.anims?.[0]?.layers.some((l) => l.frames.some((f) => f.w > 0));
+    const moves = (e: (typeof enemies)[number]) => !!e.anims?.[0] && (!!e.anims[0].motion || e.anims[0].layers.some((l) => l.frames.length > 1));
+    expect(enemies.filter((e) => !drawn(e)).map((e) => e.id)).toEqual([]);
+    expect(enemies.filter((e) => !moves(e)).map((e) => e.id)).toEqual([]);
+  });
+
+  it('moves creatures the game moves in code', () => {
+    const motion = (id: string) => byId.get(id)!.anims?.[0]?.motion;
+    // Physics bodies drawn from their physics image.
+    expect(motion('crystal_physics')).toBe('float');
+    expect(motion('gate_monster_a')).toBe('float');
+    expect(motion('wand_ghost')).toBe('float');
+    expect(motion('worm_skull')).toBe('wriggle');
+    expect(motion('wraith_storm')).toBe('hover');
+    // Lukki walk on IK legs: 7 walkers and the one that attacks, 80 px long.
+    expect(motion('lukki_longleg')).toBe('scuttle');
+    expect(byId.get('lukki_longleg')!.legs).toMatchObject({ count: 8, reach: 80 });
+    // The Leviathan's eye, on a child entity, opens.
+    expect(byId.get('fish_giga')!.anims![0]!.layers.some((l) => l.frames.length > 1)).toBe(true);
+    // Hirvi stands still: it opens on its walk.
+    expect(byId.get('deer')!.anims![0]!.name).toBe('walk');
   });
 
   it('knows where creatures live, from the biome spawn tables', () => {

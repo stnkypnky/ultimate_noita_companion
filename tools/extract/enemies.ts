@@ -1,13 +1,13 @@
 import { basename } from 'node:path';
 import sharp from 'sharp';
-import type { DamageType, Enemy, EnemyBehavior } from '../../src/data/types.ts';
+import type { DamageType, Enemy, EnemyBehavior, Legs, Motion } from '../../src/data/types.ts';
 import { comp, comps, num, type El, type EntityLoader } from './entity.ts';
 import { humanize, tr, type Translations } from './translations.ts';
 import { buildProjectile } from './spells.ts';
 import { spriteFrame, spriteLayer, type LayerOut } from './visuals.ts';
 import { parseXml } from './entity.ts';
 import type { AtlasInput } from './sprites.ts';
-import type { Wak } from './wak.ts';
+import { normalize, type Wak } from './wak.ts';
 import type { BiomeSpawns } from './spawns.ts';
 
 const HP = 25;
@@ -70,8 +70,9 @@ const PROTECTION: Record<string, string> = {
   PROTECTION_ALL: 'All damage',
 };
 
-/** An enemy as built here: its animation frames are still image keys (packed into the atlas afterwards). */
-export type EnemyOut = Omit<Enemy, 'anims'> & { anims?: { name: string; layers: LayerOut[] }[] };
+/** An enemy as built here: its animation frames and leg images are still image keys (packed into the atlas afterwards). */
+export type LegsOut = Omit<Legs, 'upper' | 'lower' | 'knee'> & { upper: string; lower: string; knee?: string };
+export type EnemyOut = Omit<Enemy, 'anims' | 'legs'> & { anims?: { name: string; layers: LayerOut[]; motion?: Motion }[]; legs?: LegsOut };
 export type EnemyBuild = { enemies: EnemyOut[]; portraits: AtlasInput[]; images: Map<string, Buffer>; scripts: Map<string, string[]> };
 
 export async function buildEnemies(
@@ -186,9 +187,16 @@ export async function buildEnemies(
     if (frame) portraits.push({ key: id, png: frame.png });
     if (file) enemy.file = file;
 
-    const anims = sprite ? await animations(wak, e!, sprite, images) : [];
-    if (anims.length) enemy.anims = anims;
+    const anims = sprite ? await animations(wak, e!, sprite, images, loader) : [];
+    // Physics bodies draw their image from the physics shape: alone, or under their sprite (the Healer drone's glow,
+    // the potion mimic's face).
+    const body = e && (!anims.length || comp(e, 'PhysicsImageShapeComponent')) ? await stillBody(wak, e, tags, images) : null;
+    if (body && !anims.length) anims.push({ name: 'still', layers: [body] });
+    else if (body) for (const a of anims) a.layers.unshift(body);
+    const legs = e ? await legsOf(wak, e, loader, images) : undefined;
+    if (legs) enemy.legs = legs;
     const behavior = behaviorOf(e, ai, loader);
+    if (anims.length) enemy.anims = withMotion(anims, e, legs, behavior);
     if (Object.keys(behavior).length) enemy.behavior = behavior;
     // Lua the creature runs (for finding the ones whose tricks live in scripts).
     const lua = comps(e, 'LuaComponent').flatMap((l) => Object.entries(l.attrs).filter(([k, v]) => k.startsWith('script_') && v).map(([k, v]) => `${k}=${v}`));
@@ -222,9 +230,11 @@ function animNames(wak: Wak, file: string): string[] {
  * The creature's animations: its main sprite's named ones, each drawn with the entity's other visible sprites
  * that share the animation (or are still images). A worm is drawn as its head with a few body parts behind it.
  */
-async function animations(wak: Wak, e: El, main: El, images: Map<string, Buffer>): Promise<{ name: string; layers: LayerOut[] }[]> {
+async function animations(wak: Wak, e: El, main: El, images: Map<string, Buffer>, loader: EntityLoader): Promise<{ name: string; layers: LayerOut[] }[]> {
   const file = String(main.attrs.image_file ?? '');
   const names = animNames(wak, file);
+  // A creature made of parts on child entities (the Leviathan's eye and tentacles), when its own sprite has no animations.
+  const parts = names.length ? [] : partSprites(e, loader);
   const sprites = comps(e, 'SpriteComponent').filter(
     (s) =>
       s === main ||
@@ -270,13 +280,15 @@ async function animations(wak: Wak, e: El, main: El, images: Map<string, Buffer>
     } else {
       // Things it holds (Märkiäinen's lantern) hang from a hotspot on its sprite, which moves with the animation.
       const hand = await Promise.all(held.map(async (h) => ({ ...h, at: (await hotspotAt(wak, file, h.hotspot, name || undefined)) ?? h.fallback })));
-      const all = [...sprites.map((s) => ({ s, at: [0, 0] as [number, number] })), ...hand];
+      const all = [...sprites.map((s) => ({ s, at: [0, 0] as [number, number] })), ...hand, ...parts];
       for (const { s, at } of all.sort((a, b) => z(b.s) - z(a.s))) {
         const f = String(s.attrs.image_file);
         const isMain = s === main;
         // Other layers join only if they're still images or animate with the same name.
         if (!isMain && f.endsWith('.xml') && name && !animNames(wak, f).includes(name)) continue;
-        const l = await spriteLayer(wak, f, opts(s, isMain || f.endsWith('.xml') ? name || undefined : undefined), images);
+        // A part with no shared name plays its first animation that moves (the Leviathan's eye opening).
+        const anim = isMain || f.endsWith('.xml') ? name || (isMain ? undefined : movingAnim(wak, f)) : undefined;
+        const l = await spriteLayer(wak, f, opts(s, anim), images);
         if (l) layers.push({ ...l, ox: l.ox - at[0], oy: l.oy - at[1] });
       }
     }
@@ -316,6 +328,106 @@ async function heldSprites(wak: Wak, e: El, mainFile: string): Promise<Held[]> {
   return out;
 }
 
+/** A child entity with its own <Base> files merged in (the loader only resolves the top entity's). */
+function resolveChild(child: El, loader: EntityLoader): El {
+  const out: El = { tag: 'Entity', attrs: { ...child.attrs }, children: [] };
+  for (const c of child.children) {
+    if (c.tag === 'Base' && c.attrs.file) out.children.push(...(loader.load(c.attrs.file)?.children ?? []), ...c.children);
+    else out.children.push(c);
+  }
+  return out;
+}
+
+/** Visible sprites on child entities that follow the creature from a fixed spot (InheritTransformComponent's Transform). */
+function partSprites(e: El, loader: EntityLoader): { s: El; at: [number, number] }[] {
+  const out: { s: El; at: [number, number] }[] = [];
+  for (const raw of comps(e, 'Entity')) {
+    const child = resolveChild(raw, loader);
+    const inherit = comp(child, 'InheritTransformComponent');
+    if (!inherit || inherit.attrs.parent_hotspot_tag || comp(child, 'IKLimbComponent')) continue;
+    const tf = comp(inherit, 'Transform')?.attrs ?? {};
+    for (const s of comps(child, 'SpriteComponent')) {
+      const f = s.attrs.image_file ?? '';
+      if (s.attrs._enabled === '0' || !f || f.includes('/ui_gfx/') || notBody(s) || SPRITE_SKIP.test(f) || SPRITE_SKIP.test(s.attrs._tags ?? '')) continue;
+      out.push({ s, at: [num(tf['position.x'], 0), num(tf['position.y'], 0)] });
+    }
+  }
+  return out;
+}
+
+/** A sprite file's first animation with more than one frame. */
+function movingAnim(wak: Wak, file: string): string | undefined {
+  if (!file.endsWith('.xml') || !wak.has(file)) return undefined;
+  const sprite = parseXml(wak.text(file)).find((x) => x.tag === 'Sprite');
+  return comps(sprite ?? null, 'RectAnimation').find((a) => num(a.attrs.frame_count, 1) > 1 && !ANIM_SKIP.test(a.attrs.name ?? ''))?.attrs.name;
+}
+
+const lowerPaths = new WeakMap<Wak, Map<string, string>>();
+/** The archive's spelling of a path: entity files name lukki_limb_A_long.png, the archive holds lukki_limb_a_long.png. */
+function realPath(wak: Wak, path: string): string | undefined {
+  if (wak.has(path)) return normalize(path);
+  let m = lowerPaths.get(wak);
+  if (!m) lowerPaths.set(wak, (m = new Map([...wak.entries.keys()].map((k) => [k.toLowerCase(), k]))));
+  return m.get(normalize(path).toLowerCase());
+}
+
+/**
+ * The body of a creature with no SpriteComponent to show: a physics body's own image (crystals, gate guardians),
+ * pivoting where PhysicsImageShapeComponent puts it. The wand ghost is a wand flying on its own; the game hands it
+ * a random one, so it's drawn with a plain starter wand.
+ */
+async function stillBody(wak: Wak, e: El, tags: string[], images: Map<string, Buffer>): Promise<LayerOut | null> {
+  const shape = comp(e, 'PhysicsImageShapeComponent');
+  // A flask's shape is its normal map (potion_normals.png): the picture is the file beside it (potion.png).
+  const shapeImage = shape?.attrs.image_file ?? '';
+  const shapeFile = shapeImage ? (realPath(wak, shapeImage.replace(/_normals\.png$/, '.png')) ?? realPath(wak, shapeImage)) : undefined;
+  const file = shapeFile ?? (tags.includes('wand_ghost') ? realPath(wak, WAND_GHOST_WAND) : undefined);
+  if (!file) return null;
+  const meta = await sharp(wak.bytes(file)).metadata();
+  const centred = !shape || shape.attrs.centered === '1';
+  const ox = centred ? (meta.width ?? 0) / 2 : num(shape.attrs.offset_x, 0);
+  const oy = centred ? (meta.height ?? 0) / 2 : num(shape.attrs.offset_y, 0);
+  return spriteLayer(wak, file, { ox, oy, maxFrames: ANIM_FRAMES, maxFrame: ANIM_SIZE }, images);
+}
+const WAND_GHOST_WAND = 'data/items_gfx/wands/wand_0000.png';
+
+/** Its IK legs: the walking limb's two segments (and knee), how many it has and how far they reach. */
+async function legsOf(wak: Wak, e: El, loader: EntityLoader, images: Map<string, Buffer>): Promise<LegsOut | undefined> {
+  const limbs = comps(e, 'Entity')
+    .map((c) => resolveChild(c, loader))
+    .filter((c) => comp(c, 'IKLimbComponent'));
+  const walker = limbs.find((l) => !comp(l, 'IKLimbAttackerComponent')) ?? limbs[0];
+  if (!walker) return undefined;
+  const sprites = comps(walker, 'SpriteComponent').filter((s) => s.attrs._enabled !== '0' && s.attrs.image_file);
+  const joint = (s: El) => /knee|elbow/.test(s.attrs.image_file!);
+  const seg = sprites.filter((s) => !joint(s));
+  const key = (s: El | undefined) => {
+    const f = s && realPath(wak, s.attrs.image_file!);
+    if (!f || !f.endsWith('.png')) return undefined;
+    const k = `leg:${f}`;
+    if (!images.has(k)) images.set(k, wak.bytes(f));
+    return k;
+  };
+  const upper = key(seg[0]);
+  const lower = key(seg[1] ?? seg[0]);
+  if (!upper || !lower) return undefined;
+  const knee = key(sprites.find(joint));
+  return { count: limbs.length, reach: num(comp(walker, 'IKLimbComponent')!.attrs.length, 40), upper, lower, pivot: num(seg[0]!.attrs.offset_y, 0), ...(knee ? { knee } : {}) };
+}
+
+/**
+ * How the game moves it when no sprite animation does: legs step, worms wriggle, physics bodies drift, the rest bob.
+ * A creature with an animation that plays opens on it, even when its default pose is a still one (Peura's stand).
+ */
+function withMotion(anims: { name: string; layers: LayerOut[] }[], e: El | null, legs: LegsOut | undefined, b: EnemyBehavior) {
+  const plays = (a: { layers: LayerOut[] }) => a.layers.some((l) => l.frames.length > 1);
+  const first = anims.findIndex(plays);
+  if (first > 0) anims.unshift(...anims.splice(first, 1));
+  if (!legs && (first >= 0 || b.immobile)) return anims;
+  const kind: Motion = legs ? 'scuttle' : comp(e, 'WormComponent') || comp(e, 'BossDragonComponent') ? 'wriggle' : b.physics || comp(e, 'PhysicsImageShapeComponent') ? 'float' : 'hover';
+  return anims.map((a) => ({ ...a, motion: kind }));
+}
+
 /** Where a named hotspot sits, from the creature's pivot, in the first frame of an animation: its colour in the hotspot sheet. */
 async function hotspotAt(wak: Wak, spriteFile: string, name: string, anim?: string): Promise<[number, number] | null> {
   const sprite = parseXml(wak.text(spriteFile)).find((x) => x.tag === 'Sprite');
@@ -346,7 +458,7 @@ async function hotspotAt(wak: Wak, spriteFile: string, name: string, anim?: stri
 const effects = (e: El | null) => [...comps(e, 'GameEffectComponent'), ...comps(e, 'Entity').flatMap((c) => comps(c, 'GameEffectComponent'))];
 
 // glow/light but not wraith_glowing or a lightning mage: those are the creature.
-const SPRITE_SKIP = /health_bar|shield|glow(?!ing)|light(?!ning)|outline|aura|_emissive|hotspot|fog_of_war/;
+const SPRITE_SKIP = /health_bar|shield|glow(?!ing)|light(?!ning)|outline|aura|_emissive|hotspot|fog_of_war|area_indicator/;
 /** Sprites that aren't the creature: the hole it punches in the fog of war, and the like. */
 const notBody = (s: El) => s.attrs.fog_of_war_hole === '1' || /fog_of_war/.test(s.attrs.image_file ?? '');
 

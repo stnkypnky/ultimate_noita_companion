@@ -99,10 +99,11 @@ linkEnemies(bestiary.enemies, await biomeSpawns(wak, t), wak.text('data/genome_r
 // Portraits and every animation frame share one atlas.
 const portraitAtlas = await buildPackedAtlas([...bestiary.portraits, ...[...bestiary.images].map(([key, png]) => ({ key: `f:${key}`, png }))], 2048);
 const frameIcon = (k: string) => portraitAtlas.rects.get(`f:${k}`) ?? { x: 0, y: 0, w: 0, h: 0 };
-const enemies: Enemy[] = bestiary.enemies.map(({ anims, ...e }) => ({
+const enemies: Enemy[] = bestiary.enemies.map(({ anims, legs, ...e }) => ({
   ...e,
   ...(portraitAtlas.rects.has(e.id) ? { portrait: portraitAtlas.rects.get(e.id)! } : {}),
-  ...(anims ? { anims: anims.map((a) => ({ name: a.name, layers: a.layers.map((l) => ({ ...l, frames: l.frames.map(frameIcon) })) })) } : {}),
+  ...(anims ? { anims: anims.map((a) => ({ ...a, layers: a.layers.map((l) => ({ ...l, frames: l.frames.map(frameIcon) })) })) } : {}),
+  ...(legs ? { legs: { count: legs.count, reach: legs.reach, pivot: legs.pivot, upper: frameIcon(legs.upper), lower: frameIcon(legs.lower), ...(legs.knee ? { knee: frameIcon(legs.knee) } : {}) } } : {}),
 }));
 console.log(`enemies: ${enemies.length}, ${bestiary.portraits.length} portraits, ${bestiary.images.size} frames, atlas ${portraitAtlas.size.join('x')}`);
 if (process.env.ENEMY_SCRIPTS) for (const [id, s] of bestiary.scripts) console.log(`  ${id}: ${s.join(' ')}`);

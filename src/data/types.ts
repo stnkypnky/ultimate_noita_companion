@@ -156,8 +156,13 @@ export type Enemy = {
   moves?: { speed?: number; flies?: boolean; digs?: boolean };
   /** GenomeDataComponent herd (who it fights alongside). */
   herd?: string;
-  /** Its sprite's animations (bestiary atlas), the default one first; layers draw back to front. */
-  anims?: { name: string; layers: SpriteLayer[] }[];
+  /**
+   * Its sprite's animations (bestiary atlas), the default one first; layers draw back to front.
+   * `motion` is how the game moves it by code when the sprite itself doesn't animate.
+   */
+  anims?: { name: string; layers: SpriteLayer[]; motion?: Motion }[];
+  /** Legs the game bends with inverse kinematics (lukki, leggy chests): drawn from the body's pivot. */
+  legs?: Legs;
   behavior?: EnemyBehavior;
   /** Biomes whose spawn tables hold it: `share` is its chance among that table's creatures. */
   spawns?: { biome: string; name: string; share: number; count: [number, number] }[];
@@ -165,6 +170,25 @@ export type Enemy = {
   variants?: string[];
   /** Herds (genome_relations.csv) it gets along with, and ones it goes after. */
   relations?: { allies: string[]; foes: string[] };
+};
+
+/**
+ * Movement the game gives a creature in code rather than sprite frames: a worm's body following its head,
+ * a physics body drifting, a flyer bobbing, legs stepping.
+ */
+export type Motion = 'wriggle' | 'float' | 'hover' | 'scuttle';
+
+/** IKLimbComponent legs: two segments (upper from the hip, lower to the foot), each pivoting at its left end. */
+export type Legs = {
+  count: number;
+  /** IKLimbComponent length: hip to foot fully stretched, game pixels. */
+  reach: number;
+  upper: Icon;
+  lower: Icon;
+  /** Pivot height inside a segment image. */
+  pivot: number;
+  /** Drawn centred on the knee. */
+  knee?: Icon;
 };
 
 /** What its game files say about how it behaves (the app words it). */
