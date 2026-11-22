@@ -80,6 +80,47 @@ export const ITEM_COLOR: Record<ItemKind, string> = {
   spell: '#e6d3ff',
   other: '#b9aa9c',
 };
+/**
+ * A wand's tier: the level the game rolls it at (its file says: wand_level_03, wand_unshuffle_05; deeper areas place
+ * higher ones), or one of the set wands (the Mines' altar wands; the experimental, "good" and digger ones).
+ */
+export type WandTier = 1 | 2 | 3 | 4 | 5 | 6 | 10 | 'altar' | 'special';
+export function wandTier(file: string): WandTier {
+  const m = /wand_(?:level|unshuffle)_(\d\d)/.exec(file);
+  if (m) {
+    const n = Number(m[1]);
+    return n >= 10 ? 10 : (Math.min(6, Math.max(1, n)) as WandTier);
+  }
+  return /\/level_01\/(wand_0\d\d|base_wand_level_1)\.xml$/.test(file) ? 'altar' : 'special';
+}
+/** In order, weakest first, as the legend lists them. */
+export const WAND_TIERS: WandTier[] = ['altar', 1, 2, 3, 4, 5, 6, 10, 'special'];
+export const WAND_TIER_COLOR: Record<`${WandTier}`, string> = {
+  altar: '#d9c3a0',
+  '1': '#b9b2a8',
+  '2': '#6fd16f',
+  '3': '#5fa8ff',
+  '4': '#b57bff',
+  '5': '#ff9a3c',
+  '6': '#ff4f5e',
+  '10': '#ffe27a',
+  special: '#ff7fd1',
+};
+export const WAND_TIER_LABEL: Record<`${WandTier}`, string> = {
+  altar: 'Mines altar',
+  '1': 'Tier 1',
+  '2': 'Tier 2',
+  '3': 'Tier 3',
+  '4': 'Tier 4',
+  '5': 'Tier 5',
+  '6': 'Tier 6',
+  '10': 'Tier 10',
+  special: 'Special',
+};
+/** An item's colour: a wand's by its tier, anything else by its kind. */
+export function itemColor(it: { kind: ItemKind; file: string }) {
+  return it.kind === 'wand' ? WAND_TIER_COLOR[`${wandTier(it.file)}`] : ITEM_COLOR[it.kind];
+}
 export const MODIFIER_COLOR = '#ff9b4a';
 export const MOUNTAIN_COLOR = '#ffd36b';
 

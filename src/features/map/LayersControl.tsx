@@ -1,6 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { Layers, Loader2, X } from 'lucide-react';
-import { LAYER_GROUPS, layerColor, type LayerId, type MapLayers } from './layers';
+import { LAYER_GROUPS, layerColor, WAND_TIER_COLOR, WAND_TIER_LABEL, WAND_TIERS, type LayerId, type MapLayers } from './layers';
+
+/** What the wand colours mean: the tier the game rolls each wand at (deeper areas place higher tiers). */
+export function WandTierKey({ className = 'pb-1 pl-9' }: { className?: string }) {
+  return (
+    <ul className={`flex flex-wrap gap-x-2.5 gap-y-1 text-[11px] text-muted ${className}`} aria-label="Wand colours by tier">
+      {WAND_TIERS.map((t) => (
+        <li key={t} className="inline-flex items-center gap-1">
+          <span className="h-2.5 w-2.5 shrink-0 border border-[#f4ecd8]" style={{ background: WAND_TIER_COLOR[`${t}`] }} aria-hidden />
+          {WAND_TIER_LABEL[`${t}`]}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 /**
  * How many of a layer's things you can see on this map: a number, 'loading' while the seed's are being worked out,
@@ -64,7 +78,7 @@ export function LayersControl({ layers, counts }: { layers: MapLayers; counts: L
                 {g.layers.map((l) => {
                   const color = layerColor(l.id);
                   const n = counts[l.id];
-                  return (
+                  const row = (
                     <label key={l.id} className="flex min-h-8 cursor-pointer items-center gap-2 rounded-md px-1 hover:bg-white/5">
                       <input type="checkbox" checked={layers.on(l.id)} onChange={(e) => layers.set([l.id], e.target.checked)} className="accent-[var(--color-gold,#ffd36b)]" />
                       {color ? <span className="h-2.5 w-2.5 shrink-0 rotate-45" style={{ background: color }} aria-hidden /> : <span className="w-2.5" aria-hidden />}
@@ -75,6 +89,13 @@ export function LayersControl({ layers, counts }: { layers: MapLayers; counts: L
                         <span className="text-xs text-faint tabular-nums">{n}</span>
                       ) : null}
                     </label>
+                  );
+                  if (l.id !== 'item:wand' || n === null) return row;
+                  return (
+                    <div key={l.id}>
+                      {row}
+                      <WandTierKey />
+                    </div>
                   );
                 })}
               </fieldset>

@@ -9,7 +9,7 @@ import { useSpoilers } from '@/store/progress';
 import { Section } from '@/ui/controls';
 import { AtlasIcon } from '@/ui/GameIcon';
 import type { ItemThing, SeedItem } from '@/seed/items';
-import { ITEM_COLOR, ITEM_LABELS, ITEM_ONE } from './layers';
+import { ITEM_LABELS, ITEM_ONE, itemColor, WAND_TIER_LABEL, wandTier } from './layers';
 import { MaterialName, SpellChip, WandLink } from './SeedPanel';
 import { biomeName, chunkOf, type makeVisibility } from './world';
 
@@ -45,6 +45,11 @@ function ThingName({ t, plain }: { t: ItemThing; plain?: boolean }) {
         <Package size={14} className="text-faint" />
       )}
       {t.name}
+      {t.kind === 'wand' && (
+        <span className="text-[11px]" style={{ color: itemColor(t) }}>
+          {WAND_TIER_LABEL[`${wandTier(t.file)}`]}
+        </span>
+      )}
     </span>
   );
 }
@@ -82,7 +87,7 @@ function ItemRow({ it, here, onGo }: { it: SeedItem; here: boolean; onGo: () => 
   const id = useId();
   const head = (
     <>
-      <span className="mt-1.5 h-2.5 w-2.5 shrink-0" style={{ background: ITEM_COLOR[it.kind] }} aria-hidden />
+      <span className="mt-1.5 h-2.5 w-2.5 shrink-0" style={{ background: itemColor(it) }} aria-hidden />
       <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5 text-left">
         <ThingName t={it} plain />
         {here && <span className="text-[11px] text-gold">here</span>}

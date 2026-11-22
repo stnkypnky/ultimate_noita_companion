@@ -12,7 +12,7 @@ import type { BiomeModifier } from '@/seed/seed';
 import type { SeedReport } from '@/seed/worker';
 import type { SeedItem } from '@/seed/items';
 import { poiCentre, type MapPoi } from './pois';
-import { ITEM_COLOR, MODIFIER_COLOR, MOUNTAIN_COLOR, POI_COLOR, useMapLayers } from './layers';
+import { ITEM_COLOR, itemColor, MODIFIER_COLOR, MOUNTAIN_COLOR, POI_COLOR, useMapLayers } from './layers';
 import { LayersControl, type LayerCounts } from './LayersControl';
 
 type Vis = ReturnType<typeof makeVisibility>;
@@ -929,14 +929,20 @@ export function MapView({
           const k = Math.min(1, 16 / Math.max(icon.r.w, icon.r.h));
           const w = Math.round(icon.r.w * k);
           const h = Math.round(icon.r.h * k);
-          ctx.fillStyle = 'rgba(10,8,7,0.6)';
+          // A wand sits in a frame of its tier's colour.
+          if (it.kind === 'wand') {
+            ctx.fillStyle = itemColor(it);
+            ctx.fillRect(sx - w / 2 - 2, sy - h / 2 - 2, w + 4, h + 4);
+          }
+          ctx.fillStyle = it.kind === 'wand' ? 'rgba(10,8,7,0.85)' : 'rgba(10,8,7,0.6)';
           ctx.fillRect(sx - w / 2 - 1, sy - h / 2 - 1, w + 2, h + 2);
           ctx.drawImage(icon.img, icon.r.x, icon.r.y, icon.r.w, icon.r.h, sx - w / 2, sy - h / 2, w, h);
           continue;
         }
-        ctx.fillStyle = '#0a0807';
+        // Wands: a light rim, so a tier's colour isn't read as a heart's or a chest's.
+        ctx.fillStyle = it.kind === 'wand' && !hidden ? '#f4ecd8' : '#0a0807';
         ctx.fillRect(sx - 3, sy - 3, 6, 6);
-        ctx.fillStyle = hidden ? '#8a7f73' : ITEM_COLOR[it.kind];
+        ctx.fillStyle = hidden ? '#8a7f73' : itemColor(it);
         ctx.fillRect(sx - 2, sy - 2, 4, 4);
       }
     }
