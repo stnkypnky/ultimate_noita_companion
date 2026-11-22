@@ -15,7 +15,7 @@ import { HiddenNotice, SecretCallout } from '@/ui/Spoiler';
 import { HiddenMechanics } from '@/ui/HiddenMechanics';
 import { useDebounced } from '@/ui/hooks';
 import { MaterialSwatch } from './MaterialSwatch';
-import { collapseVariants, nameHints } from '@/features/alchemy/lookup';
+import { collapseVariants, listedMaterials, nameHints } from '@/features/alchemy/lookup';
 import { reactionsOf, rowMaterials, type ReactionRow, type Side } from './reactions';
 import { WhereToFind } from './WhereToFind';
 
@@ -57,7 +57,7 @@ export function MaterialsPage() {
   const shown = useMemo(() => {
     let list = q ? search.search(q).map((r) => materialById.get(r.id as string)!) : [...materials].sort((a, b) => a.name.localeCompare(b.name));
     // Same-named variants a player can't tell apart show as one, unless every variant is asked for.
-    if (!internal) list = collapseVariants(list.filter((m) => m.showInCreative), hints, (x) => SECRET_MATERIALS.has(x));
+    if (!internal) list = listedMaterials(list, hints, (x) => SECRET_MATERIALS.has(x));
     if (state) list = list.filter((m) => m.state === state);
     // Searching or filtering never surfaces secret materials.
     if (q || state) list = list.filter((m) => isVisible(m.id));

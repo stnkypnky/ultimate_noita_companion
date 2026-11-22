@@ -109,5 +109,10 @@ export function collapseVariants<M extends Pick<Material, 'id' | 'name' | 'state
   return list.filter((m) => keep.has(m));
 }
 
+/** The materials the default list shows: creative-mode ones, plus every secret so it can be found. */
+export function listedMaterials<M extends Pick<Material, 'id' | 'name' | 'state' | 'showInCreative'>>(list: M[], hints: Map<string, string>, isSecret: (id: string) => boolean): M[] {
+  return collapseVariants(list.filter((m) => m.showInCreative || isSecret(m.id)), hints, isSecret);
+}
+
 /** Inputs and outputs without repeats (the game often lists "cement, fire, cement" or the same output twice). */
 export const unique = (xs: string[]) => [...new Set(xs)];

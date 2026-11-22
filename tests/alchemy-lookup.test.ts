@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Material, Reaction } from '../src/data/types.ts';
 import { SECRET_MATERIALS } from '../src/data/spoilers.ts';
-import { collapseVariants, lookupReactions, nameHints, tagLabel, unique } from '../src/features/alchemy/lookup.ts';
+import { listedMaterials, lookupReactions, nameHints, tagLabel, unique } from '../src/features/alchemy/lookup.ts';
 import { projectileDamage } from '../src/sim/analyze.ts';
 import type { Projectile } from '../src/data/types.ts';
 
@@ -80,12 +80,22 @@ describe('alchemy lookup', () => {
 
   it('shows variants a player cannot tell apart as one material', () => {
     const hints = nameHints(materials);
-    const list = collapseVariants(materials.filter((m) => m.showInCreative), hints, (id) => SECRET_MATERIALS.has(id));
+    const list = listedMaterials(materials, hints, (id) => SECRET_MATERIALS.has(id));
     const rocks = list.filter((m) => m.name.toLowerCase() === 'rock' && !hints.get(m.id));
     expect(rocks.map((m) => m.id)).toEqual(['rock_static']);
     // Every card left reads differently: name, state and hint.
     const keys = list.filter((m) => !SECRET_MATERIALS.has(m.id)).map((m) => `${m.name.toLowerCase()}|${m.state}|${hints.get(m.id) ?? ''}`);
     expect(new Set(keys).size).toBe(keys.length);
-    expect(list.length).toBeLessThan(materials.filter((m) => m.showInCreative).length - 50);
+    expect(list.length).toBeLessThan(materials.filter((m) => m.showInCreative || SECRET_MATERIALS.has(m.id)).length - 50);
+  });
+
+  it('lists every secret material, so the found count can reach its total', () => {
+    const list = listedMaterials(materials, nameHints(materials), (id) => SECRET_MATERIALS.has(id));
+    const listed = new Set(list.map((m) => m.id));
+    expect([...SECRET_MATERIALS].filter((id) => !listed.has(id))).toEqual([]);
+  });
+
+  it('treats Purifying powder as ordinary loot (pouches and flasks drop it)', () => {
+    expect(SECRET_MATERIALS.has('purifying_powder')).toBe(false);
   });
 });

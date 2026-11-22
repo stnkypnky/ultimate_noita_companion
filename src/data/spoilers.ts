@@ -12,7 +12,6 @@ export const SECRET_MATERIALS = new Set([
   'creepy_liquid',
   'creepy_liquid_emitter',
   'cheese_static',
-  'purifying_powder',
   'void_liquid',
   'fungi_creeping',
   'fungi_creeping_secret',
