@@ -791,12 +791,13 @@ export function MapView({
       for (const s of seenModifiers) {
         const b = map.biomes[s.k]!;
         const [sx, sy0] = toScreen(left + s.x * map.chunk, top + s.y * map.chunk);
+        const banner = cs >= 40 && s.m.decoration ? image(gameUrl(`ui/modifiers/${s.m.decoration}.png`), redraw) : null;
+        // Below the name's box (9 px each side of its centre), so the name doesn't crowd it out.
         const labelled = names && namedInGame(b) && s.n >= 2;
-        const sy = sy0 + (labelled ? (cs > 40 ? 18 : 15) : 0);
+        const sy = sy0 + (labelled ? 10 + (banner ? 12 : 8) : 0);
         if (offScreen(sx, sy, 80)) continue;
         const name = BIOME_MODIFIERS[s.m.id]?.name ?? s.m.id.toLowerCase().replace(/_/g, ' ');
         const tw = ctx.measureText(name).width;
-        const banner = cs >= 40 && s.m.decoration ? image(gameUrl(`ui/modifiers/${s.m.decoration}.png`), redraw) : null;
         const half = Math.ceil(tw / 2 + (banner ? 20 : 3));
         if (!free([sx - half, sy - (banner ? 12 : 8), sx + half, sy + (banner ? 12 : 8)])) continue;
         if (banner) {
