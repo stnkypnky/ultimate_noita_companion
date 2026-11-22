@@ -3,7 +3,7 @@ import { Pause, Play } from 'lucide-react';
 import { gameUrl } from '@/data/store';
 import type { Enemy, Icon, Legs, SpriteLayer } from '@/data/types';
 import { AtlasIcon } from '@/ui/GameIcon';
-import { AMPLITUDE, PERIOD, legsAt, motionAt, type Point } from './motion';
+import { AMPLITUDE, PERIOD, legsAt, motionAt, slitherAt, slitherHeight, slitherReach, wriggleAmplitude, type Point } from './motion';
 
 type Anim = NonNullable<Enemy['anims']>[number];
 
@@ -22,15 +22,49 @@ const loadAtlas = () =>
 const NAMES: Record<string, string> = { stand: 'Idle', idle: 'Idle', attack_ranged: 'Shoot', attack_melee: 'Melee', attack_dash: 'Dash', still: 'Still' };
 export const animLabel = (n: string) => NAMES[n] ?? n.charAt(0).toUpperCase() + n.slice(1).replace(/_/g, ' ');
 
-/** Where a layer's frame lands, in game pixels around the creature's pivot. */
+/**
+ * Where a layer's frame lands, in game pixels around the creature's pivot. A negative scale mirrors it about its
+ * pivot (a worm's head turned to lead its body): `flip` says to draw it mirrored within this box.
+ */
 function place(l: SpriteLayer, f: { w: number; h: number }) {
-  const sx = (l.sx ?? 1) * l.scale;
-  const sy = (l.sy ?? 1) * l.scale;
-  return { x: -l.ox * (l.sx ?? 1), y: -l.oy * (l.sy ?? 1), w: f.w * sx, h: f.h * sy };
+  const fx = l.sx ?? 1;
+  const fy = l.sy ?? 1;
+  const w = f.w * l.scale * Math.abs(fx);
+  const h = f.h * l.scale * Math.abs(fy);
+  return { x: fx < 0 ? l.ox * -fx - w : -l.ox * fx, y: fy < 0 ? l.oy * -fy - h : -l.oy * fy, w, h, flipX: fx < 0, flipY: fy < 0 };
 }
+
+/** A worm's layers' centres, tail to head, along its body. */
+const centresX = (a: Anim) =>
+  a.layers.map((l) => {
+    const p = place(l, l.frames[0]!);
+    return p.x + p.w / 2;
+  });
+
+/** A worm's segment spacing: how far apart its layers' centres sit, tail to head. */
+function chainGap(a: Anim) {
+  const xs = centresX(a);
+  return xs.length > 1 ? Math.abs(xs[xs.length - 1]! - xs[0]!) / (xs.length - 1) : 10;
+}
+
+/** How far each layer of a worm sits behind its head's centre. */
+function behindHead(a: Anim) {
+  const xs = centresX(a);
+  return xs.map((x) => Math.max(0, xs[xs.length - 1]! - x));
+}
+
+/** Half the diagonal of a worm's biggest part: how far it reaches from its centre however it turns. */
+const partRadius = (a: Anim) => Math.max(...a.layers.map((l) => Math.hypot(l.frames[0]!.w, l.frames[0]!.h) * l.scale)) / 2;
 
 /** The box every frame of the animation fits in, with room for its motion and its legs' reach. */
 function bounds(a: Anim, legs?: Legs) {
+  if (a.motion === 'slither') {
+    // The loop it swims, with room for a part turned any way.
+    const w = slitherReach(Math.max(...behindHead(a)));
+    const h = slitherHeight(w);
+    const r = partRadius(a);
+    return { x0: -w - r, y0: -h - r, w: 2 * (w + r), h: 2 * (h + r) };
+  }
   let x0 = Infinity;
   let y0 = Infinity;
   let x1 = -Infinity;
@@ -48,7 +82,13 @@ function bounds(a: Anim, legs?: Legs) {
       add(p.x + p.w, p.y + p.h);
     }
   if (!Number.isFinite(x0)) return null;
-  if (a.motion) {
+  if (a.motion === 'wriggle') {
+    // Segments swing up and down and tilt about their own centres.
+    const part = Math.max(...a.layers.map((l) => Math.max(l.frames[0]!.w, l.frames[0]!.h) * l.scale));
+    const pad = wriggleAmplitude(chainGap(a)) + part * 0.25;
+    add(x0, y0, pad);
+    add(x1, y1, pad);
+  } else if (a.motion) {
     // A rock of a few degrees swings the far corners a little further.
     const pad = AMPLITUDE[a.motion] + Math.max(-x0, x1, -y0, y1) * 0.08;
     add(x0, y0, pad);
@@ -100,6 +140,8 @@ export function CreatureSprite({ enemy: e, box = 168 }: { enemy: Enemy; box?: nu
   const canvas = useRef<HTMLCanvasElement>(null);
   const legs = e.legs;
   const moves = !!anim && (anim.layers.some((l) => l.frames.length > 1) || !!anim.motion);
+  const gap = useMemo(() => (anim?.motion === 'wriggle' || anim?.motion === 'slither' ? chainGap(anim) : 10), [anim]);
+  const behind = useMemo(() => (anim?.motion === 'slither' ? behindHead(anim) : null), [anim]);
 
   const fit = useMemo(() => {
     if (!anim) return null;
@@ -135,15 +177,34 @@ export function CreatureSprite({ enemy: e, box = 168 }: { enemy: Enemy; box?: nu
           ctx.setTransform(fit.scale, 0, 0, fit.scale, -fit.b.x0 * fit.scale, -fit.b.y0 * fit.scale);
           // Legs sit behind the body, as in the game.
           if (legs) drawLegs(ctx, img, legs, t);
+          const swim = behind ? slitherAt(behind, gap, t) : null;
           anim.layers.forEach((l, li) => {
             const f = l.frames[frameAt(l, t)]!;
             if (!f.w) return;
             const p = place(l, f);
+            const cx = p.x + p.w / 2;
+            const cy = p.y + p.h / 2;
             ctx.save();
-            if (anim.motion) {
-              const m = motionAt(anim.motion, li, anim.layers.length, t);
+            if (swim) {
+              // Each part's centre on the head's trail, turned the way it swims.
+              const s = swim[li]!;
+              ctx.translate(s.x, s.y);
+              ctx.rotate(s.rot);
+              ctx.translate(-cx, -cy);
+            } else if (anim.motion) {
+              const m = motionAt(anim.motion, li, anim.layers.length, t, gap);
               ctx.translate(m.dx, m.dy);
-              ctx.rotate(m.rot);
+              // A worm's segments tilt about their own centres; a whole body turns about its pivot.
+              if (anim.motion === 'wriggle') {
+                ctx.translate(cx, cy);
+                ctx.rotate(m.rot);
+                ctx.translate(-cx, -cy);
+              } else ctx.rotate(m.rot);
+            }
+            if (p.flipX || p.flipY) {
+              ctx.translate(cx, cy);
+              ctx.scale(p.flipX ? -1 : 1, p.flipY ? -1 : 1);
+              ctx.translate(-cx, -cy);
             }
             ctx.globalAlpha = l.alpha;
             ctx.globalCompositeOperation = l.additive ? 'lighter' : 'source-over';
@@ -159,7 +220,7 @@ export function CreatureSprite({ enemy: e, box = 168 }: { enemy: Enemy; box?: nu
       alive = false;
       cancelAnimationFrame(raf);
     };
-  }, [anim, fit, legs, playing, moves]);
+  }, [anim, fit, legs, gap, behind, playing, moves]);
 
   // No usable animation: the still portrait, or the Progress-screen icon.
   if (!anim || !fit) {

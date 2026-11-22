@@ -7,22 +7,31 @@ export type LegPose = { hip: Point; knee: Point; foot: Point };
 
 const TAU = Math.PI * 2;
 /** Seconds per cycle of each motion. */
-export const PERIOD: Record<Motion, number> = { wriggle: 1.2, float: 3.2, hover: 1.3, scuttle: 1 };
-/** Furthest a layer strays from its pivot, game pixels: the sprite box grows by this much. */
-export const AMPLITUDE: Record<Motion, number> = { wriggle: 2, float: 1.5, hover: 2, scuttle: 1 };
+export const PERIOD: Record<Motion, number> = { wriggle: 1.2, slither: 1, float: 3.2, hover: 1.3, scuttle: 1 };
+/** Furthest a layer strays from its pivot, game pixels: the sprite box grows by this much. (A slither lays its own path.) */
+export const AMPLITUDE: Record<Motion, number> = { wriggle: 2, slither: 0, float: 1.5, hover: 2, scuttle: 1 };
 const ROCK = (4 * Math.PI) / 180;
 
+/** Phase between neighbouring worm segments: a wave spans about seven of them. */
+const WAVE_STEP = 0.9;
+/** How far a worm's body swings: a share of its segment spacing, so long, widely spaced worms slither visibly. */
+export const wriggleAmplitude = (gap: number) => Math.max(AMPLITUDE.wriggle, gap * 0.3);
+
 /**
- * Where layer `i` of `n` sits `t` seconds in. A worm's layers run tail first, head last: a wave travels down the
- * body and the head moves least. Everything else moves as one piece.
+ * Where layer `i` of `n` sits `t` seconds in. A worm's layers run tail first, head last, `gap` game pixels apart:
+ * a wave runs from the head down to the tail, each segment tilting along the curve, and the head swings least.
+ * Everything else moves as one piece.
  */
-export function motionAt(kind: Motion, i: number, n: number, t: number): Offset {
+export function motionAt(kind: Motion, i: number, n: number, t: number, gap = 10): Offset {
   const p = (t / PERIOD[kind]) * TAU;
   const a = AMPLITUDE[kind];
   switch (kind) {
     case 'wriggle': {
       const tail = n > 1 ? 1 - i / (n - 1) : 0;
-      return { dx: 0, dy: a * (0.35 + 0.65 * tail) * Math.sin(p - i * 0.9), rot: 0 };
+      const amp = wriggleAmplitude(gap) * (0.35 + 0.65 * tail);
+      const phase = p + i * WAVE_STEP;
+      // The curve's slope where this segment sits: its height changes by amp·step·cos per segment of `gap`.
+      return { dx: 0, dy: amp * Math.sin(phase), rot: Math.atan((amp * WAVE_STEP * Math.cos(phase)) / Math.max(1, gap)) };
     }
     case 'float':
       return { dx: 0, dy: a * Math.sin(p), rot: ROCK * Math.sin(p - 1) };
@@ -31,7 +40,69 @@ export function motionAt(kind: Motion, i: number, n: number, t: number): Offset 
     case 'scuttle':
       // The body dips with every step: twice a gait cycle.
       return { dx: 0, dy: a * Math.sin(2 * p), rot: 0 };
+    case 'slither':
+      // Laid out whole by slitherAt.
+      return { dx: 0, dy: 0, rot: 0 };
   }
+}
+
+/** A closed figure-eight, `a` game pixels wide each side of centre, sampled by distance along it. */
+type Path = { a: number; perimeter: number; pts: { x: number; y: number; s: number }[] };
+const SAMPLES = 720;
+const paths = new Map<number, Path>();
+
+function figureEight(a: number): Path {
+  const hit = paths.get(a);
+  if (hit) return hit;
+  const pts: Path['pts'] = [];
+  let s = 0;
+  for (let k = 0; k <= SAMPLES; k++) {
+    const u = (k / SAMPLES) * TAU;
+    const x = a * Math.sin(u);
+    const y = a * EIGHT_HEIGHT * Math.sin(2 * u);
+    if (k) s += Math.hypot(x - pts[k - 1]!.x, y - pts[k - 1]!.y);
+    pts.push({ x, y, s });
+  }
+  const path = { a, perimeter: s, pts };
+  paths.set(a, path);
+  return path;
+}
+/** The loop's height against its width: a little flatter than square. */
+const EIGHT_HEIGHT = 0.75;
+/** The loop is this many times the worm's length, so its tail never catches its head. */
+const LOOP = 1.6;
+
+/** Point and heading `s` game pixels along the path (wrapping round). */
+function along(path: Path, s: number): { x: number; y: number; rot: number } {
+  const d = ((s % path.perimeter) + path.perimeter) % path.perimeter;
+  let lo = 0;
+  let hi = path.pts.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (path.pts[mid]!.s <= d) lo = mid;
+    else hi = mid;
+  }
+  const p = path.pts[lo]!;
+  const q = path.pts[hi]!;
+  const k = q.s > p.s ? (d - p.s) / (q.s - p.s) : 0;
+  return { x: p.x + (q.x - p.x) * k, y: p.y + (q.y - p.y) * k, rot: Math.atan2(q.y - p.y, q.x - p.x) };
+}
+
+/** Half-width of the loop a worm `length` game pixels long swims. */
+export function slitherReach(length: number) {
+  const unit = figureEight(1).perimeter;
+  return Math.max(8, Math.round((LOOP * length) / unit));
+}
+export const slitherHeight = (reach: number) => reach * EIGHT_HEIGHT;
+
+/**
+ * A long worm swimming a figure-eight, `t` seconds in: its head leads, and each layer (tail first, head last)
+ * follows `behind[i]` game pixels back along the head's trail, turned the way it's going. Faster for bigger worms.
+ */
+export function slitherAt(behind: number[], gap: number, t: number): { x: number; y: number; rot: number }[] {
+  const path = figureEight(slitherReach(Math.max(0, ...behind)));
+  const head = t * Math.max(30, gap * 4);
+  return behind.map((d) => along(path, head - d));
 }
 
 /** Share of a step spent with the foot down. */

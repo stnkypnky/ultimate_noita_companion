@@ -123,7 +123,15 @@ describe('bestiary', () => {
     expect(motion('crystal_physics')).toBe('float');
     expect(motion('gate_monster_a')).toBe('float');
     expect(motion('wand_ghost')).toBe('float');
-    expect(motion('worm_skull')).toBe('wriggle');
+    // Long worms swim a loop; short ones wriggle where they are.
+    expect(motion('worm_skull')).toBe('slither');
+    expect(motion('boss_dragon')).toBe('slither');
+    expect(motion('worm_tiny')).toBe('wriggle');
+    // As long as in the game (tail, 13 body parts, head), the head mirrored to lead: its sprite faces left.
+    const skull = byId.get('worm_skull')!.anims![0]!.layers;
+    expect(skull).toHaveLength(15);
+    expect(skull.at(-1)!.sx).toBe(-1);
+    expect(skull.slice(0, -1).every((l) => l.sx === undefined)).toBe(true);
     expect(motion('wraith_storm')).toBe('hover');
     // Lukki walk on IK legs: 7 walkers and the one that attacks, 80 px long.
     expect(motion('lukki_longleg')).toBe('scuttle');

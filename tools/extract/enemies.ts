@@ -212,7 +212,8 @@ const ANIM_SKIP = /death|dead|die|corpse|ragdoll|hurt|damage|test|_old|^empty$|^
 const MAX_ANIMS = 5;
 const ANIM_FRAMES = 16;
 const ANIM_SIZE = 96;
-const HEADS_FACING_LEFT = new Set(['data/enemies_gfx/maggot_tiny_head.xml']);
+/** Layers (head, tail and body parts) from which a worm swims a loop rather than wriggling in a line. */
+const LONG_WORM = 9;
 
 /** Named animations in a <Sprite> file (default first). */
 function animNames(wak: Wak, file: string): string[] {
@@ -259,19 +260,19 @@ async function animations(wak: Wak, e: El, main: El, images: Map<string, Buffer>
   for (const name of names.length ? names : ['']) {
     const layers: LayerOut[] = [];
     if (worm) {
-      // Head, then body parts and the tail trailing to the left, part_distance apart.
+      // Head, then every body part and the tail trailing to the left, part_distance apart, as long as in the game.
       const gap = num(worm.attrs.part_distance, 10);
       const parts = sprites.filter((s) => s !== main);
-      const body = parts.filter((s) => !/tail/.test(s.attrs.image_file!)).slice(0, 3);
+      const body = parts.filter((s) => !/tail/.test(s.attrs.image_file!));
       const tail = parts.find((s) => /tail/.test(s.attrs.image_file!));
       const chain = [...(tail ? [tail] : []), ...body.reverse()];
-      const head = await spriteLayer(wak, file, opts(main, name || undefined), images);
-      // Heads face right, except Limatoukka's: its body trails off to the right instead.
-      const dir = HEADS_FACING_LEFT.has(file) ? -1 : 1;
+      // Head sprites face left, like the tails taper left; the game turns the head to where it's going, so it's
+      // mirrored to lead the body.
+      const head = await spriteLayer(wak, file, { ...opts(main, name || undefined), sx: -1 }, images);
       for (let i = 0; i < chain.length; i++) {
         const s = chain[i]!;
         // The first body part sits on the head's pivot (the head is drawn over it), so the chain stays joined.
-        const shift = dir * gap * (chain.length - 1 - i);
+        const shift = gap * (chain.length - 1 - i);
         const l = await spriteLayer(wak, s.attrs.image_file!, opts(s, name || undefined), images);
         // spriteLayer takes the pivot from the sprite file; push it along the chain.
         if (l) layers.push({ ...l, ox: l.ox + shift });
@@ -416,16 +417,20 @@ async function legsOf(wak: Wak, e: El, loader: EntityLoader, images: Map<string,
 }
 
 /**
- * How the game moves it when no sprite animation does: legs step, worms wriggle, physics bodies drift, the rest bob.
+ * How the game moves it in code: legs step and worms' bodies follow their heads (always), and when no sprite
+ * animation plays, physics bodies drift and the rest bob.
  * A creature with an animation that plays opens on it, even when its default pose is a still one (Peura's stand).
  */
 function withMotion(anims: { name: string; layers: LayerOut[] }[], e: El | null, legs: LegsOut | undefined, b: EnemyBehavior) {
   const plays = (a: { layers: LayerOut[] }) => a.layers.some((l) => l.frames.length > 1);
   const first = anims.findIndex(plays);
   if (first > 0) anims.unshift(...anims.splice(first, 1));
-  if (!legs && (first >= 0 || b.immobile)) return anims;
-  const kind: Motion = legs ? 'scuttle' : comp(e, 'WormComponent') || comp(e, 'BossDragonComponent') ? 'wriggle' : b.physics || comp(e, 'PhysicsImageShapeComponent') ? 'float' : 'hover';
-  return anims.map((a) => ({ ...a, motion: kind }));
+  // Legs and a worm's trailing body move in code whatever the sprites do.
+  const worm = comp(e, 'WormComponent') || comp(e, 'BossDragonComponent');
+  if (!legs && !worm && (first >= 0 || b.immobile)) return anims;
+  const kind: Motion = legs ? 'scuttle' : worm ? 'wriggle' : b.physics || comp(e, 'PhysicsImageShapeComponent') ? 'float' : 'hover';
+  // A worm of seven body parts or more (with its head and tail) is too long to show straight: it swims a loop instead.
+  return anims.map((a) => ({ ...a, motion: kind === 'wriggle' && a.layers.length >= LONG_WORM ? 'slither' : kind }));
 }
 
 /** Where a named hotspot sits, from the creature's pivot, in the first frame of an animation: its colour in the hotspot sheet. */

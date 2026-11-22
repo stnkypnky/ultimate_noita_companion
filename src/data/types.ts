@@ -173,10 +173,10 @@ export type Enemy = {
 };
 
 /**
- * Movement the game gives a creature in code rather than sprite frames: a worm's body following its head,
- * a physics body drifting, a flyer bobbing, legs stepping.
+ * Movement the game gives a creature in code rather than sprite frames: a short worm wriggling in place, a long
+ * one swimming with its body following its head ('slither'), a physics body drifting, a flyer bobbing, legs stepping.
  */
-export type Motion = 'wriggle' | 'float' | 'hover' | 'scuttle';
+export type Motion = 'wriggle' | 'slither' | 'float' | 'hover' | 'scuttle';
 
 /** IKLimbComponent legs: two segments (upper from the hip, lower to the foot), each pivoting at its left end. */
 export type Legs = {
