@@ -81,6 +81,11 @@ describe('items for a seed', () => {
     }
   });
 
+  it('gives every set wand a way to get spells (some inherit their script from a Base file: wand_010…017)', () => {
+    const bare = Object.entries(data.entities).filter(([, e]) => e.preset && !e.preset.script && !e.preset.spells?.length);
+    expect(bare.map(([f]) => f)).toEqual([]);
+  });
+
   it('opens chests and fills flasks', () => {
     expect(kind('chest').filter((c) => c.contents?.length).length).toBeGreaterThan(kind('chest').length * 0.8);
     expect(kind('flask').filter((f) => f.material).length).toBeGreaterThan(kind('flask').length * 0.8);

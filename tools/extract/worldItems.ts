@@ -43,6 +43,22 @@ function wandRoll(wak: Wak, xml: string): ItemEntity['wand'] {
 }
 
 /**
+ * An entity file followed by the files it builds on (`<Base file=…>`, nested), so a lookup finds the file's own
+ * values first and an inherited one otherwise: wand_010…017 get their spell script (level_1_wand.lua) only from
+ * base_wand_level_1.xml.
+ */
+export function withBases(wak: Wak, xml: string, seen = new Set<string>()): string {
+  let out = xml;
+  for (const m of xml.matchAll(/<Base\b[^>]*\bfile="([^"]+\.xml)"/g)) {
+    const f = m[1]!;
+    if (seen.has(f) || !wak.has(f)) continue;
+    seen.add(f);
+    out += `\n${withBases(wak, wak.text(f), seen)}`;
+  }
+  return out;
+}
+
+/**
  * Every item entity, by file. Only things a player picks up and the Items page knows (so nothing unnamed or secret
  * slips in unflagged): wands, chests, hearts, flasks and pouches, spell refreshers, and other known pickups.
  */
@@ -51,7 +67,7 @@ export function itemEntities(wak: Wak, items: Item[]): Record<string, ItemEntity
   const out: Record<string, ItemEntity> = {};
   for (const file of wak.list(ITEMS).filter((f) => f.endsWith('.xml'))) {
     const id = basename(file, '.xml');
-    const xml = wak.text(file);
+    const xml = withBases(wak, wak.text(file));
     const item = (k: string) => (known.has(k) ? { item: k, name: known.get(k)!.name } : null);
     if (/\/wands?\//.test(file) || /^wand_(level|unshuffle)_/.test(id)) {
       if (!/use_gun_script|AbilityComponent/.test(xml)) continue;
