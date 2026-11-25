@@ -4,7 +4,7 @@
 // itemMechanics.ts.
 import { ITEM_MECHANICS } from './itemMechanics';
 
-export type MechanicKind = 'spell' | 'item' | 'material' | 'perk';
+export type MechanicKind = 'spell' | 'item' | 'material' | 'perk' | 'wand';
 
 export type MechanicNote = {
   text: string;
@@ -133,8 +133,51 @@ function runestones(): Entries {
   };
 }
 
+/** Wand Builder rules: how wands behave while casting, then how to read a wand you find. */
+function wandRules(): Entries {
+  const wiki = `${WIKI}Wands`;
+  const gen = 'data/scripts/gun/procedural/gun_procedural.lua';
+  return {
+    'wand:builder': [
+      // Casting
+      { text: 'Cast delay and recharge run at the same time and don’t add up: 0.5 s of each is a 0.5 s wait.', source: wiki },
+      { text: 'Recharge starts only once every spell in the wand has been cast. Swapping to another wand doesn’t cancel a recharge in progress.', source: wiki },
+      { text: 'A negative cast delay cancels delay that spells add, down to 1 frame. A negative recharge time does the same, down to 0.', source: wiki },
+      { text: 'Negative spread only cancels spread that spells add; it never makes a wand better than perfectly accurate.', source: wiki },
+      { text: 'Spells inside a trigger or timer add no cast delay, and their spread tilts where the payload is released, not the first shot. A cast with no projectile has no cast delay.', source: wiki },
+      { text: 'Spells / cast doesn’t wrap around: with 2 per cast and three spells, casts alternate between two spells and one. Modifiers and multicasts can wrap.', source: wiki },
+      { text: 'A shuffle wand reshuffles when you switch to it, when a cast wraps, when it recharges, and on the first Wand Refresh of a cast — not on every draw. The wand screen always shows the order you placed.', source: wiki },
+      { text: 'Mana is paid the moment you cast, for every spell and modifier. A trigger pays for its whole payload up front, even if it never goes off.', source: wiki },
+      { text: 'Spells you can’t afford are skipped and the rest still cast: with 70 mana, Homing (70) then Spark Bolt (5) fires only the Homing.', source: wiki },
+      { text: 'Mana refills by 1/60 of the charge speed every frame, even while the wand isn’t in your hand.', source: wiki },
+      {
+        text: 'Always casts are free (unless they give mana, like Add Mana), never run out of charges, and aren’t added to shots inside a trigger. Their trigger and timer versions never release a payload, except Spark Bolt with Double Trigger and Delayed Spellcast.',
+        source: wiki,
+      },
+      { text: 'Projectiles start at the wand’s tip, so a long wand adds range on the first frame: it can more than double how far Teleport Bolt throws you.', source: wiki },
+      {
+        text: 'Every wand has a hidden speed multiplier on its projectiles’ launch speed, which the game never shows. Most roll 0.8–1.2; about 1 in 40 roll faster (up to 2), as many slower (down to 0.5), and about 1 in 2,100 up to 10. Randomize rolls one, and the simulation uses it.',
+        source: gen,
+      },
+      { text: 'A wand with an electric spell, held under liquid, starts sending out shocks after about 3 s, until you pull it out or put it away.', source: wiki },
+      // Reading a wand you find
+      { text: 'A recharge time of 1 s or more always comes with at least 2 spells / cast.', source: gen },
+      { text: 'The sprite gives hints: two tips always mean 2 spells / cast (more tips usually mean at least that many), wider wands usually have more cast delay, longer ones usually more capacity, and a gemstone core means no shuffle.', source: wiki },
+      { text: 'A faint glow (it fades as you get close) marks a Rare wand: 5% of wands. It always has an always cast and gets a bigger stat budget. About 4% of other wands have an always cast too.', source: gen },
+      { text: 'Capacity is capped at 26, except for 1 wand in 10,001.', source: gen },
+      {
+        text: 'No-shuffle costs part of a wand’s stat budget and leftover budget buys half as much capacity, so no-shuffle wands tend to be smaller. Deeper wands are forced no-shuffle more often (15% plus 6% per tier).',
+        source: gen,
+      },
+      { text: 'About 1 wand in 6 rolls a big mana pool with slow charge, and about 1 in 7 a fast charger with a small pool.', source: gen },
+      { text: 'About 88% of Mines wands use one of 17 fixed templates, so the same wands keep turning up there.', source: wiki },
+    ],
+  };
+}
+
 export const MECHANICS: Entries = {
   ...ITEM_MECHANICS,
+  ...wandRules(),
   // ── Spells ──────────────────────────────────────────────────────────────────────────────
   'spell:RUBBER_BALL': [
     {

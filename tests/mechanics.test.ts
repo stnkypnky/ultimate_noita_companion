@@ -18,6 +18,7 @@ const ids: Record<string, Set<string>> = {
   item: new Set(items.map((i) => i.id)),
   material: new Set(materials.map((m) => m.id)),
   perk: new Set(perks.map((p) => p.id)),
+  wand: new Set(['builder']),
 };
 const projs = (id: string) => spells.find((s) => s.id === id)!.projectiles.map((f) => projectiles[f]!);
 
@@ -29,6 +30,18 @@ describe('hidden mechanics', () => {
       expect(notes.length, key).toBeGreaterThan(0);
       for (const n of notes) expect(n.source, key).toMatch(/^(https:\/\/noita\.wiki\.gg\/wiki\/|data\/scripts\/)/);
     }
+  });
+
+  it('the Wand Builder rules match the game’s wand generator', () => {
+    const rules = MECHANICS['wand:builder']!.map((n) => n.text).join(' ');
+    const gen = readFileSync(join(GAME, '../lua/data/scripts/gun/procedural/gun_procedural.lua'), 'utf8');
+    // The capacity clamp is skipped only when Random(0, 10000) rolls 10000: 1 in 10,001.
+    expect(gen).toMatch(/Random\( 0, 10000 \) <= 9999 \) then\s+gun\["deck_capacity"\] = clamp\( gun\["deck_capacity"\], 2, 26 \)/);
+    expect(rules).toMatch(/capped at 26, except for 1 wand in 10,001/);
+    // A recharge of 60 frames or more adds at least one spell per cast.
+    expect(gen).toMatch(/if\( gun\["reload_time"\] >= 60 \) then/);
+    // Rare: Random(0,100) < 5.
+    expect(gen).toMatch(/if\( p < 5 \) then\s+is_rare = 1/);
   });
 
   it('kickable, throwable and hatchable items explain what they do behind the toggle', () => {

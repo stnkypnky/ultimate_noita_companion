@@ -19,6 +19,7 @@ import type { CastView } from '@/sim/analyze';
 import { DiscoveryBar } from '@/features/progress/DiscoveryBar';
 import { Page } from '@/ui/Page';
 import { Section } from '@/ui/controls';
+import { HiddenMechanics } from '@/ui/HiddenMechanics';
 import { SpellIcon } from '@/ui/GameIcon';
 import { Sheet } from '@/ui/Sheet';
 import { useIsDesktop } from '@/ui/hooks';
@@ -281,6 +282,7 @@ export function WandPage() {
       <Section title="Perks">
         <WandPerks />
       </Section>
+      <HiddenMechanics kind="wand" id="builder" />
     </>
   );
 
