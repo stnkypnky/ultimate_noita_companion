@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Enemy } from '../src/data/types.ts';
-import { ENEMY_INFO } from '../src/data/enemyInfo.ts';
+import { ENEMY_INFO, FAMILY_TIPS, enemyTips } from '../src/data/enemyInfo.ts';
 
 const enemies = JSON.parse(readFileSync(join(import.meta.dirname, '../public/game/data/enemies.json'), 'utf8')) as Enemy[];
 const ids = new Set(enemies.map((e) => e.id));
@@ -23,6 +23,19 @@ describe('creature notes', () => {
       if (!info) continue;
       expect(!!info.where || !!info.secret, e.id).toBe(true);
     }
+  });
+
+  it('give family tips only to real creatures, with a source', () => {
+    for (const f of FAMILY_TIPS) {
+      expect(f.source).toMatch(/^https:\/\/noita\.wiki\.gg\/wiki\//);
+      for (const id of f.ids) expect(ids.has(id), id).toBe(true);
+      for (const tip of f.tips) expect(tip.trim()).not.toBe('');
+    }
+    // The five Hiisi the wiki names as sludge-proof don't get the sludge tip.
+    for (const id of ['scavenger_invis', 'scavenger_shield', 'scavenger_heal', 'scavenger_glue', 'alchemist']) {
+      expect(enemyTips(id).some((t) => /Toxic Sludge/.test(t)), id).toBe(false);
+    }
+    expect(enemyTips('shotgunner').some((t) => /Toxic Sludge/.test(t))).toBe(true);
   });
 
   it('covers Kalmamato and the mimics', () => {

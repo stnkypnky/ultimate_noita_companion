@@ -242,7 +242,9 @@ function sun(): Entries {
   const src = `${WIKI}Sun_Quest`;
   return {
     'item:sunseed': [
-      n('Dropped by Unohdettu, the ghost that appears in parallel worlds.', src),
+      n('Dropped by Unohdettu, the ghost of the Forgotten Cave. Matter-destroying spells can destroy it while it lies on the ground.', `${WIKI}Unohdettu`),
+      n('While you hold it you see as with the All-Seeing Eye, which also lifts magical darkness.', `${WIKI}Auringonsiemen`),
+      n('It turns nearby powders into exploding Gunpowder (metal powders excepted) and quickly destroys coal and blue sand.', `${WIKI}Auringonsiemen`),
       n('Drop it on top of the Pyramid and it explodes into Aurinkokivi. The blast can fling the stone into the sand; a pool of non-evaporating liquid like blood up there helps.', src),
     ],
     'item:sunstone': [

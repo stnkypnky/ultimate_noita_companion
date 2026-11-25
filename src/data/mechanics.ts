@@ -288,6 +288,16 @@ export const MECHANICS: Entries = {
     { text: 'Spraying splits evenly between materials, whatever the ratio, so you can partly filter a mix. Spraying upward while flying extends your flight.', source: `${WIKI}Flask` },
     { text: 'Drinking always takes 10% of each material in the flask. Below 10% full, effects are weaker.', source: `${WIKI}Flask` },
     { text: 'You can fill a flask from beneath a thin floor, which is handy for Lava or Teleportatium.', source: `${WIKI}Flask` },
+    { text: 'Its tooltip lists only the three most plentiful materials: a flask can hold more than it shows.', source: `${WIKI}Flask` },
+    { text: 'Fully submerged, an empty flask fills in about 5 s; spraying a full one empty takes about 17 s.', source: `${WIKI}Flask` },
+    { text: 'Materials that react with each other react inside the flask too, so a mixed flask can turn into something else.', source: `${WIKI}Flask` },
+    { text: 'Above 100% full, the spray reaches much farther.', source: `${WIKI}Flask` },
+    { text: 'Flasks from Alchemists and Fire Hiisi read 200%: they hold only half a normal flask but start with a full one’s worth, and refill only up to 100%.', source: `${WIKI}Flask` },
+    { text: 'Invisiblium and Ambrosia can poison you when you drink them, unlike when they stain you.', source: `${WIKI}Flask` },
+    { text: 'On holidays a flask may hold Sima (20%) or Juhannussima (9%), or turn into Pheromone (8%).', source: `${WIKI}Flask` },
+  ],
+  'item:jar': [
+    { text: 'It works exactly like a flask. Urine found lying in the world always comes in a jar, never a flask.', source: `${WIKI}Flask` },
   ],
   'item:brimstone': [
     { text: 'Fire immunity lasts about a second after you swap away or throw it, so you can attack or douse yourself in that window.', source: `${WIKI}Kiuaskivi` },
@@ -344,6 +354,28 @@ export const MECHANICS: Entries = {
     { text: 'It conducts electricity. Lightning or electric arcs into water shock and stun anything in it, and the stun makes electrocution one of the fastest ways to die.', source: `${WIKI}Water` },
   ],
   'material:oil': [{ text: 'Unlike most liquids, it doesn’t conduct electricity.', source: `${WIKI}Electricity` }],
+  'material:mimic_liquid': [
+    { text: 'The moment it touches another liquid, it turns into that liquid.', source: `${WIKI}Mimicium` },
+    { text: 'Drinking it makes you Wet and poisons you for 10 s.', source: `${WIKI}Mimicium` },
+    { text: 'Poured into a nearly empty flask it can overfill it to 101%, likely a race between filling and reacting.', source: `${WIKI}Mimicium`, secret: true },
+  ],
+  'material:magic_liquid_hp_regeneration': [
+    { text: 'Touching it heals 1 HP for every pixel your body soaks up, and its stain keeps regenerating health while it lasts.', source: `${WIKI}Healthium` },
+    { text: 'Each drink gives 7.5 s of Regeneration.', source: `${WIKI}Healthium` },
+    { text: 'To keep a stain without soaking it all up, pour it so it lands on the ground first, or float under a puddle on a thin floor.', source: `${WIKI}Healthium` },
+    { text: 'Fungal shifting while holding a flask can make it, and the Gourd Moon secret rewards it.', source: `${WIKI}Healthium`, secret: true },
+  ],
+  'material:liquid_fire_weak': [
+    { text: 'A thrown flask becomes a pool of fire where it lands, but sprayed it only ignites once it touches another material.', source: `${WIKI}Liquid_Fire` },
+    { text: 'Fire Hiisi cocktails are half Liquid Fire and half Oil.', source: `${WIKI}Liquid_Fire` },
+  ],
+  'material:sima': [
+    { text: 'It looks exactly like Whiskey, but only makes you tipsy for a second, and it doesn’t turn Toxic Sludge into water.', source: `${WIKI}Sima` },
+    { text: 'On 30 April and 1 May (Vappu), every flask has a 20% chance to hold it.', source: `${WIKI}Sima` },
+  ],
+  'material:grass_holy': [
+    { text: 'Fungal shifting it from a Powder Pouch fails 99.9% of the time and gives plain grass instead.', source: `${WIKI}Divine_Ground` },
+  ],
 
   // ── Perks ───────────────────────────────────────────────────────────────────────────────
   'perk:STAINLESS_ARMOUR': [{ text: 'A Pheromone stain does nothing else to you, but it still counts as a stain and turns this perk off until you wash it off.', source: `${WIKI}Pheromone` }],

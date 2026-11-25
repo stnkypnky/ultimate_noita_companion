@@ -2,7 +2,7 @@ import { Link } from 'react-router';
 import { Eye, Skull } from 'lucide-react';
 import { useData } from '@/data/store';
 import type { DamageType, Enemy } from '@/data/types';
-import { ENEMY_INFO } from '@/data/enemyInfo';
+import { ENEMY_INFO, enemyTips } from '@/data/enemyInfo';
 import { SECRET_MATERIALS, materialKey } from '@/data/spoilers';
 import { useProgress, useSpoilers } from '@/store/progress';
 import { useLiveRun } from '@/features/live/state';
@@ -193,7 +193,7 @@ function MetThisRun({ id }: { id: string }) {
 
 function HowToBeat({ enemy: e }: { enemy: Enemy }) {
   const tips = howToBeat(e);
-  const extra = ENEMY_INFO[e.id]?.tips ?? [];
+  const extra = enemyTips(e.id);
   if (!tips.length && !extra.length) return null;
   return (
     <Section title="How to beat it">

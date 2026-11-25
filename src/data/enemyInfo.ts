@@ -47,9 +47,15 @@ export const ENEMY_INFO: Record<string, EnemyInfo> = {
   },
   boss_alchemist: {
     text: 'Drifts slowly, firing homing orbs that summon ethereal wands aimed at you. Every so often it raises a field that reflects projectiles back at whoever fired them; it can hurt itself with its own attacks.',
-    tips: ['The wands aim where you stood when they appeared: keep moving.', 'Attack while the reflecting field is down (it lasts about 4 seconds).'],
+    tips: [
+      'The wands aim where you stood when they appeared: keep moving.',
+      'Attack while the reflecting field is down (it lasts about 4 seconds).',
+      'The field rises every 10 s, and early after a single 50-damage hit or 75 damage in total, so big hits bring it back sooner.',
+      'Plasma spells hurt it straight through the field, and Chain Bolt passes through instead of reflecting.',
+    ],
     source: `${WIKI}Ylialkemisti`,
-    secret: 'Found in the Abandoned Alchemy Lab, below the Snowy Wasteland. Its first kill permanently unlocks the Greek letter spells and Chaos Die.',
+    secret:
+      'Found in the Abandoned Alchemy Lab, below the Snowy Wasteland. It drops the Crystal Key and four random Greek letter spells. Its first kill also drops a Full Health Regeneration and permanently unlocks all the Greek letter spells and Chaos Die.',
   },
   parallel_alchemist: {
     text: 'The High Alchemist’s shadow: the same wand-summoning orbs and projectile-reflecting field, with different immunities.',
@@ -59,10 +65,15 @@ export const ENEMY_INFO: Record<string, EnemyInfo> = {
   },
   boss_centipede: {
     text: 'The final boss. It fires cross patterns, arcs, flame jets and lava balls and clears material around itself. At intervals it turns unhittable inside a gravity field that gathers your shots and flings them back, and it summons flying eyes.',
-    tips: ['Use the platforms as cover.', 'Acid and poison work very well: it is vulnerable to material damage.'],
+    tips: [
+      'Use the platforms as cover.',
+      'Acid and poison work very well: it is vulnerable to material damage, and to physics collisions such as Earthquake.',
+      'If a reload leaves it stuck passive and unkillable, move away from it and reload again.',
+    ],
     where: 'The Laboratory, at the bottom of the main descent.',
     source: `${WIKI}Kolmisilm%C3%A4`,
-    secret: 'Beating it opens the way to The Work. Its health grows with New Game+ and the Orbs of True Knowledge you carry.',
+    secret:
+      'Beating it opens the way to The Work. Its health grows with New Game+ and the Orbs of True Knowledge you carry, and orbs change its weaknesses: acid hurts it 90% less from 4 orbs and not at all from 7, and poison halves at 9. From 12 to 16 orbs it is briefly weak to one material each (Polymorphine, Chaotic Polymorphine, Teleportatium, Acceleratium, then Flummoxium), and from 31 it is immune to Touch of spells.',
   },
   boss_dragon: {
     text: 'A huge flying worm with far better air control than a Jättimato. It deletes terrain as it moves, its bite is close to instant death, and it spits fireballs and slow green orbs.',
@@ -72,9 +83,15 @@ export const ENEMY_INFO: Record<string, EnemyInfo> = {
   },
   boss_ghost: {
     text: 'Moves unpredictably, launching Häive that explode for heavy damage up close and summoning Olematon. It can only be hurt while a Paha Silmä is near it, and its orbiting plasma beams grow stronger every time it takes damage.',
-    tips: ['Keep the Paha Silmä close to it, and keep matter-destroying spells away from the eye.', 'Avoid rapid-fire wands: its revenge plasma fills the arena.'],
+    tips: [
+      'Keep the Paha Silmä close to it, and keep matter-destroying spells away from the eye.',
+      'Avoid rapid-fire wands: its revenge plasma fills the arena.',
+      'Acid can kill it outright.',
+      'It is vulnerable for a few frames as it loads in, so it can be killed even without a Paha Silmä.',
+      'Three or more More Love perks stop it spawning Häive all the time; hurting it, or a Berserkium stain on you, still sets them off.',
+    ],
     source: `${WIKI}Unohdettu`,
-    secret: 'It lives in the Forgotten Cave, west of the Snowy Chasm, and drops a Sun Seed.',
+    secret: 'It lives in the Forgotten Cave, west of the Snowy Chasm, and drops a Full Health Regeneration and a Sun Seed. Matter-destroying spells can destroy the seed on the ground.',
   },
   boss_ghost_polyp: {
     text: 'The minion the Forgotten fires from its mouth. It explodes for heavy damage up close, and can only be seen and hurt while a Paha Silmä is near.',
@@ -123,9 +140,16 @@ export const ENEMY_INFO: Record<string, EnemyInfo> = {
   },
   boss_wizard: {
     text: 'A slow floating boss with random debuffs, green meteors, magic bursts and phasing spheres. Four Death Orbs make it invincible until destroyed, and four Blood Orbs send damage they take back to you as curse damage. It changes phase at half health and again at 20%.',
-    tips: ['Shoot its head from above: the top of its hitbox is outside its projectile-deleting field.', 'Don’t hit the Blood Orbs with big shots.'],
+    tips: [
+      'Shoot its head from above: the top of its hitbox is outside its projectile-deleting field.',
+      'Don’t hit the Blood Orbs with big shots.',
+      'Material damage (a Sea of Acid or Lava, say) and trick kills don’t trigger the Blood Orbs’ revenge.',
+      'An Ambrosia stain cancels the damage the Blood Orbs send back.',
+      'Melee Immunity makes the last phase trivial.',
+    ],
     source: `${WIKI}Mestarien_mestari`,
-    secret: 'Its throne room is on the east edge of the eastern Wizards’ Den.',
+    secret:
+      'Its throne room is on the east edge of the eastern Wizards’ Den. It drops 600 gold, Sauvan Ydin, the book “A Cunning Contraption” and the spells Wand Refresh, Add Trigger, Add Timer, Add Expiration Trigger and Spell Duplication. Drowning it in Swamp (the last hit must be drowning, while it touches more Swamp than any other liquid) is part of the Fish Quest and unlocks Wand Homing.',
   },
   fish_giga: {
     text: 'A huge sea creature that fires piercing orbs in eight directions, and shoots back whenever it is hurt. Projectiles do nothing, and explosions, slice and melee only 1%; Holy damage hits it in full, and only while its eye is open.',
@@ -187,13 +211,14 @@ export const ENEMY_INFO: Record<string, EnemyInfo> = {
     text: 'A friendly green blob that follows you and spits seeds, until you get close enough for a friendly kick.',
     where: 'The Friend Room, in one of six places each run.',
     source: `${WIKI}Toveri`,
-    secret: 'After you have killed a Kauhuhirviö it turns hostile, fires fast blue shots and becomes immune to most damage (Drill and Holy still work), growing tougher with each one killed.',
+    secret:
+      'After you have killed a Kauhuhirviö it turns hostile, fires fast blue shots and becomes immune to most damage (Drill and Holy still work). Each Kauhuhirviö killed multiplies its health by 1.5 (nearly 30,000 after nine) and makes it attack faster. Guided into the Avarice Diamond instead, it unlocks Giga Holy Bomb and a pillar; killing it after nine Kauhuhirviö earns another pillar.',
   },
   ultimate_killer: {
     text: 'A rare green flyer with a cartoon face. When provoked it spits harmless seeds that grow into plants. Its big death explosion crumbles the ground but deals barely any damage.',
     where: 'Rarely in the Frozen Vault, and in a hidden room.',
     source: `${WIKI}Kauhuhirvi%C3%B6`,
-    secret: 'The room holding fourteen of them (and a Toveri) appears in every parallel world.',
+    secret: 'The room holding fourteen of them (and a Toveri) appears in every parallel world. Guide one into the Avarice Diamond to unlock Giga Nuke and a pillar.',
   },
   fungus: {
     text: 'Wanders aimlessly, but jumps at you when you come close and explodes for 125. It also explodes when killed.',
@@ -391,4 +416,129 @@ export const ENEMY_INFO: Record<string, EnemyInfo> = {
     where: 'Ancient Laboratory and The Tower.',
     source: `${WIKI}Patsas`,
   },
+  monk: {
+    text: 'A robot whose two floating hands fire slow green orbs in straight lines. A hand raising two fingers is attacking; five fingers means it has lost sight of you and stopped. It can see you while you are invisible, but is slow and rarely chases.',
+    tips: [
+      'Each hand has 65 HP and only non-projectile damage breaks it; with both hands gone it has no attack left.',
+      'There is a short pause between it spotting you and its first shot: a Magic Missile or thrown Emerald Tablet fits in that window.',
+      'True Orbit mists stop its shots better than Homing mists, which chase the body instead of the hands.',
+    ],
+    source: `${WIKI}Munkki`,
+    secret:
+      'Kicking the three rock hand statues in the Snowy Depths releases Munkki: one from the first, two from the second, three from the third, which also gives the Broken Spell. The statues aren’t in parallel worlds. Bringing a statue to the Floating Island altar (with Kuu or Homebringer Teleport Bolt) earns a pillar and a unique laser drone with Munkki hands.',
+  },
+  ant: {
+    text: 'Crawls along the ground, jumps, lunges and swims, and at close range spits a spray of acid that does heavy damage very fast.',
+    tips: ['Keep your distance: everything it does is short-range.'],
+    source: `${WIKI}Murkku`,
+  },
+  bat: {
+    text: 'Drifts about until it sees you, then flies in and lunges for a bite. It usually comes with a Suurlepakko, which makes more.',
+    tips: ['Kill the Suurlepakko first, or the swarm keeps growing.', 'A group can surround you and stun you over and over, even though each one is slow.'],
+    source: `${WIKI}Lepakko`,
+  },
+  firemage_weak: {
+    text: 'Patrols on foot, jumping high (often while shooting), and throws fireballs that burst on impact or where you stood. It is immune to fire, sets fire to things around it, and bleeds lava.',
+    tips: [
+      'Water, mud, brine, snow and ice hurt it fast, and immersion is quickly fatal. A Rain Cloud wand (common in the Mines) or a water flask dropped from above works well.',
+      'Killed with water it counts as an accidental kill, worth double gold.',
+      'It steers clear of deep water but misses small puddles, and it walks into Toxic Sludge, which you can purify into water.',
+      'Holding Kiuaskivi in hand keeps it peaceful.',
+    ],
+    source: `${WIKI}Stendari`,
+  },
+  firemage: {
+    text: 'A far stronger Stendari. It throws a large light-blue fireball in a slight arc at exactly where you are, which explodes for 50, smashes physical objects and sets a dry target on fire.',
+    tips: ['Avoid it unless prepared.', 'It is extremely vulnerable to water.', 'Holding Kiuaskivi in hand keeps it peaceful.'],
+    source: `${WIKI}Eldari`,
+  },
+  scavenger_shield: {
+    text: 'Flies around shooting other creatures with a shield gun: each hit gives them a projectile shield for 10.7 s, like the Permanent Shield perk but one that doesn’t recharge.',
+    tips: ['Kill it first.', 'Step into one of its shots and the shield is yours.'],
+    source: `${WIKI}Kilpihiisi`,
+  },
+  scavenger_heal: {
+    text: 'Follows other Hiisi and shoots healing bolts (+5 HP each) at any that get hurt. It has no damaging attack, but with a wand it picks up it targets its allies.',
+    tips: ['Kill it quickly, especially in the Hiisi Base.', 'Charmed with Pheromone it heals you instead.'],
+    source: `${WIKI}Parantajahiisi`,
+  },
+  scavenger_glue: {
+    text: 'Comes in pairs and fires glue balls that stick you to nearby surfaces, leaving you an easy target for the other Hiisi. It charges each shot briefly first.',
+    tips: ['Watch for the charge-up and move.', 'Shooting the glue breaks it faster.'],
+    source: `${WIKI}Liimahiisi`,
+    secret: 'It is the only Hiisi that can appear in the Power Plant.',
+  },
+  scavenger_poison: {
+    text: 'Patrols on a jetpack and, once it sees you, fires poison shots that leave a trail of poison. It is immune to poison itself and chases fleeing targets around a few corners.',
+    tips: ['Fly above its shots to stay out of the trail.', 'It needs a direct line of sight: arcing spells can chip at it from cover.', 'Toxic Immunity doesn’t protect you from its poison.'],
+    source: `${WIKI}Myrkkyhiisi`,
+  },
+  scavenger_mine: {
+    text: 'Flies about alternating between a shotgun and red mines that stick to whatever they hit. A mine blinks yellow when something comes close and explodes half a second later, for 35 and fire.',
+    tips: ['Hover above its mines to keep from setting them off, or set them off on purpose.'],
+    source: `${WIKI}Miinankylv%C3%A4j%C3%A4`,
+  },
+  lukki: {
+    text: 'A sturdy spider that walks over background walls as if there were no gravity, follows you without really chasing, and jabs with its legs for heavy knockback. Its legs can find you while you are invisible. It runs once badly hurt.',
+    tips: ['It eats Emerald Tablets thrown at it.', 'Unlike the long-legged Lukki, it can tunnel through terrain.'],
+    source: `${WIKI}Spider`,
+  },
+  lukki_longleg: {
+    text: 'A long-legged spider that walks over background walls, follows you without really chasing, and jabs with its legs for heavy knockback, even while you are invisible. It can’t tunnel, and runs once badly hurt.',
+    source: `${WIKI}Spider`,
+  },
 };
+
+// Tips that hold for a whole family of creatures, shown with each member's own tips.
+type FamilyTips = { ids: string[]; tips: string[]; source: string };
+
+const HIISI_TOXIC = [
+  'miner', 'miner_weak', 'miner_fire', 'miner_hell', 'miner_santa', 'miner_chef', 'shotgunner', 'shotgunner_weak', 'shotgunner_hell',
+  'sniper', 'sniper_hell', 'scavenger_smg', 'scavenger_grenade', 'scavenger_mine', 'scavenger_poison', 'scavenger_clusterbomb',
+  'scavenger_leader', 'coward',
+];
+const HIISI_TOXIC_PROOF = ['scavenger_invis', 'scavenger_shield', 'scavenger_heal', 'scavenger_glue', 'alchemist'];
+
+export const FAMILY_TIPS: FamilyTips[] = [
+  {
+    ids: HIISI_TOXIC,
+    tips: ['Toxic Sludge hurts it fast, and unlike most creatures a toxic stain alone can kill it.'],
+    source: `${WIKI}Hiisi`,
+  },
+  {
+    ids: [...HIISI_TOXIC, ...HIISI_TOXIC_PROOF],
+    tips: ['It picks up wands it finds. Kick the wand out of its hands; it drops one by itself once the charges run out.'],
+    source: `${WIKI}Hiisi`,
+  },
+  {
+    ids: [
+      'assassin', 'basebot_hidden', 'basebot_neutralizer', 'basebot_sentry', 'basebot_soldier', 'drone_lasership', 'drone_physics', 'drone_shield',
+      'flamer', 'icer', 'missilecrab', 'necrobot', 'necrobot_super', 'roboguard', 'roboguard_big', 'spearbot',
+    ],
+    tips: ['Like other robots it sinks in liquids. Acid, Lava and Concentrated Mana still hurt it.'],
+    source: `${WIKI}Robot`,
+  },
+  { ids: ['basebot_hidden'], tips: ['Electricity heals it instead of hurting it.'], source: `${WIKI}Robot` },
+  {
+    ids: ['lukki', 'lukki_longleg', 'lukki_tiny'],
+    tips: [
+      'Spiders bunch up, so area spells work well; heavy hits beat rapid fire.',
+      'They count as physics bodies: Burst of Air and Black Hole push and pull them.',
+    ],
+    source: `${WIKI}Spider`,
+  },
+  {
+    ids: ['worm', 'worm_tiny', 'worm_big'],
+    tips: [
+      'Its digging can break into a Holy Mountain and anger the gods; a Worm Crystal softens the damage.',
+      'Worm Pheromone, or eating Meat of an Innocent Creature, draws worms to you from farther away.',
+    ],
+    source: `${WIKI}Worm`,
+  },
+];
+
+/** A creature's own tips, then the tips of every family it belongs to. */
+export const enemyTips = (id: string): string[] => [
+  ...(ENEMY_INFO[id]?.tips ?? []),
+  ...FAMILY_TIPS.filter((f) => f.ids.includes(id)).flatMap((f) => f.tips),
+];
