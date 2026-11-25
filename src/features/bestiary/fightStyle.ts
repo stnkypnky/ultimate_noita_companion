@@ -1,5 +1,6 @@
 // How a creature fights, in plain words, from its extracted game data. Pure, so it's easy to test.
 import type { Enemy } from '@/data/types';
+import { FIGHTS } from '@/data/enemyFights';
 
 export type CombatStyle = { label: string; blurb: string };
 
@@ -8,6 +9,8 @@ const closeIn = (e: Enemy) => e.attacks?.some((a) => a.kind === 'melee' || a.kin
 
 /** One label for how it fights. */
 export function combatStyle(e: Enemy): CombatStyle {
+  const curated = FIGHTS[e.id];
+  if (curated) return { label: curated.label, blurb: curated.blurb };
   const b = e.behavior ?? {};
   const shot = ranged(e);
   if (e.boss) return { label: 'Boss', blurb: 'A unique fight with its own rules.' };

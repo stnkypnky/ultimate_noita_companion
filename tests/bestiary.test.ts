@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { FIGHTS } from '../src/data/enemyFights.ts';
 import type { Enemy } from '../src/data/types.ts';
 import { behaviorLines, combatStyle, effectText } from '../src/features/bestiary/fightStyle.ts';
 import { howToBeat } from '../src/features/bestiary/tactics.ts';
@@ -17,6 +20,25 @@ describe('combat style', () => {
     expect(combatStyle(enemy({ attacks: [{ kind: 'melee' }] })).label).toBe('Brawler');
     expect(combatStyle(enemy({ behavior: { helpsFriends: true }, attacks: [{ kind: 'ranged' }] })).label).toBe('Support');
     expect(combatStyle(enemy({})).label).toBe('Harmless');
+  });
+
+  it('never calls a creature that attacks harmless', () => {
+    const enemies = JSON.parse(readFileSync(join(import.meta.dirname, '../public/game/data/enemies.json'), 'utf8')) as Enemy[];
+    const byId = new Map(enemies.map((e) => [e.id, e]));
+    for (const [id, f] of Object.entries(FIGHTS)) {
+      const e = byId.get(id);
+      expect(e, id).toBeDefined();
+      // Once the extractor finds real attacks, the curated entry is stale: drop it.
+      expect(e!.attacks?.length ?? 0, `${id} now has extracted attacks`).toBe(0);
+      expect(f.source, id).toMatch(/^https:\/\/noita\.wiki\.gg\/wiki\//);
+      expect(f.label, id).not.toBe('Harmless');
+    }
+    const label = (id: string) => combatStyle(byId.get(id)!).label;
+    for (const id of ['monk', 'lukki', 'lukki_longleg', 'lukki_tiny', 'lukki_dark', 'icer', 'tank', 'tank_rocket', 'tentacler', 'boss_dragon', 'maggot_tiny']) {
+      expect(label(id), id).not.toBe('Harmless');
+    }
+    // The ones that really don't attack stay harmless.
+    for (const id of ['sheep', 'duck', 'deer', 'fish', 'fish_large', 'scorpion']) expect(label(id), id).toBe('Harmless');
   });
 
   it('describes behavior in sentences', () => {

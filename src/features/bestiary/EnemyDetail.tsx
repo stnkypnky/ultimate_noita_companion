@@ -3,6 +3,7 @@ import { Eye, Skull } from 'lucide-react';
 import { useData } from '@/data/store';
 import type { DamageType, Enemy } from '@/data/types';
 import { ENEMY_INFO, enemyTips } from '@/data/enemyInfo';
+import { FIGHTS } from '@/data/enemyFights';
 import { SECRET_MATERIALS, materialKey } from '@/data/spoilers';
 import { useProgress, useSpoilers } from '@/store/progress';
 import { useLiveRun } from '@/features/live/state';
@@ -30,6 +31,9 @@ export function EnemyDetail({ enemy: e }: { enemy: Enemy }) {
   const resist = Object.entries(e.resist ?? {}).sort((a, b) => a[1]! - b[1]!) as [DamageType, number][];
   const style = combatStyle(e);
   const info = ENEMY_INFO[e.id];
+  const boss = e.boss || style.label === 'Boss';
+  // The game data lists no attacks for creatures whose attacks live in child entities or Lua: use the curated ones.
+  const curated = !e.attacks?.length ? FIGHTS[e.id]?.attacks : undefined;
 
   return (
     <article>
@@ -38,8 +42,8 @@ export function EnemyDetail({ enemy: e }: { enemy: Enemy }) {
         <div className="min-w-0 self-stretch">
           <h2 className="font-game text-[24px] leading-tight">{e.name}</h2>
           <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-            {e.boss && <span className="font-game bg-blood/15 px-2 py-0.5 text-[16px] text-blood">Boss</span>}
-            {!e.boss && <span className="font-game bg-gold/10 px-2 py-0.5 text-[16px] text-gold">{style.label}</span>}
+            {boss && <span className="font-game bg-blood/15 px-2 py-0.5 text-[16px] text-blood">Boss</span>}
+            {!boss && <span className="font-game bg-gold/10 px-2 py-0.5 text-[16px] text-gold">{style.label}</span>}
             <MetThisRun id={e.id} />
           </div>
           <p className="mt-1.5 text-sm text-muted">{style.blurb}</p>
@@ -75,7 +79,18 @@ export function EnemyDetail({ enemy: e }: { enemy: Enemy }) {
             />
           </div>
         )}
-        {!e.attacks && !e.behavior?.aura && (
+        {curated && (
+          <div className="mt-2">
+            <StatTable
+              rows={curated.map((a) => ({
+                label: a.what,
+                value: a.damage ?? '—',
+                icon: a.kind === 'ranged' ? 'damage_projectile' : 'damage_melee',
+              }))}
+            />
+          </div>
+        )}
+        {!e.attacks && !curated && !e.behavior?.aura && !boss && (
           <p className="mt-2 flex items-center gap-2 text-sm text-faint">
             <Skull size={15} /> It has no attack of its own.
           </p>
