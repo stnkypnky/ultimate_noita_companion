@@ -146,6 +146,8 @@ export type Enemy = {
   hurtBy?: { material: string; perSecond: number; ofMaxHp?: boolean }[];
   /** Status immunities and things that don't work on it. */
   immune?: string[];
+  /** What it's allergic to (a lasting game effect, not a damage multiplier): the Hiisi's Toxic sludge. */
+  weakTo?: string[];
   /** Plain-word traits: doesn't breathe, doesn't burn, resists critical hits… */
   traits?: string[];
   /** What it bleeds: the spray when hit (blood_spray_material) and blood_material's particles. */
@@ -163,6 +165,8 @@ export type Enemy = {
   anims?: { name: string; layers: SpriteLayer[]; motion?: Motion }[];
   /** Legs the game bends with inverse kinematics (lukki, leggy chests): drawn from the body's pivot. */
   legs?: Legs;
+  /** Verlet chains hanging off it: tails, tentacles, vines, hair, capes. */
+  chains?: Chain[];
   behavior?: EnemyBehavior;
   /** Biomes whose spawn tables hold it: `share` is its chance among that table's creatures. */
   spawns?: { biome: string; name: string; share: number; count: [number, number] }[];
@@ -177,6 +181,13 @@ export type Enemy = {
  * one swimming with its body following its head ('slither'), a physics body drifting, a flyer bobbing, legs stepping.
  */
 export type Motion = 'wriggle' | 'slither' | 'float' | 'hover' | 'scuttle';
+
+/**
+ * A VerletPhysicsComponent chain: points `gap` game pixels apart hanging from `at` (from the pivot), one piece on
+ * each link from the anchor out. A piece's image runs along its link from (ox, oy) inside it, stretched to the link's
+ * length when `stretch`. `front` chains draw over the body, the rest behind it.
+ */
+export type Chain = { at: [number, number]; gap: number; stretch: boolean; front: boolean; pieces: { icon: Icon; ox: number; oy: number }[] };
 
 /** IKLimbComponent legs: two segments (upper from the hip, lower to the foot), each pivoting at its left end. */
 export type Legs = {

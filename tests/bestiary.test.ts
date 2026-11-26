@@ -83,6 +83,13 @@ describe('how to beat it', () => {
     expect(howToBeat(enemy({ boss: true })).map((x) => x.text)).not.toContain(tip);
     expect(howToBeat(enemy({ immune: ['Freezing'] })).map((x) => x.text)).not.toContain(tip);
   });
+
+  it('names the Hiisi allergy to Toxic sludge as a weakness', () => {
+    const toxic = howToBeat(enemy({ weakTo: ['Toxic sludge'] })).find((x) => /Toxic sludge/.test(x.text));
+    expect(toxic).toMatchObject({ tone: 'good' });
+    expect(toxic!.text).toMatch(/^Weak to Toxic sludge/);
+    expect(howToBeat(enemy({})).some((x) => /Toxic/.test(x.text))).toBe(false);
+  });
 });
 
 describe('your record', () => {

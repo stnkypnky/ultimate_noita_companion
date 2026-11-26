@@ -20,6 +20,9 @@ export function howToBeat(e: Enemy): Tactic[] {
 
   const weak = resist.filter(([t, m]) => m > 1 && t !== 'healing').sort((x, y) => y[1] - x[1]);
   if (weak.length) out.push({ text: `Weak to ${list(weak.map(([t, m]) => `${DAMAGE_LABEL[t]} (${pct(m)})`))}.`, tone: 'good' });
+  // An allergy (ALLERGY_RADIOACTIVE) rather than a multiplier: the wiki gives no number, only what it does.
+  if (e.weakTo?.includes('Toxic sludge'))
+    out.push({ text: 'Weak to Toxic sludge: it hurts it fast, and unlike most creatures a toxic stain alone can kill it.', tone: 'good' });
   const zero = resist.filter(([t, m]) => m === 0 && t !== 'healing').map(([t]) => DAMAGE_LABEL[t]);
   if (zero.length) out.push({ text: `${list(zero)} damage does nothing to it.`, tone: 'bad' });
   const tough = resist.filter(([t, m]) => m > 0 && m < 0.5 && t !== 'healing').map(([t, m]) => `${DAMAGE_LABEL[t]} (${pct(m)})`);

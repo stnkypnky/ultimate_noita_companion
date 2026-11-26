@@ -492,21 +492,16 @@ export const ENEMY_INFO: Record<string, EnemyInfo> = {
 // Tips that hold for a whole family of creatures, shown with each member's own tips.
 type FamilyTips = { ids: string[]; tips: string[]; source: string };
 
-const HIISI_TOXIC = [
+// Their weakness to Toxic Sludge comes from the game files (Enemy.weakTo), shown in How to beat it.
+const HIISI = [
   'miner', 'miner_weak', 'miner_fire', 'miner_hell', 'miner_santa', 'miner_chef', 'shotgunner', 'shotgunner_weak', 'shotgunner_hell',
   'sniper', 'sniper_hell', 'scavenger_smg', 'scavenger_grenade', 'scavenger_mine', 'scavenger_poison', 'scavenger_clusterbomb',
-  'scavenger_leader', 'coward',
+  'scavenger_leader', 'coward', 'scavenger_invis', 'scavenger_shield', 'scavenger_heal', 'scavenger_glue', 'alchemist',
 ];
-const HIISI_TOXIC_PROOF = ['scavenger_invis', 'scavenger_shield', 'scavenger_heal', 'scavenger_glue', 'alchemist'];
 
 export const FAMILY_TIPS: FamilyTips[] = [
   {
-    ids: HIISI_TOXIC,
-    tips: ['Toxic Sludge hurts it fast, and unlike most creatures a toxic stain alone can kill it.'],
-    source: `${WIKI}Hiisi`,
-  },
-  {
-    ids: [...HIISI_TOXIC, ...HIISI_TOXIC_PROOF],
+    ids: HIISI,
     tips: ['It picks up wands it finds. Kick the wand out of its hands; it drops one by itself once the charges run out.'],
     source: `${WIKI}Hiisi`,
   },

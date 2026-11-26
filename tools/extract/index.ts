@@ -112,11 +112,12 @@ function legIcons({ upper, lower, lowerRight, knee, attacker, ...rest }: LegsOut
       : {}),
   };
 }
-const enemies: Enemy[] = bestiary.enemies.map(({ anims, legs, ...e }) => ({
+const enemies: Enemy[] = bestiary.enemies.map(({ anims, legs, chains, ...e }) => ({
   ...e,
   ...(portraitAtlas.rects.has(e.id) ? { portrait: portraitAtlas.rects.get(e.id)! } : {}),
   ...(anims ? { anims: anims.map((a) => ({ ...a, layers: a.layers.map((l) => ({ ...l, frames: l.frames.map(frameIcon) })) })) } : {}),
   ...(legs ? { legs: legIcons(legs) } : {}),
+  ...(chains ? { chains: chains.map((c) => ({ ...c, pieces: c.pieces.map(({ key, ...p }) => ({ icon: frameIcon(key), ...p })) })) } : {}),
 }));
 console.log(`enemies: ${enemies.length}, ${bestiary.portraits.length} portraits, ${bestiary.images.size} frames, atlas ${portraitAtlas.size.join('x')}`);
 if (process.env.ENEMY_SCRIPTS) for (const [id, s] of bestiary.scripts) console.log(`  ${id}: ${s.join(' ')}`);

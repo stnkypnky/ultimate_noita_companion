@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import sharp from 'sharp';
-import type { DamageType, Enemy, EnemyBehavior, Legs, Motion } from '../../src/data/types.ts';
+import type { Chain, DamageType, Enemy, EnemyBehavior, Legs, Motion } from '../../src/data/types.ts';
 import { comp, comps, num, type El, type EntityLoader } from './entity.ts';
 import { humanize, tr, type Translations } from './translations.ts';
 import { buildProjectile } from './spells.ts';
@@ -69,6 +69,13 @@ const PROTECTION: Record<string, string> = {
   PROTECTION_PROJECTILE: 'Projectiles',
   PROTECTION_ALL: 'All damage',
 };
+/**
+ * Lasting effects that make it weaker to something. ALLERGY_RADIOACTIVE is the Hiisi's: Toxic Sludge hurts them fast,
+ * and unlike other creatures a toxic stain alone can kill them (wiki: Hiisi, Toxic Sludge). The files give no number.
+ */
+const WEAK_EFFECTS: Record<string, string> = {
+  ALLERGY_RADIOACTIVE: 'Toxic sludge',
+};
 
 /** An enemy as built here: its animation frames and leg images are still image keys (packed into the atlas afterwards). */
 export type LegsOut = Omit<Legs, 'upper' | 'lower' | 'lowerRight' | 'knee' | 'attacker'> & {
@@ -78,7 +85,13 @@ export type LegsOut = Omit<Legs, 'upper' | 'lower' | 'lowerRight' | 'knee' | 'at
   knee?: string;
   attacker?: { reach: number; radius: number; upper: string; lower: string; joint?: string };
 };
-export type EnemyOut = Omit<Enemy, 'anims' | 'legs'> & { anims?: { name: string; layers: LayerOut[]; motion?: Motion }[]; legs?: LegsOut };
+/** A chain as built here: its pieces' images are still image keys. */
+export type ChainOut = Omit<Chain, 'pieces'> & { pieces: { key: string; ox: number; oy: number }[] };
+export type EnemyOut = Omit<Enemy, 'anims' | 'legs' | 'chains'> & {
+  anims?: { name: string; layers: LayerOut[]; motion?: Motion }[];
+  legs?: LegsOut;
+  chains?: ChainOut[];
+};
 export type EnemyBuild = { enemies: EnemyOut[]; portraits: AtlasInput[]; images: Map<string, Buffer>; scripts: Map<string, string[]> };
 
 export async function buildEnemies(
@@ -147,6 +160,10 @@ export async function buildEnemies(
       ...effects(e).map((g) => (num(g.attrs.frames, 0) < 0 ? PROTECTION[g.attrs.effect ?? ''] : undefined)),
     ].filter((x): x is string => !!x);
     if (immune.length) enemy.immune = [...new Set(immune)];
+    const weak = effects(e)
+      .map((g) => (num(g.attrs.frames, 0) < 0 ? WEAK_EFFECTS[g.attrs.effect ?? ''] : undefined))
+      .filter((x): x is string => !!x);
+    if (weak.length) enemy.weakTo = [...new Set(weak)];
 
     // Gold: drop_money*.lua drops 10 × max(1, floor(max_hp)) × its multiplier (drop_money16x.lua…).
     const drop = comps(e, 'LuaComponent')
@@ -202,6 +219,8 @@ export async function buildEnemies(
     else if (body) for (const a of anims) a.layers.unshift(body);
     const legs = e ? await legsOf(wak, e, loader, images) : undefined;
     if (legs) enemy.legs = legs;
+    const chains = e && anims.length ? await chainsOf(wak, e, sprite, loader, images) : [];
+    if (chains.length) enemy.chains = chains;
     const behavior = behaviorOf(e, ai, loader);
     if (anims.length) enemy.anims = withMotion(anims, e, legs, behavior);
     if (Object.keys(behavior).length) enemy.behavior = behavior;
@@ -251,6 +270,7 @@ async function animations(wak: Wak, e: El, main: El, images: Map<string, Buffer>
   // Suomuhauki and Limatoukka move like worms too, with their own component.
   const worm = comp(e, 'WormComponent') ?? comp(e, 'BossDragonComponent');
   const held = await heldSprites(wak, e, file);
+  const loose = looseSprites(e);
   // Noita draws lower z_index in front: draw back to front.
   const z = (s: El) => num(s.attrs.z_index, 0);
   const opts = (s: El, anim?: string) => ({
@@ -288,14 +308,17 @@ async function animations(wak: Wak, e: El, main: El, images: Map<string, Buffer>
     } else {
       // Things it holds (Märkiäinen's lantern) hang from a hotspot on its sprite, which moves with the animation.
       const hand = await Promise.all(held.map(async (h) => ({ ...h, at: (await hotspotAt(wak, file, h.hotspot, name || undefined)) ?? h.fallback })));
-      const all = [...sprites.map((s) => ({ s, at: [0, 0] as [number, number] })), ...hand, ...parts];
+      // Held things and loose parts are always there, in their own pose when they don't share the animation (Mina's
+      // arm has "default" and "down", not her "walk").
+      const always = new Set<El>([...hand, ...loose].map((x) => x.s));
+      const all = [...sprites.map((s) => ({ s, at: [0, 0] as [number, number] })), ...hand, ...parts, ...loose];
       // Emissive sprites are drawn in their own pass over everything else (eyes, lamps).
       const glow = (s: El) => (s.attrs.emissive === '1' || /_emissive/.test(s.attrs.image_file ?? '') ? 1 : 0);
       for (const { s, at } of all.sort((a, b) => glow(a.s) - glow(b.s) || z(b.s) - z(a.s))) {
         const f = String(s.attrs.image_file);
         const isMain = s === main;
         // Other layers join only if they're still images or animate with the same name.
-        if (!isMain && f.endsWith('.xml') && name && !animNames(wak, f).includes(name)) continue;
+        if (!isMain && !always.has(s) && f.endsWith('.xml') && name && !animNames(wak, f).includes(name)) continue;
         // A part with no shared name plays its first animation that moves (the Leviathan's eye opening).
         const anim = isMain || f.endsWith('.xml') ? name || (isMain ? undefined : movingAnim(wak, f)) : undefined;
         const l = await spriteLayer(wak, f, opts(s, anim), images);
@@ -365,6 +388,91 @@ function partSprites(e: El, loader: EntityLoader): { s: El; at: [number, number]
   return out;
 }
 
+/**
+ * Sprites on plain child entities that sit on the creature's pivot: no transform of their own, and not creatures in
+ * their own right (the Monk's hands have their own health and scripts). Unohdettu's pupil is one; eye.lua turns it
+ * towards you, so it's drawn in the middle of the eye.
+ */
+function looseSprites(e: El): { s: El; at: [number, number] }[] {
+  const out: { s: El; at: [number, number] }[] = [];
+  for (const child of comps(e, 'Entity')) {
+    if (child.children.some((c) => c.tag === 'Base' || c.tag === 'Entity' || c.tag === 'InheritTransformComponent' || c.tag === 'DamageModelComponent')) continue;
+    for (const s of comps(child, 'SpriteComponent')) {
+      const f = s.attrs.image_file ?? '';
+      if (s.attrs._enabled === '0' || !f || f.includes('/ui_gfx/') || notBody(s) || SPRITE_SKIP.test(f) || SPRITE_SKIP.test(s.attrs._tags ?? '')) continue;
+      out.push({ s, at: [0, 0] });
+    }
+  }
+  return out;
+}
+
+/** A sprite's first frame at full size (a .png, or a <Sprite> sheet's default animation), and the sheet's pivot. */
+async function firstFrame(wak: Wak, file: string): Promise<{ key: string; png: Buffer; ox: number; oy: number } | null> {
+  const path = realPath(wak, file);
+  if (!path) return null;
+  if (path.endsWith('.png')) return { key: path, png: wak.bytes(path), ox: 0, oy: 0 };
+  if (!path.endsWith('.xml')) return null;
+  const sprite = parseXml(wak.text(path)).find((x) => x.tag === 'Sprite');
+  const img = sprite && realPath(wak, sprite.attrs.filename ?? '');
+  if (!sprite || !img) return null;
+  const rects = comps(sprite, 'RectAnimation');
+  const rect = rects.find((a) => a.attrs.name === sprite.attrs.default_animation) ?? rects[0];
+  let png = wak.bytes(img);
+  if (rect) {
+    const meta = await sharp(png).metadata();
+    const width = num(rect.attrs.frame_width, meta.width ?? 1);
+    const height = num(rect.attrs.frame_height, meta.height ?? 1);
+    const left = num(rect.attrs.pos_x, 0);
+    const top = num(rect.attrs.pos_y, 0);
+    if (left + width <= (meta.width ?? 0) && top + height <= (meta.height ?? 0)) png = await sharp(png).extract({ left, top, width, height }).png().toBuffer();
+  }
+  return { key: `${path}#0`, png, ox: num(sprite.attrs.offset_x, 0), oy: num(sprite.attrs.offset_y, 0) };
+}
+
+/** Where a child entity sits on the creature: the last InheritTransformComponent Transform (an override on a <Base>). */
+function childAt(child: El): [number, number] {
+  const tf = comps(child, 'InheritTransformComponent')
+    .map((i) => comp(i, 'Transform'))
+    .filter((t): t is El => !!t)
+    .at(-1)?.attrs;
+  return [num(tf?.['position.x'], 0), num(tf?.['position.y'], 0)];
+}
+
+/**
+ * Its VerletPhysicsComponent chains: tails, tentacles, vines, hair and capes. Each holds num_points points
+ * resting_distance apart, with one sprite on each link from the anchor out. Sprites stretch along their link unless
+ * scale_sprite_x is off. Noita draws lower z_index in front, so a chain goes behind the body unless it's lower.
+ * Cloth (Mina's cape) has no sprites and is skipped.
+ */
+async function chainsOf(wak: Wak, e: El, main: El | undefined, loader: EntityLoader, images: Map<string, Buffer>): Promise<ChainOut[]> {
+  const mainZ = num(main?.attrs.z_index, 0);
+  const out: ChainOut[] = [];
+  for (const raw of comps(e, 'Entity')) {
+    const child = resolveChild(raw, loader);
+    const v = comp(child, 'VerletPhysicsComponent');
+    if (!v || v.attrs.type === 'CLOTH') continue;
+    const sprites = comps(child, 'SpriteComponent').filter((s) => s.attrs._enabled !== '0' && s.attrs.image_file);
+    const pieces: ChainOut['pieces'] = [];
+    for (const s of sprites) {
+      const f = await firstFrame(wak, s.attrs.image_file!);
+      if (!f) continue;
+      const key = `chain:${f.key}`;
+      if (!images.has(key)) images.set(key, f.png);
+      // The component's offset places the piece on its link; without one, the sheet's own pivot.
+      pieces.push({ key, ox: s.attrs.offset_x !== undefined ? num(s.attrs.offset_x, 0) : f.ox, oy: s.attrs.offset_y !== undefined ? num(s.attrs.offset_y, 0) : f.oy });
+    }
+    if (!pieces.length) continue;
+    out.push({
+      at: childAt(child),
+      gap: num(v.attrs.resting_distance, 2),
+      stretch: v.attrs.scale_sprite_x !== '0',
+      front: sprites.every((s) => num(s.attrs.z_index, 0) < mainZ),
+      pieces,
+    });
+  }
+  return out;
+}
+
 /** A sprite file's first animation with more than one frame. */
 function movingAnim(wak: Wak, file: string): string | undefined {
   if (!file.endsWith('.xml') || !wak.has(file)) return undefined;
@@ -418,43 +526,48 @@ async function legsOf(wak: Wak, e: El, loader: EntityLoader, images: Map<string,
     const seg = sprites.filter((s) => !joint(s));
     return { seg, joint: sprites.find(joint) };
   };
-  const key = (s: El | undefined) => {
-    const f = s && realPath(wak, s.attrs.image_file!);
-    if (!f || !f.endsWith('.png')) return undefined;
-    const k = `leg:${f}`;
-    if (!images.has(k)) images.set(k, wak.bytes(f));
+  // A segment's image: a .png, or the first frame of a <Sprite> sheet (Kolmisilmä's arms are animated sheets).
+  const key = async (s: El | undefined) => {
+    const f = s && (await firstFrame(wak, s.attrs.image_file!));
+    if (!f) return undefined;
+    const k = `leg:${f.key}`;
+    if (!images.has(k)) images.set(k, f.png);
     return k;
   };
   const { seg, joint: kneeSprite } = parts(walker);
-  const upper = key(seg[0]);
-  const lower = key(seg[1] ?? seg[0]);
+  const upper = await key(seg[0]);
+  const lower = await key(seg[1] ?? seg[0]);
   if (!upper || !lower) return undefined;
-  const knee = key(kneeSprite);
+  const knee = await key(kneeSprite);
 
   // Hips placed apart (Jalkamatkatavara's six, under the chest), left to right.
   const hipX = (l: El) => num(comp(comp(l, 'InheritTransformComponent'), 'Transform')?.attrs['position.x'], 0);
   const legs = walkers.length ? walkers : [walker];
   const hips = legs.map(hipX);
   // Legs on the right whose lower segment differs from the first leg's (feet that point outward).
-  const lowerOf = (l: El) => {
-    const p = parts(l).seg;
-    return key(p[1] ?? p[0]);
-  };
-  const right = legs.find((l) => hipX(l) > 0 && lowerOf(l) !== lower);
-  const lowerRight = right ? lowerOf(right) : undefined;
+  const lowers = await Promise.all(
+    legs.map((l) => {
+      const p = parts(l).seg;
+      return key(p[1] ?? p[0]);
+    }),
+  );
+  const lowerRight = lowers.find((k, i) => hipX(legs[i]!) > 0 && k !== lower);
 
   // IKLimbsAnimatorComponent moves the legs to any surface (walls first); without it each leg is an
-  // IKLimbWalkerComponent that keeps its foot on the ground below.
+  // IKLimbWalkerComponent that keeps its foot on the ground below. One that flies and can't walk (Kolmisilmä hangs in
+  // the middle of its arena) has no ground below: its limbs grab the walls all around.
   const walkComp = comp(walker, 'IKLimbWalkerComponent');
-  const grip: LegsOut['grip'] = comp(e, 'IKLimbsAnimatorComponent') || !walkComp ? 'cling' : 'walk';
+  const path = comp(e, 'PathFindingComponent')?.attrs;
+  const hangs = path?.can_fly === '1' && path.can_walk === '0';
+  const grip: LegsOut['grip'] = comp(e, 'IKLimbsAnimatorComponent') || hangs || !walkComp ? 'cling' : 'walk';
 
   const strike = limbs.find((l) => comp(l, 'IKLimbAttackerComponent'));
   let attacker: LegsOut['attacker'];
   if (strike) {
     const p = parts(strike);
-    const au = key(p.seg[0]);
-    const al = key(p.seg[1] ?? p.seg[0]);
-    const aj = key(p.joint);
+    const au = await key(p.seg[0]);
+    const al = await key(p.seg[1] ?? p.seg[0]);
+    const aj = await key(p.joint);
     if (au && al)
       attacker = {
         reach: num(comp(strike, 'IKLimbComponent')!.attrs.length, 40),

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pause, Play } from 'lucide-react';
 import { gameUrl } from '@/data/store';
-import type { Enemy, Icon, Legs, SpriteLayer } from '@/data/types';
+import type { Chain, Enemy, Icon, Legs, SpriteLayer } from '@/data/types';
 import { AtlasIcon } from '@/ui/GameIcon';
-import { AMPLITUDE, STRIKE, legCycle, legsAt, motionAt, slitherAt, slitherHeight, slitherReach, wriggleAmplitude, type Point } from './motion';
+import { AMPLITUDE, CHAIN_PERIOD, STRIKE, chainAt, legCycle, legsAt, motionAt, slitherAt, slitherHeight, slitherReach, wriggleAmplitude, type Point } from './motion';
 
 type Anim = NonNullable<Enemy['anims']>[number];
 
@@ -56,8 +56,11 @@ function behindHead(a: Anim) {
 /** Half the diagonal of a worm's biggest part: how far it reaches from its centre however it turns. */
 const partRadius = (a: Anim) => Math.max(...a.layers.map((l) => Math.hypot(l.frames[0]!.w, l.frames[0]!.h) * l.scale)) / 2;
 
-/** The box every frame of the animation fits in, with room for its motion and its legs' reach. */
-function bounds(a: Anim, legs?: Legs) {
+/** Each chain swings out of step with the others. */
+const chainPhase = (i: number) => i * 1.7;
+
+/** The box every frame of the animation fits in, with room for its motion, its legs' reach and its chains' swing. */
+function bounds(a: Anim, legs?: Legs, chains?: Chain[]) {
   if (a.motion === 'slither') {
     // The loop it swims, with room for a part turned any way.
     const w = slitherReach(Math.max(...behindHead(a)));
@@ -104,7 +107,42 @@ function bounds(a: Anim, legs?: Legs) {
       for (const mode of a ? (['idle', 'attack'] as const) : (['idle'] as const))
         for (const leg of legsAt(legs, (i / samples) * span, mode)) for (const pt of [leg.knee, leg.foot]) add(pt[0], pt[1], thick);
   }
+  if (chains) {
+    // Every link of the whole sway, padded by its piece turned any way, plus the body's bob it hangs from.
+    const bob = a.motion ? AMPLITUDE[a.motion] : 0;
+    const samples = Math.ceil(CHAIN_PERIOD / 0.05);
+    chains.forEach((c, ci) => {
+      const pad = Math.max(...c.pieces.map((p) => Math.hypot(Math.max(p.icon.w, c.stretch ? c.gap : 0), p.icon.h))) + bob;
+      for (let i = 0; i < samples; i++)
+        for (const { from, to } of chainAt(c.at, c.pieces.length, c.gap, (i / samples) * CHAIN_PERIOD, chainPhase(ci))) {
+          add(from[0], from[1], pad);
+          add(to[0], to[1], pad);
+        }
+    });
+  }
   return { x0, y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/**
+ * The chains in front of the body or behind it, hanging from where the body is now (`dy`, its bob). Each piece is
+ * drawn from its link's start, turned along it, and stretched to the link when the game stretches it.
+ */
+function drawChains(ctx: CanvasRenderingContext2D, img: HTMLImageElement, chains: Chain[], t: number, dy: number, front: boolean) {
+  chains.forEach((c, ci) => {
+    if (c.front !== front) return;
+    const links = chainAt([c.at[0], c.at[1] + dy], c.pieces.length, c.gap, t, chainPhase(ci));
+    links.forEach(({ from, to }, i) => {
+      const p = c.pieces[i]!;
+      const ic = p.icon;
+      if (!ic.w) return;
+      ctx.save();
+      ctx.translate(from[0], from[1]);
+      ctx.rotate(Math.atan2(to[1] - from[1], to[0] - from[0]));
+      if (c.stretch) ctx.scale(c.gap / ic.w, 1);
+      ctx.drawImage(img, ic.x, ic.y, ic.w, ic.h, -p.ox, -p.oy, ic.w, ic.h);
+      ctx.restore();
+    });
+  });
 }
 
 /** Seconds an animation that plays once holds its last frame before it plays again. */
@@ -152,19 +190,20 @@ export function CreatureSprite({ enemy: e, box = 168 }: { enemy: Enemy; box?: nu
   const anim = anims[Math.min(pick, anims.length - 1)];
   const canvas = useRef<HTMLCanvasElement>(null);
   const legs = e.legs;
-  const moves = !!anim && (anim.layers.some((l) => l.frames.length > 1) || !!anim.motion);
+  const chains = e.chains;
+  const moves = !!anim && (anim.layers.some((l) => l.frames.length > 1) || !!anim.motion || !!chains?.length);
   const gap = useMemo(() => (anim?.motion === 'wriggle' || anim?.motion === 'slither' ? chainGap(anim) : 10), [anim]);
   const behind = useMemo(() => (anim?.motion === 'slither' ? behindHead(anim) : null), [anim]);
 
   const fit = useMemo(() => {
     if (!anim) return null;
-    const b = bounds(anim, legs);
+    const b = bounds(anim, legs, chains);
     if (!b) return null;
     // Whole pixels where it fits; the few too big for the box (long-legged lukki, the Leviathan) are shrunk.
     const room = (box - 8) / Math.max(b.w, b.h);
     const scale = room >= 1 ? Math.min(6, Math.floor(room)) : room;
     return { b, scale, w: Math.ceil(b.w * scale), h: Math.ceil(b.h * scale) };
-  }, [anim, legs, box]);
+  }, [anim, legs, chains, box]);
 
   useEffect(() => {
     setPick(0);
@@ -190,6 +229,9 @@ export function CreatureSprite({ enemy: e, box = 168 }: { enemy: Enemy; box?: nu
           ctx.setTransform(fit.scale, 0, 0, fit.scale, -fit.b.x0 * fit.scale, -fit.b.y0 * fit.scale);
           // Legs sit behind the body, as in the game.
           if (legs) drawLegs(ctx, img, legs, t, anim.name === 'attack' && legs.attacker ? 'attack' : 'idle');
+          // Chains hang from the body, wherever its bob has it.
+          const bodyDy = anim.motion && anim.motion !== 'slither' ? motionAt(anim.motion, 0, anim.layers.length, t, gap).dy : 0;
+          if (chains) drawChains(ctx, img, chains, t, bodyDy, false);
           const swim = behind ? slitherAt(behind, gap, t) : null;
           anim.layers.forEach((l, li) => {
             const f = l.frames[frameAt(l, t)]!;
@@ -224,6 +266,7 @@ export function CreatureSprite({ enemy: e, box = 168 }: { enemy: Enemy; box?: nu
             ctx.drawImage(img, f.x, f.y, f.w, f.h, p.x, p.y, p.w, p.h);
             ctx.restore();
           });
+          if (chains) drawChains(ctx, img, chains, t, bodyDy, true);
           if (playing && moves) raf = requestAnimationFrame(draw);
         };
         raf = requestAnimationFrame(draw);
@@ -233,7 +276,7 @@ export function CreatureSprite({ enemy: e, box = 168 }: { enemy: Enemy; box?: nu
       alive = false;
       cancelAnimationFrame(raf);
     };
-  }, [anim, fit, legs, gap, behind, playing, moves]);
+  }, [anim, fit, legs, chains, gap, behind, playing, moves]);
 
   // No usable animation: the still portrait, or the Progress-screen icon.
   if (!anim || !fit) {

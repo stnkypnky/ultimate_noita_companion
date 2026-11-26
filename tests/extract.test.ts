@@ -170,6 +170,34 @@ describe('bestiary', () => {
     expect(byId.get('deer')!.anims![0]!.name).toBe('walk');
   });
 
+  it('draws the parts that hang off a creature: sheet-drawn arms, chains, held and loose sprites', () => {
+    // Kolmisilmä's ten arms are animated sheets; it hangs in its arena, so they grab the walls all round.
+    const boss = byId.get('boss_centipede')!;
+    expect(boss.legs).toMatchObject({ count: 10, reach: 160, grip: 'cling' });
+    expect(boss.legs!.upper).toMatchObject({ w: 80, h: 16 });
+    expect(byId.get('boss_meat')!.legs).toMatchObject({ count: 12, grip: 'cling' });
+    // Its tail (7 big pieces, not stretched, 24 px below the pivot) and seven vines.
+    expect(boss.chains).toHaveLength(8);
+    expect(boss.chains![0]).toMatchObject({ at: [0, 24], gap: 16, stretch: false, front: false });
+    expect(boss.chains![0]!.pieces).toHaveLength(7);
+    expect(boss.chains!.slice(1).every((c) => c.stretch && c.gap === 4)).toBe(true);
+    expect(byId.get('parallel_tentacles')!.chains).toHaveLength(6);
+    // Slime tentacles and capes; Mina's cloth cape has no sprites.
+    for (const id of ['acidshooter', 'slimeshooter', 'tentacler', 'wraith', 'monk', 'boss_pit']) expect(byId.get(id)!.chains?.length, id).toBeGreaterThan(0);
+    expect(byId.get('player')!.chains).toBeUndefined();
+    // Mina's arm (its own "default" pose) and Unohdettu's pupil.
+    expect(byId.get('player')!.anims!.every((a) => a.layers.length === 2)).toBe(true);
+    expect(byId.get('boss_ghost')!.anims![0]!.layers).toHaveLength(3);
+    // Ground walkers still stand.
+    expect(byId.get('lukki_tiny')!.legs!.grip).toBe('walk');
+  });
+
+  it('reads the Hiisi allergy to Toxic sludge from their game effects', () => {
+    for (const id of ['miner', 'shotgunner', 'sniper', 'scavenger_smg', 'coward', 'goblin_bomb']) expect(byId.get(id)!.weakTo, id).toEqual(['Toxic sludge']);
+    expect(byId.get('scavenger_shield')!.weakTo).toBeUndefined();
+    expect(enemies.filter((e) => e.weakTo).length).toBe(19);
+  });
+
   it('knows where creatures live, from the biome spawn tables', () => {
     const where = (id: string) => byId.get(id)!.spawns?.map((s) => s.biome) ?? [];
     expect(where('zombie_weak')).toContain('coalmine');

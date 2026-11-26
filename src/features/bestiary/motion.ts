@@ -106,6 +106,32 @@ export function slitherAt(behind: number[], gap: number, t: number): { x: number
   return behind.map((d) => along(path, head - d));
 }
 
+/** Seconds per sway of a hanging chain. */
+export const CHAIN_PERIOD = 2.6;
+/** How far a chain's tip swings from straight down, radians; links nearer the anchor swing less. */
+export const CHAIN_SWAY = 0.28;
+/** Phase between one link and the next: the swing runs down the chain like a wave. */
+const CHAIN_WAVE = 0.45;
+
+/**
+ * A verlet chain (tail, tentacle, vine, cape) `t` seconds in: each link's two ends, from the anchor out. Gravity
+ * hangs it straight down, `gap` game pixels a link; it sways, more towards the tip, as the game's verlet points
+ * settle and the wind takes them. `phase` keeps a creature's chains from swinging in step.
+ */
+export function chainAt(anchor: Point, links: number, gap: number, t: number, phase = 0): { from: Point; to: Point }[] {
+  const p = (t / CHAIN_PERIOD) * TAU + phase;
+  const out: { from: Point; to: Point }[] = [];
+  let at = anchor;
+  for (let i = 0; i < links; i++) {
+    const swing = CHAIN_SWAY * ((i + 1) / links) * Math.sin(p - i * CHAIN_WAVE);
+    const th = Math.PI / 2 + swing;
+    const to: Point = [at[0] + gap * Math.cos(th), at[1] + gap * Math.sin(th)];
+    out.push({ from: at, to });
+    at = to;
+  }
+  return out;
+}
+
 /** What legsAt needs to know about the legs. */
 export type LegShape = Pick<Legs, 'count' | 'reach'> & Partial<Pick<Legs, 'grip' | 'maxAngle' | 'hips'>> & { attacker?: { reach: number; radius: number } };
 

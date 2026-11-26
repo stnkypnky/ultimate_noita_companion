@@ -1,9 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import type { Motion } from '../src/data/types.ts';
-import { AMPLITUDE, PERIOD, legsAt, motionAt, slitherAt, slitherHeight, slitherReach, solve, wriggleAmplitude } from '../src/features/bestiary/motion.ts';
+import { AMPLITUDE, CHAIN_PERIOD, CHAIN_SWAY, PERIOD, chainAt, legsAt, motionAt, slitherAt, slitherHeight, slitherReach, solve, wriggleAmplitude } from '../src/features/bestiary/motion.ts';
 
 const KINDS: Motion[] = ['wriggle', 'float', 'hover', 'scuttle'];
 const close = (a: number, b: number) => expect(a).toBeCloseTo(b, 6);
+
+describe('hanging chains', () => {
+  it('keep their links joined, gap apart, hanging below the anchor, and repeat every period', () => {
+    for (let s = 0; s < 30; s++) {
+      const t = s * 0.173;
+      const links = chainAt([3, 5], 7, 16, t, 1.2);
+      expect(links).toHaveLength(7);
+      links.forEach(({ from, to }, i) => {
+        if (i === 0) expect(from).toEqual([3, 5]);
+        else expect(from).toEqual(links[i - 1]!.to);
+        close(Math.hypot(to[0] - from[0], to[1] - from[1]), 16);
+        // Never swings past CHAIN_SWAY from straight down.
+        expect(Math.abs(Math.atan2(to[1] - from[1], to[0] - from[0]) - Math.PI / 2)).toBeLessThanOrEqual(CHAIN_SWAY + 1e-9);
+        expect(to[1]).toBeGreaterThan(from[1]);
+      });
+      const again = chainAt([3, 5], 7, 16, t + CHAIN_PERIOD, 1.2);
+      again.forEach((l, i) => {
+        close(l.to[0], links[i]!.to[0]);
+        close(l.to[1], links[i]!.to[1]);
+      });
+    }
+  });
+});
 
 describe('creature motion', () => {
   it('repeats every period and stays within its amplitude', () => {

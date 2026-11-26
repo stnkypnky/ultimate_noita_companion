@@ -29,6 +29,7 @@ export function EnemyDetail({ enemy: e }: { enemy: Enemy }) {
 
   const matVisible = (id: string) => !SECRET_MATERIALS.has(id) || visible(materialKey(id));
   const resist = Object.entries(e.resist ?? {}).sort((a, b) => a[1]! - b[1]!) as [DamageType, number][];
+  const toxicWeak = !!e.weakTo?.includes('Toxic sludge');
   const style = combatStyle(e);
   const info = ENEMY_INFO[e.id];
   const boss = e.boss || style.label === 'Boss';
@@ -100,17 +101,21 @@ export function EnemyDetail({ enemy: e }: { enemy: Enemy }) {
       <HowToBeat enemy={e} />
       <WhereItLives enemy={e} />
 
-      {resist.length > 0 && (
+      {(resist.length > 0 || toxicWeak) && (
         <Section title="Damage taken">
           <StatTable
-            rows={resist.map(([type, m]) => ({
-              label: DAMAGE_LABEL[type] ?? type,
-              value: m === 0 ? 'Immune' : `${Math.round(m * 100)}%`,
-              // Good for you when it takes more, bad when it shrugs it off.
-              good: m > 1,
-              bad: m < 1,
-              icon: statIconFor(`${DAMAGE_LABEL[type]} damage`),
-            }))}
+            rows={[
+              // Allergic, not a multiplier: no percentage to give.
+              ...(toxicWeak ? [{ label: DAMAGE_LABEL.radioactive, value: 'Weak', good: true, bad: false, icon: statIconFor(`${DAMAGE_LABEL.radioactive} damage`) }] : []),
+              ...resist.map(([type, m]) => ({
+                label: DAMAGE_LABEL[type] ?? type,
+                value: m === 0 ? 'Immune' : `${Math.round(m * 100)}%`,
+                // Good for you when it takes more, bad when it shrugs it off.
+                good: m > 1,
+                bad: m < 1,
+                icon: statIconFor(`${DAMAGE_LABEL[type]} damage`),
+              })),
+            ]}
           />
           <p className="mt-1.5 text-xs text-faint">Everything else hits it for 100%.</p>
         </Section>
