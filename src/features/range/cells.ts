@@ -42,6 +42,8 @@ export type CellMat = {
   /** gfx_glow_color as 0xrrggbb, when set: the glow's colour instead of the cell's. */
   glowColor?: number;
   durability: number;
+  /** CellData hp (default 100; rock_static 100000, soil 2000): what a laser's damage_to_cells wears down. */
+  hp: number;
   /** Never removed (the range's bedrock walls). */
   hard: boolean;
   tags: Set<string>;
@@ -67,6 +69,8 @@ export class Cells {
   /** Lifetime left (gases, fire) or fire_hp left (burning cells). */
   readonly life: Int32Array;
   readonly burning: Uint8Array;
+  /** Laser damage a cell has taken so far (damage()); it goes when the cell does. */
+  private wear: Float32Array;
   private stamp: Uint32Array;
   readonly mats: CellMat[];
   readonly byId = new Map<string, number>();
@@ -91,13 +95,14 @@ export class Cells {
     this.mat = new Uint16Array(n);
     this.life = new Int32Array(n);
     this.burning = new Uint8Array(n);
+    this.wear = new Float32Array(n);
     this.stamp = new Uint32Array(n);
     this.cx = Math.ceil(w / CHUNK);
     this.cy = Math.ceil(h / CHUNK);
     this.active = new Uint8Array(this.cx * this.cy);
     this.nextActive = new Uint8Array(this.cx * this.cy);
     this.dirty = new Uint8Array(this.cx * this.cy).fill(1);
-    const air: CellMat = { id: 'air', kind: K_AIR, density: 0, r: 0, g: 0, b: 0, a: 0, burnable: false, fireHp: 0, lifetime: 0, glow: false, glowStrength: 0, durability: 0, hard: false, tags: new Set(), stains: [], hot: false };
+    const air: CellMat = { id: 'air', kind: K_AIR, density: 0, r: 0, g: 0, b: 0, a: 0, burnable: false, fireHp: 0, lifetime: 0, glow: false, glowStrength: 0, durability: 0, hp: 0, hard: false, tags: new Set(), stains: [], hot: false };
     this.mats = [air];
     this.byId.set('air', 0);
     for (const m of materials) {
@@ -121,6 +126,7 @@ export class Cells {
         glowStrength: materialGlow(m).glowStrength,
         ...(m.glowColor ? { glowColor: parseInt(m.glowColor.slice(1, 7), 16) } : {}),
         durability: m.durability,
+        hp: m.hp ?? 100,
         hard: false,
         tags,
         stains: m.stains,
@@ -191,6 +197,7 @@ export class Cells {
     this.mat.fill(0);
     this.life.fill(0);
     this.burning.fill(0);
+    this.wear.fill(0);
     this.dirty.fill(1);
     this.active.fill(0);
     this.nextActive.fill(1);
@@ -226,10 +233,37 @@ export class Cells {
     return n;
   }
 
+  /**
+   * A laser's damage_to_cells for one frame on the solid cells within `r` of (cx, cy): each that is no tougher
+   * than max_cell_durability_to_destroy adds `amount` to the damage it has taken and goes once that reaches its
+   * hp. So Plasma Beam (12000 a frame) needs 9 frames per rock_static cell (hp 100000) and none for soil (2000),
+   * while Plasma Cutter (100000) cuts rock every frame. ConfigLaser's fields are undocumented: hp as the cell's
+   * pool is assumed from CellData hp, the only cell "hp" the files have. Returns how many cells went.
+   */
+  damage(cx: number, cy: number, r: number, amount: number, maxDurability: number) {
+    if (amount <= 0) return 0;
+    let n = 0;
+    for (let y = Math.max(0, Math.floor(cy - r)); y <= Math.min(this.h - 1, Math.ceil(cy + r)); y++) {
+      for (let x = Math.max(0, Math.floor(cx - r)); x <= Math.min(this.w - 1, Math.ceil(cx + r)); x++) {
+        if ((x - cx) ** 2 + (y - cy) ** 2 > r * r) continue;
+        const i = y * this.w + x;
+        if (!this.mat[i]) continue;
+        const m = this.mats[this.mat[i]!]!;
+        if (m.hard || m.durability > maxDurability || (m.kind !== K_STATIC && m.kind !== K_POWDER)) continue;
+        this.wear[i]! += amount;
+        if (this.wear[i]! < m.hp) continue;
+        this.put(i, 0);
+        n++;
+      }
+    }
+    return n;
+  }
+
   private put(i: number, m: number) {
     this.mat[i] = m;
     const info = this.mats[m]!;
     this.burning[i] = 0;
+    this.wear[i] = 0;
     this.life[i] = info.lifetime > 0 ? info.lifetime : info.kind === K_FIRE ? FIRE_LIFE[0] + rnd(FIRE_LIFE[1] - FIRE_LIFE[0]) : 0;
     this.stamp[i] = this.frame;
     this.wake(i);

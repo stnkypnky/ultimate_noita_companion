@@ -6,6 +6,7 @@ import { K_FIRE, K_POWDER, K_STATIC } from './cells';
 import { H, W, type RangeWorld } from './world';
 import { LIGHTNING, type Cell, type Crackle } from './lightning';
 import { CELL_GAIN, GLOW_DOWN, GlowBuffer, PARTICLE_GAIN } from './glow';
+import { fillBeam } from './beam';
 
 /**
  * Drawing scale over world pixels. 1, like the game's own 427×242 frame: CSS scales the canvas up with crisp
@@ -155,8 +156,8 @@ export class RangeRenderer {
   private backdrops = new Map<string, CanvasPattern | 'loading'>();
   /**
    * Noita's glow (src/features/range/glow.ts). Its source each frame: glowing cells (kept per chunk in
-   * `cellGlow`), glowing particles (written straight in), and what's drawn into `glowCv`: emissive sprites,
-   * beams, lightning. The result, plus the lights, is screen-blended over the scene from `glowOut`.
+   * `cellGlow`), glowing particles and laser beam pixels (written straight in), and what's drawn into `glowCv`:
+   * emissive sprites, drill beams, lightning. The result, plus the lights, is screen-blended over the scene from `glowOut`.
    */
   private glowBuf = new GlowBuffer(GW, GH);
   private cellGlow = new Float32Array(GW * GH * 3);
@@ -375,6 +376,16 @@ export class RangeRenderer {
         }
       }
     }
+    // Laser beams (LaserEmitterComponent): a fresh scatter of beam_particle_type pixels each frame, drawn and
+    // glowing like the particles they are in the game (beam.ts). No line, no core.
+    for (const b of w.beams) {
+      const additive = b.glow && !glowOn;
+      const lit = fillBeam(b, rgbOf(b.color), additive ? ad : od, W, H, additive, glowOn ? src : null, GW, partK, stamp, id);
+      if (!lit) continue;
+      if (additive) add.dirty = true;
+      else over.dirty = true;
+      if (b.glow && glowOn) this.glowBuf.fed = true;
+    }
     over.flush();
     add.flush();
   }
@@ -477,11 +488,6 @@ export class RangeRenderer {
     }
     ctx.globalAlpha = 1;
 
-    // laser beams: glow, then a bright core
-    for (const b of w.beams) {
-      both((c) => line(c, b.x0, b.y0, b.x1, b.y1, b.color, b.radius * 2 + 1, 0.45));
-      line(ctx, b.x0, b.y0, b.x1, b.y1, '#ffffff', Math.max(0.6, b.radius * 0.5), 0.9);
-    }
     // fading lines: drill beams, chain-bolt hops
     for (const s of w.segments) {
       const a = 1 - s.age / s.life;

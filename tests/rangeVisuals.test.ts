@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Emitter } from '../src/data/types.ts';
 import { boltStretch, runEmitters, trailBend, type EmitterState, type Particle } from '../src/features/range/particles.ts';
 import { GlowBuffer, tapKernel } from '../src/features/range/glow.ts';
+import { beamSlots, fillBeam, type Beam } from '../src/features/range/beam.ts';
 
 /** A trail emitter like laser.xml's plasma_fading_green one: a particle every `gap` px, every `interval` frames. */
 const trailEmitter = (gap: number, interval: number): Emitter => ({
@@ -85,6 +86,58 @@ describe('trails (ParticleEmitterComponent is_trail)', () => {
     runEmitters(states, 1, 0, 0, 0, 0, 0, () => {});
     runEmitters(states, 2, 100, 0, 0, 0, 0, (q) => got.push(q), 40);
     expect(got.length).toBe(40);
+  });
+});
+
+describe('laser beams (ConfigLaser beam_particle_chance)', () => {
+  const beam = (over: Partial<Beam> = {}): Beam => ({ x0: 10, y0: 30, x1: 170, y1: 30, radius: 1.5, chance: 90, color: '#34bfff', alpha: 0x77 / 255, glow: true, glowStrength: 254 / 255, ...over });
+  const W = 200;
+  const H = 60;
+
+  it('lights about chance × length × width pixels, all within the radius', () => {
+    const data = new Uint8ClampedArray(W * H * 4);
+    const lit = fillBeam(beam(), 0x34bfff, data, W, H, false, null, 0, 0, null, 1);
+    expect(beamSlots(160, 1.5)).toBe(161 * 3);
+    expect(lit / beamSlots(160, 1.5)).toBeGreaterThan(0.84);
+    expect(lit / beamSlots(160, 1.5)).toBeLessThan(0.96);
+    for (let i = 0; i < data.length; i += 4) {
+      if (!data[i + 3]) continue;
+      const y = Math.floor(i / 4 / W);
+      expect(Math.abs(y - 30)).toBeLessThanOrEqual(1);
+      // Blended at the material's own colour and alpha.
+      expect([data[i], data[i + 1], data[i + 2], data[i + 3]]).toEqual([0x34, 0xbf, 0xff, 0x77]);
+    }
+    // Plasma Beam Cross's 3.5 radius is 7 across; a diagonal beam is the same count.
+    const wide = fillBeam(beam({ radius: 3.5, chance: 100, x1: 110, y1: 40, x0: 30, y0: 20 }), 0x34bfff, new Uint8ClampedArray(W * H * 4), W, H, false, null, 0, 0, null, 1);
+    expect(wide).toBe(beamSlots(Math.hypot(80, 20), 3.5));
+  });
+
+  it('flickers: a different scatter each frame', () => {
+    const a = new Uint8ClampedArray(W * H * 4);
+    const b = new Uint8ClampedArray(W * H * 4);
+    fillBeam(beam({ chance: 50 }), 0x34bfff, a, W, H, false, null, 0, 0, null, 1);
+    fillBeam(beam({ chance: 50 }), 0x34bfff, b, W, H, false, null, 0, 0, null, 2);
+    expect(a).not.toEqual(b);
+  });
+
+  it('feeds the glow once per lit pixel, × alpha × gfx_glow/255 × k', () => {
+    const gw = Math.ceil(W / 4);
+    const src = new Float32Array(gw * Math.ceil(H / 4) * 3);
+    const stamp = new Uint32Array(W * H);
+    const b = beam({ chance: 100, radius: 0 });
+    const lit = fillBeam(b, 0x34bfff, new Uint8ClampedArray(W * H * 4), W, H, false, src, gw, 0.5, stamp, 7);
+    // A second beam over the same pixels in the same frame adds no more glow.
+    fillBeam(b, 0x34bfff, new Uint8ClampedArray(W * H * 4), W, H, false, src, gw, 0.5, stamp, 7);
+    const blue = src.reduce((s, v, i) => (i % 3 === 2 ? s + v : s), 0);
+    expect(blue).toBeCloseTo(lit * 0xff * b.alpha * b.glowStrength * 0.5, 0);
+  });
+
+  it('allocates nothing per pixel (a 4-beam frame stays cheap)', () => {
+    const data = new Uint8ClampedArray(W * H * 4);
+    const t0 = performance.now();
+    for (let f = 0; f < 600; f++) for (let k = 0; k < 4; k++) fillBeam(beam({ radius: 3.5 }), 0x34bfff, data, W, H, false, null, 0, 0, null, f);
+    // 2400 beams of ~1100 slots; generous bound so slow CI passes.
+    expect(performance.now() - t0).toBeLessThan(2000);
   });
 });
 

@@ -961,3 +961,145 @@ describe('DPS meter', () => {
     }
   });
 });
+
+describe('Plasma beams (LaserEmitterComponent)', () => {
+  /** A laser orb held still at (x, y) facing `rot`, its beams switched on (as laser_emitter_start.lua does). */
+  const orb = (w: RangeWorld, name: string, x: number, y: number, rot: number) => {
+    const p = w.spawn(`data/entities/projectiles/deck/${name}.xml`, x, y, 0, 0, {}, undefined, rot)!;
+    for (const l of p.lasers) l.on = true;
+    p.gravity = 0;
+    return p;
+  };
+  /** Open air: no rock between (x, y) and 170 px to its right. */
+  const clearRow = (w: RangeWorld) => {
+    for (let y = 20; y < w.floorY - 10; y++) {
+      let open = true;
+      for (let x = 60; x < 240 && open; x++) open = w.cell(x, y) === AIR;
+      if (open) return y;
+    }
+    throw new Error('no open row');
+  };
+
+  it('Plasma Beam reaches max_length as the files have it (160 px, not the wiki 64)', () => {
+    const w = new RangeWorld(data);
+    w.setDummyDistance(300);
+    const y = clearRow(w);
+    orb(w, 'orb_laseremitter', 60, y, 0);
+    w.step();
+    expect(w.beams).toHaveLength(1);
+    const b = w.beams[0]!;
+    expect(Math.hypot(b.x1 - b.x0, b.y1 - b.y0)).toBeCloseTo(160, 0);
+    expect(b).toMatchObject({ radius: 1.5, chance: 90, color: '#34bfff', glow: true });
+  });
+
+  it('Plasma Beam Cross (orb_laseremitter_four) shoots four beams, a quarter turn apart', () => {
+    const w = new RangeWorld(data);
+    orb(w, 'orb_laseremitter_four', 150, clearRow(w) + 5, 0);
+    w.step();
+    expect(w.beams).toHaveLength(4);
+    const angles = w.beams.map((b) => Math.round((Math.atan2(b.y1 - b.y0, b.x1 - b.x0) * 2) / Math.PI));
+    expect(new Set(angles.map((a) => ((a % 4) + 4) % 4)).size).toBe(4);
+  });
+
+  it('sprays hit particles of the beam material on about hit_particle_chance% of frames', () => {
+    const w = new RangeWorld(data);
+    // Straight down onto the floor.
+    const p = orb(w, 'orb_laseremitter', 120, w.floorY - 20, Math.PI / 2);
+    p.lifetime = 1e6;
+    let sprays = 0;
+    let hits = 0;
+    const add = (w as unknown as { addParticle: (q: { color: string }) => void }).addParticle.bind(w);
+    let sprayed = false;
+    (w as unknown as { addParticle: (q: { color: string }) => void }).addParticle = (q) => {
+      if (q.color === '#34bfff') sprayed = true;
+      add(q);
+    };
+    for (let i = 0; i < 1500; i++) {
+      sprayed = false;
+      w.step();
+      const b = w.beams[0];
+      if (b && Math.hypot(b.x1 - b.x0, b.y1 - b.y0) < 159) {
+        hits++;
+        if (sprayed) sprays++;
+      }
+    }
+    expect(hits).toBeGreaterThan(1000);
+    expect(sprays / hits).toBeGreaterThan(0.15);
+    expect(sprays / hits).toBeLessThan(0.25);
+  });
+
+  it('cuts rock by damage_to_cells against its hp: Plasma Beam takes frames, Plasma Cutter goes straight through', () => {
+    const depth = (name: string, frames: number) => {
+      const w = new RangeWorld(data);
+      const rock = w.cells.index('rock_static');
+      const y0 = w.floorY + 1;
+      // A solid block of rock_static under the orb.
+      for (let y = y0; y < y0 + 30; y++) for (let x = 110; x <= 130; x++) w.cells.set(x, y, rock);
+      const p = orb(w, name, 120, y0 - 4, Math.PI / 2);
+      p.lifetime = 1e6;
+      for (let i = 0; i < frames; i++) w.step();
+      let d = 0;
+      while (d < 30 && w.cells.at(120, y0 + d) !== rock) d++;
+      return d;
+    };
+    // rock_static hp 100000: 12000 a frame needs 9 frames per cell, 100000 needs one.
+    expect(depth('orb_laseremitter', 8)).toBe(0);
+    expect(depth('orb_laseremitter', 12)).toBeGreaterThan(0);
+    expect(depth('orb_laseremitter_cutter', 12)).toBeGreaterThan(depth('orb_laseremitter', 12) + 4);
+  });
+
+  it('draws a fizzy column of material pixels: no stroked line, ~beam_particle_chance of its pixels lit', async () => {
+    // Just enough canvas for the renderer to run in Node; every 2D call is recorded.
+    const calls: string[] = [];
+    const ctx: object = new Proxy({} as Record<string | symbol, unknown>, {
+      get(t, k) {
+        if (k in t) return t[k];
+        if (k === 'getImageData') return (_x: number, _y: number, cw: number, ch: number) => ({ data: new Uint8ClampedArray(cw * ch * 4) });
+        if (k === 'createImageData') return (cw: number, ch: number) => new ImageData(cw, ch);
+        if (k === 'createPattern' || k === 'createRadialGradient') return () => ({ addColorStop() {} });
+        return (..._a: unknown[]) => void calls.push(String(k));
+      },
+      set(t, k, v) {
+        t[k] = v;
+        return true;
+      },
+    });
+    class FakeImageData {
+      data: Uint8ClampedArray;
+      constructor(
+        readonly width: number,
+        readonly height: number,
+      ) {
+        this.data = new Uint8ClampedArray(width * height * 4);
+      }
+    }
+    vi.stubGlobal('ImageData', FakeImageData);
+    vi.stubGlobal('Image', class {});
+    vi.stubGlobal('document',{ createElement: () => ({ width: 0, height: 0, getContext: () => ctx }) });
+    try {
+      const { RangeRenderer } = await import('../src/features/range/render.ts');
+      const anything: object = new Proxy({}, { get: (_t, k) => (k === 'rock' || k === 'bedrock' ? new ImageData(1, 1) : k === 'props' ? {} : {}) });
+      const r = new RangeRenderer(ctx as CanvasRenderingContext2D, anything as never);
+      const w = new RangeWorld(data);
+      w.setDummyDistance(300);
+      orb(w, 'orb_laseremitter', 60, clearRow(w), 0);
+      w.step();
+      calls.length = 0;
+      r.draw(w);
+      expect(calls).not.toContain('stroke');
+      const b = w.beams[0]!;
+      const img = (r as unknown as { partOver: { img: ImageData } }).partOver.img.data;
+      let lit = 0;
+      for (let i = 0; i < img.length; i += 4) if (img[i + 3]! > 0 && img[i] === 0x34 && img[i + 1] === 0xbf && img[i + 2] === 0xff) lit++;
+      // 161 px × 3 across × 90%.
+      const slots = 161 * 3;
+      expect(Math.abs(Math.hypot(b.x1 - b.x0, b.y1 - b.y0) - 160)).toBeLessThan(1);
+      expect(lit / slots).toBeGreaterThan(0.84);
+      expect(lit / slots).toBeLessThan(0.96);
+      // The pixels sit within beam_radius of the beam's line.
+      for (let i = 0; i < img.length; i += 4) if (img[i + 3]! > 0 && img[i] === 0x34) expect(Math.abs(Math.floor(i / 4 / W) - Math.round(b.y0))).toBeLessThanOrEqual(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

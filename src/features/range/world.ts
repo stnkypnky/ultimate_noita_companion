@@ -16,6 +16,7 @@ import { DEFAULT_FLIGHT, DEFAULT_MOVE, newPlayerState, stepPlayer, wandPose, typ
 import type { WandRuntime } from './wand';
 import { LIGHTNING, crackle, type Crackle } from './lightning';
 import { Musician, NOTE_REACH, noteOf, songMessage, type Instrument } from './melody';
+import type { Beam } from './beam';
 
 /** The game's internal screen size, so distances and speeds read 1:1. */
 export const W = 427;
@@ -283,8 +284,7 @@ export function hitAndHeal(damage: Partial<Record<string, number>>, hit: number)
 export type Segment = { x0: number; y0: number; x1: number; y1: number; age: number; life: number; color: string; width: number };
 /** Lightning (strikes, electric arcs): re-crackled between its two ends every frame it lives. */
 export type Bolt = { x0: number; y0: number; x1: number; y1: number; amp: number; forks: number; heavy: boolean; age: number; life: number; shape: Crackle };
-/** A laser beam this frame. */
-export type Beam = { x0: number; y0: number; x1: number; y1: number; color: string; radius: number };
+export type { Beam };
 
 /** Scripts whose effect is purely cosmetic or covered by data; never reported as missing. */
 const COSMETIC = new Set([
@@ -1794,7 +1794,14 @@ export class RangeWorld {
 
   // ---------- lasers, area damage, arcs, lightning ----------
 
-  /** Every LaserEmitterComponent that's on: a beam along the entity's angle + laser_angle_add_rad, each hurting what it crosses. */
+  /**
+   * Every LaserEmitterComponent that's on: a beam along the entity's angle + laser_angle_add_rad, up to max_length
+   * or the first solid cell. ConfigLaser has no field docs, so the rest follows the field names and the look in
+   * game (inferred, see beam.ts and Cells.damage): the renderer lights beam_particle_chance% of its pixels in
+   * beam_particle_type each frame; where it hits, hit_particle_chance% of frames spray a few particles of that
+   * material; the cells there (no tougher than max_cell_durability_to_destroy) take damage_to_cells a frame
+   * against their hp; creatures on the beam take damage_to_entities a frame.
+   */
   private updateLaser(p: Proj) {
     for (const l of p.lasers) {
       if (!l.on || !l.enabled) continue;
@@ -1804,14 +1811,24 @@ export class RangeWorld {
       const hit = this.raycast(p.x, p.y, x1, y1);
       const ex = hit?.x ?? x1;
       const ey = hit?.y ?? y1;
-      if (hit) this.carve(ex, ey, l.beamRadius + 1, 100, l.maxDurability);
-      this.beams.push({ x0: p.x, y0: p.y, x1: ex, y1: ey, color: l.color, radius: l.beamRadius });
+      if (hit) {
+        // The cells around the tip, as wide as the beam (the beam stops at the first solid one).
+        if (this.cells.damage(ex, ey, Math.max(1, l.beamRadius), l.damageToCells, l.maxDurability)) this.terrainVersion++;
+        if (Math.random() * 100 < l.hitParticleChance) {
+          for (let i = randInt(1, 3); i > 0; i--) {
+            const q = simpleParticle(ex - Math.cos(a), ey - Math.sin(a), l.color, l.glow, randInt(6, 20), 40, 0);
+            q.alpha = l.alpha;
+            q.glowStrength = l.glowStrength;
+            this.addParticle(q);
+          }
+        }
+      }
+      this.beams.push({ x0: p.x, y0: p.y, x1: ex, y1: ey, radius: l.beamRadius, chance: l.beamParticleChance, color: l.color, alpha: l.alpha, glow: l.glow, glowStrength: l.glowStrength });
       for (const act of this.actors) {
         if (act.id === 'player' && p.spareShooter) continue;
         const b = this.actorBox(act, l.beamRadius);
         if (segmentHitsBox(p.x, p.y, ex, ey, b.l, b.t, b.r, b.b)) this.tick(act, l.damage);
       }
-      if (p.age % 2 === 0) this.spark(ex, ey, l.color, true, randInt(6, 14), 30);
     }
   }
 
