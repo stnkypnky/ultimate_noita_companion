@@ -466,10 +466,14 @@ describe('spells with their own scripts', () => {
     const waiting = live(w, 'megalaser_beam');
     expect(waiting).toHaveLength(5);
     expect(waiting.every((b) => b.held)).toBe(true);
+    // Every component starts switched off: no sprite, no trail.
+    expect(waiting.every((b) => !b.sprites?.length && b.emit.every((s) => !s.on))).toBe(true);
     for (let i = 0; i < 30; i++) w.step();
     const beams = live(w, 'megalaser_beam');
     expect(beams.length).toBeGreaterThan(0);
     expect(beams.every((b) => !b.held && Math.hypot(b.x - b.spawnX, b.y - b.spawnY) > 20)).toBe(true);
+    // megalaser_launch.lua switches them all on.
+    expect(beams.every((b) => b.sprites?.length === 1 && b.emit.every((s) => s.on))).toBe(true);
   });
 
   it('Magic Guard: four parts circle the caster 16 px out', () => {

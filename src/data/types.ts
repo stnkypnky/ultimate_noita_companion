@@ -272,6 +272,38 @@ export type SpriteLayer = {
   /** special_scale_x/y */
   sx?: number;
   sy?: number;
+  /** Switched off in the XML (`_enabled="0"`): not drawn until a script turns it on (Megalaser beams). */
+  enabled?: false;
+  /**
+   * Files named like `muzzle_0$[1-5].png`: the game picks one at random for each entity. Every variant's frames,
+   * the first being `frames`. Absent when the file has only one.
+   */
+  variants?: Icon[][];
+  /** next_rect_animation: the animation that plays once this (non-looping) one ends. */
+  next?: { frames: Icon[]; wait: number; loop: boolean };
+};
+
+/**
+ * ParticleEmitterComponent image_animation_file: particles emitted in the shape of an image (Circle and Sea spells).
+ * The picture is copied to game/emitters/ and read by src/features/range/emitterImages.ts: red is each pixel's
+ * emission chance, green the animation time (0–255) it emits at (circle_256.png's green rises outward, so the ring grows).
+ */
+export type ImageEmitter = {
+  file: string;
+  /** image_animation_colors_file: per-pixel particle colours. */
+  colorsFile?: string;
+  /** image_animation_speed: green levels advanced per frame (default 1; 0 = always time 0). */
+  speed: number;
+  /** image_animation_loop (default 1). */
+  loop: boolean;
+  /** image_animation_phase: start point in [0, 1] of the first cycle (default 0). */
+  phase: number;
+  /** image_animation_emission_probability: multiplies each pixel's chance (default 1). */
+  probability: number;
+  /** image_animation_raytrace_from_center: particles don't pass through the world from the centre (default 0). */
+  raytraceFromCenter: boolean;
+  /** image_animation_use_entity_rotation (default 0). */
+  useEntityRotation: boolean;
 };
 
 /** ParticleEmitterComponent: cosmetic particles (and, with real_particles, material cells) an entity sheds. */
@@ -280,8 +312,31 @@ export type Emitter = {
   /** #rrggbb of the material. */
   color: string;
   alpha: number;
-  /** Fire-type materials (sparks, plasma) glow. */
+  /** The material glows (materials.xml gfx_glow > 0: sparks, plasma). */
   glow: boolean;
+  /** gfx_glow / 255 (fire 1, plasma_fading 254/255, spark_purple 60/255; a few go above 1), ×3 with render_ultrabright. */
+  glowStrength: number;
+  /** Switched off in the XML (`_enabled="0"`): silent until a script turns it on (Megalaser beams). */
+  enabled?: false;
+  /** An image emitter (image_animation_file). The range doesn't run these yet. */
+  image?: ImageEmitter;
+  /** attractor_force: pulls its particles toward the entity (default 0). */
+  attractorForce?: number;
+  /** render_back="0": cosmetic particles drawn in front (default: behind). */
+  renderBack?: false;
+  /** render_ultrabright: glowing particles 3× as bright (already in glowStrength). */
+  ultrabright?: true;
+  /** collide_with_grid="0": cosmetic particles pass through the world (default: they collide). */
+  collideWithGrid?: false;
+  /** direction_random_deg: random turn of each particle's velocity, in degrees (default 0). */
+  directionRandom?: number;
+  /** area_circle_sector_degrees: the arc of area_circle_radius used (default 360). */
+  areaSector?: number;
+  /** airflow_scale / airflow_time (defaults 1). */
+  airflowScale?: number;
+  airflowTime?: number;
+  /** The `color` attribute (#rrggbbaa): used instead of the material's colour when not 0. */
+  customColor?: string;
   /** Also puts real material into the world. */
   real: boolean;
   countMin: number;
@@ -334,13 +389,46 @@ export type SpriteEmitter = {
   gravity: [number, number];
   /** sprite_random_rotation: turned a random multiple of 90°. */
   randomRotation: boolean;
+  /** Switched off in the XML (`_enabled="0"`) until a script turns it on. */
+  enabled?: false;
+};
+
+/** LaserEmitterComponent and its ConfigLaser (`<laser>`): a beam from the entity (Plasma Beam, laser orbs). */
+export type Laser = {
+  /** max_length (default 64). */
+  maxLength: number;
+  /** beam_radius (default 1). */
+  beamRadius: number;
+  /** damage_to_entities × 25: HP per frame to what the beam crosses. */
+  damage: number;
+  /** damage_to_cells: how hard it cuts through terrain (default 0). */
+  damageToCells: number;
+  /** max_cell_durability_to_destroy (default 0). */
+  maxDurability: number;
+  /** laser_angle_add_rad: beam angle = entity angle + this. */
+  angleAdd: number;
+  /** is_emitting (default 1); laser_emitter_start.lua turns it on. */
+  emitting: boolean;
+  /** beam_particle_chance: % of beam pixels lit each frame (not documented; 100 assumed when missing). */
+  beamParticleChance: number;
+  /** hit_particle_chance: % chance of a spark where it hits (not documented; 0 assumed when missing). */
+  hitParticleChance: number;
+  /** beam_particle_type: the material the beam is drawn with, its colour, alpha and glow. */
+  material?: string;
+  color: string;
+  alpha: number;
+  glow: boolean;
+  glowStrength: number;
+  /** Switched off in the XML (`_enabled="0"`) until a script turns it on. */
+  enabled?: false;
 };
 
 /** config_explosion: how a projectile's explosion looks and what it leaves. */
 export type ExplosionVisual = {
   sprite?: SpriteLayer;
   randomRotation: boolean;
-  sparks: { min: number; max: number; color: string; glow: boolean } | null;
+  /** spark_material's colour and glow (gfx_glow / 255). */
+  sparks: { min: number; max: number; color: string; glow: boolean; glowStrength: number } | null;
   light?: { color: string; fadeTime: number };
   cameraShake: number;
   /** Material the blast fills its hole with (fire, smoke, slime...). */
@@ -377,7 +465,11 @@ export type EntityVisual = {
   /** LifetimeComponent: frames until the entity removes itself. */
   lifetime?: number;
   trail?: { color: string; count: number };
-  light?: { color: string; radius: number };
+  /**
+   * The first LightComponent. fade_out_time: seconds it takes to go when removed (default 0); offset_x/y: from
+   * the entity's centre (default 0).
+   */
+  light?: { color: string; radius: number; enabled?: false; fadeOutTime?: number; offsetX?: number; offsetY?: number };
   homing?: { coeff: number; velocityMultiplier: number; detectDistance: number; rotateOnly: boolean; maxTurnRate: number; targetShooter: boolean; enabled?: false };
   sine?: { freq: number; m: number };
   cellEater?: { radius: number; probability: number };
@@ -390,6 +482,8 @@ export type EntityVisual = {
     dieOnLowVelocity: boolean;
     /** velocity_sets_scale: drawn stretched along its motion. */
     streak: boolean;
+    /** velocity_sets_scale_coeff: how much the motion stretches it (default 1). */
+    streakCoeff?: number;
     /** collide_with_shooter_frames: frames before friendly fire can hit the caster (-1 = never). */
     shooterGrace: number;
     /** explosion_dont_damage_shooter */
@@ -399,8 +493,12 @@ export type EntityVisual = {
     digDurability?: number;
     explosionColor?: string;
   };
-  /** LaserEmitterComponent beam (plasma beams). damage is HP per frame. */
-  laser?: { maxLength: number; beamRadius: number; damage: number; angleAdd: number; digDurability: number; color: string; emitting: boolean };
+  /** Every LaserEmitterComponent (Plasma Beam has one, orb_laseremitter_four four). */
+  lasers?: Laser[];
+  /** ProjectileComponent on_death_emit_particle: material particles it leaves when it dies. */
+  deathEmit?: { material: string; count: number; color: string };
+  /** ProjectileComponent projectile_type (MATERIAL_PARTICLE, LIGHTNING, VERLET), when set. */
+  projectileType?: string;
   /** AreaDamageComponent: damage (HP) per update to anything inside the box. */
   areaDamage?: { minX: number; minY: number; maxX: number; maxY: number; damage: number; every: number; enabled: boolean };
   /** LightningComponent: lightning bolts strike instantly along their path. */
@@ -532,6 +630,10 @@ export type Material = {
   lifetime?: number;
   /** gfx_glow: drawn glowing. */
   glow?: boolean;
+  /** gfx_glow itself (0–255, a few up to 1000; materialGlow() turns it into a strength), when above 0. */
+  glowStrength?: number;
+  /** gfx_glow_color (#rrggbbaa), when set: the glow's colour instead of the material's. */
+  glowColor?: string;
   /** How strongly the liquid/powder falls. */
   liquidGravity?: number;
   hp: number;

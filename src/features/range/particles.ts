@@ -15,6 +15,8 @@ export type Particle = {
   color: string;
   alpha: number;
   glow: boolean;
+  /** The material's gfx_glow / 255 (×3 ultrabright), from emitters; absent on simple sparks. */
+  glowStrength?: number;
   /** Alpha follows the remaining lifetime. */
   fade: boolean;
   gx: number;
@@ -27,10 +29,13 @@ export type Particle = {
   material?: string;
 };
 
-/** Per-entity bookkeeping for one emitter. */
-export type EmitterState = { e: Emitter; next: number };
+/** Per-entity bookkeeping for one emitter. `on`: switched on (emitters off in the XML wait for a script). */
+export type EmitterState = { e: Emitter; next: number; on: boolean };
 
-export const emitterStates = (vis: EntityVisual | undefined): EmitterState[] => (vis?.emitters ?? []).map((e) => ({ e, next: e.delayFrames }));
+export const emitterStates = (vis: EntityVisual | undefined): EmitterState[] => (vis?.emitters ?? []).map((e) => ({ e, next: e.delayFrames, on: e.enabled !== false }));
+
+/** Emitters that run when the entity appears: switched on, and not image emitters (not run yet). */
+export const liveEmitters = (vis: EntityVisual | undefined) => (vis?.emitters ?? []).filter((e) => e.enabled !== false && !e.image);
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 const randInt = (a: number, b: number) => Math.floor(rand(Math.min(a, b), Math.max(a, b) + 1));
@@ -52,7 +57,8 @@ export function runEmitters(states: EmitterState[], age: number, x: number, y: n
   const s = Math.sin(rot);
   for (const st of states) {
     const e = st.e;
-    if (!e.emitting || age < e.delayFrames) continue;
+    // Image emitters (Circle and Sea spells) emit an image's shape; they're not run as plain emitters.
+    if (!st.on || e.image || !e.emitting || age < e.delayFrames) continue;
     if (e.lifetimeFrames >= 0 && age > e.delayFrames + e.lifetimeFrames) continue;
     if (age < st.next) continue;
     st.next = age + Math.max(1, randInt(e.intervalMin, e.intervalMax));
@@ -84,6 +90,7 @@ export function runEmitters(states: EmitterState[], age: number, x: number, y: n
         color: e.color,
         alpha: e.alpha,
         glow: e.glow,
+        glowStrength: e.glowStrength,
         fade: e.fade,
         gx: e.gravity[0],
         gy: e.gravity[1],

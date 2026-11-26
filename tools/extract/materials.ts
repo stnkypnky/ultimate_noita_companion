@@ -88,6 +88,8 @@ export function buildMaterials(xml: string, t: Translations): { materials: Mater
       fireHp: num(a.fire_hp, 0),
       lifetime: num(a.lifetime, 0),
       glow: num(a.gfx_glow, 0) > 0,
+      ...(num(a.gfx_glow, 0) > 0 ? { glowStrength: num(a.gfx_glow, 0) } : {}),
+      ...(a.gfx_glow_color ? { glowColor: argbToHex(a.gfx_glow_color) } : {}),
       liquidGravity: num(a.liquid_gravity, 0.5),
       hp: num(a.hp, 100),
       durability: num(a.durability, 0),

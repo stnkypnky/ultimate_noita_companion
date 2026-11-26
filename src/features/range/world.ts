@@ -5,10 +5,10 @@
 // lifetime, homing, sine waves, lasers, area damage, lightning) and ports the game's Lua for path modifiers,
 // bounce effects, orbits, the giga disc, chain bolt and teleports. Approximated: the engine's C++ internals
 // (exact homing maths, friction integration, Box2D physics for thrown bombs, arc damage) and falling-sand materials.
-import type { EntityVisual, ExplosionVisual, Material, Projectile, RangeKit, Reaction, SpriteEmitter, WandSprite } from '@/data/types';
+import type { EntityVisual, ExplosionVisual, Laser, Material, Projectile, RangeKit, Reaction, SpriteEmitter, SpriteLayer, WandSprite } from '@/data/types';
 import { Cells, K_GAS, K_LIQUID, K_POWDER, K_STATIC } from './cells';
 import { BIOMES, biomeById, biomeNoise, biomePolka, noiseValue, type Biome } from './biomes';
-import { emitterStates, layerFrames, runEmitters, simpleParticle, stepParticles, type EmitterState, type Particle } from './particles';
+import { emitterStates, layerFrames, liveEmitters, runEmitters, simpleParticle, stepParticles, type EmitterState, type Particle } from './particles';
 import { CRIT_MULT, NO_BOOST, projectileDamage, type DamageBoost } from '@/sim/analyze';
 import { HP_UNIT } from '@/data/format';
 import type { ShotState, SimCast, SimShot } from '@/sim/types';
@@ -171,7 +171,10 @@ export type Proj = {
   groundPen?: NonNullable<NonNullable<EntityVisual['physics']>['groundPenetration']>;
   physicsBody: boolean;
   spin: number;
-  laser?: NonNullable<EntityVisual['laser']> & { on: boolean };
+  /** Every beam it emits (copied: Plasma Beam modifiers widen them per projectile). */
+  lasers: ProjLaser[];
+  /** Sprite layers drawn now: switched-off ones join when a script turns them on (enableParts). */
+  sprites?: SpriteLayer[];
   area?: NonNullable<EntityVisual['areaDamage']>;
   arc?: NonNullable<EntityVisual['arc']> & { target?: Proj };
   teleport: boolean;
@@ -224,7 +227,9 @@ export type Effect = {
   gx?: number;
   gy?: number;
 };
-type SpriteEmitState = { e: SpriteEmitter; next: number };
+type SpriteEmitState = { e: SpriteEmitter; next: number; on: boolean };
+/** A projectile's beam: its LaserEmitterComponent, whether it emits (is_emitting) and is switched on at all. */
+export type ProjLaser = Omit<Laser, 'enabled'> & { on: boolean; enabled: boolean };
 
 /**
  * A body of conductive material (a pool, a steel wall) that electricity reached. The wiki: "Most Electricity damage
@@ -954,7 +959,7 @@ export class RangeWorld {
     const trailId = typeof s.trail_material === 'string' && s.trail_material ? s.trail_material.split(',')[0]! : '';
     const trailMat = trailId ? this.data.materialColor.get(trailId)?.slice(0, 7) : undefined;
     const arc = all.find((v) => v.arc)?.arc;
-    const laser = vis?.laser;
+    const sprites = vis?.sprites?.some((l) => l.enabled === false) ? vis.sprites.filter((l) => l.enabled !== false) : vis?.sprites;
 
     const p: Proj = {
       id: this.nextId++,
@@ -986,7 +991,7 @@ export class RangeWorld {
       ...(base?.speedDamage ? { speedDamage: { maxSpeed: base.speedDamage.maxSpeed ?? 0, initial: 0, other: dmg.hit - Math.max(0, dmg.damage.projectile ?? 0) } } : {}),
       rotate: vis?.physics?.rotate ?? true,
       streak: vis?.physics?.streak ?? false,
-      beamLike: !vis?.sprites?.length && life > 0 && life <= 4 && speedOf({ vx, vy }) > 300,
+      beamLike: !sprites?.length && life > 0 && life <= 4 && speedOf({ vx, vy }) > 300,
       hit,
       heal,
       melee: (dmg.damage.melee ?? 0) !== 0,
@@ -1023,7 +1028,8 @@ export class RangeWorld {
       groundPen: vis?.physics?.groundPenetration,
       physicsBody: !!vis?.physicsBody,
       spin: 0,
-      ...(laser ? { laser: { ...laser, on: laser.emitting } } : {}),
+      lasers: (vis?.lasers ?? []).map((l) => ({ ...l, on: l.emitting, enabled: l.enabled !== false })),
+      ...(sprites ? { sprites } : {}),
       ...(vis?.areaDamage ? { area: { ...vis.areaDamage } } : {}),
       ...(arc ? { arc: { ...arc, target: this.lastArc && !this.lastArc.dead ? this.lastArc : undefined } } : {}),
       teleport: !!vis?.teleport,
@@ -1031,8 +1037,8 @@ export class RangeWorld {
       trails: trailMat ? [trailMat] : [],
       ...(trailId ? { trail: { material: trailId, amount: num(s, 'trail_material_amount') } } : {}),
       emit: all.flatMap((v) => emitterStates(v)),
-      spriteEmit: all.flatMap((v) => (v.spriteEmitters ?? []).map((e) => ({ e, next: 0 }))),
-      light: all.find((v) => v.light && v.light.radius > 0)?.light,
+      spriteEmit: all.flatMap((v) => (v.spriteEmitters ?? []).map((e) => ({ e, next: 0, on: e.enabled !== false }))),
+      light: all.find((v) => v.light && v.light.radius > 0 && v.light.enabled !== false)?.light,
       scripts: all.flatMap((v) => (v.scripts ?? []).map((sc) => ({ ...sc, runs: 0, from: v }))),
       vars: {},
       children: [],
@@ -1054,7 +1060,7 @@ export class RangeWorld {
     if (vis?.loads) {
       this.loadEntities(vis, x, y);
       // A bare spawner (nothing to draw, move or run) has done its job.
-      if (vis.inert && !vis.sprites && !vis.emitters && !vis.spriteEmitters && !vis.scripts) return null;
+      if (vis.inert && !sprites?.length && !liveEmitters(vis).length && !vis.spriteEmitters?.some((s) => s.enabled !== false) && !vis.scripts) return null;
     }
     // Entities with no projectile or velocity (Matosade's spawner) sit where they're made for their lifetime.
     if (vis?.inert) {
@@ -1250,7 +1256,7 @@ export class RangeWorld {
    */
   private runSpriteEmitters(states: SpriteEmitState[], age: number, x: number, y: number) {
     for (const st of states) {
-      if (age < st.next) continue;
+      if (!st.on || age < st.next) continue;
       const e = st.e;
       st.next = age + Math.max(1, randInt(e.intervalMin, e.intervalMax));
       const n = randInt(e.countMin, e.countMax);
@@ -1294,8 +1300,8 @@ export class RangeWorld {
    */
   addEffect(file: string, x: number, y: number, rot = 0, flip = 1, vis = this.data.visuals[file]) {
     if (!vis || this.effects.length >= MAX_EFFECTS) return;
-    const sprite = vis.sprites?.[0];
-    const emitLife = Math.max(0, ...(vis.emitters ?? []).map((e) => (e.lifetimeFrames >= 0 ? e.delayFrames + e.lifetimeFrames + e.lifetimeMax * 60 : 0)));
+    const sprite = vis.sprites?.find((l) => l.enabled !== false);
+    const emitLife = Math.max(0, ...liveEmitters(vis).map((e) => (e.lifetimeFrames >= 0 ? e.delayFrames + e.lifetimeFrames + e.lifetimeMax * 60 : 0)));
     const life = vis.lifetime ?? (sprite && (vis.killAfterAnim || !sprite.loop) ? layerFrames(sprite) : emitLife || 30);
     this.effects.push({ x, y, rot, vis, age: 0, life: Math.max(1, life), emit: emitterStates(vis), flip });
   }
@@ -1685,7 +1691,7 @@ export class RangeWorld {
       return;
     }
     a.flash = 6;
-    if (source && (source.parent || source.area || source.laser || source.damageEveryFrames > 0)) {
+    if (source && (source.parent || source.area || source.lasers.length || source.damageEveryFrames > 0)) {
       a.pending += dealt;
       a.pendingCrit ||= crit;
     } else {
@@ -1780,23 +1786,42 @@ export class RangeWorld {
 
   // ---------- lasers, area damage, arcs, lightning ----------
 
+  /** Every LaserEmitterComponent that's on: a beam along the entity's angle + laser_angle_add_rad, each hurting what it crosses. */
   private updateLaser(p: Proj) {
-    const l = p.laser;
-    if (!l?.on) return;
-    const a = p.rot + l.angleAdd;
-    const x1 = p.x + Math.cos(a) * l.maxLength;
-    const y1 = p.y + Math.sin(a) * l.maxLength;
-    const hit = this.raycast(p.x, p.y, x1, y1);
-    const ex = hit?.x ?? x1;
-    const ey = hit?.y ?? y1;
-    if (hit) this.carve(ex, ey, l.beamRadius + 1, 100, l.digDurability);
-    this.beams.push({ x0: p.x, y0: p.y, x1: ex, y1: ey, color: l.color, radius: l.beamRadius });
-    for (const act of this.actors) {
-      if (act.id === 'player' && p.spareShooter) continue;
-      const b = this.actorBox(act, l.beamRadius);
-      if (segmentHitsBox(p.x, p.y, ex, ey, b.l, b.t, b.r, b.b)) this.tick(act, l.damage);
+    for (const l of p.lasers) {
+      if (!l.on || !l.enabled) continue;
+      const a = p.rot + l.angleAdd;
+      const x1 = p.x + Math.cos(a) * l.maxLength;
+      const y1 = p.y + Math.sin(a) * l.maxLength;
+      const hit = this.raycast(p.x, p.y, x1, y1);
+      const ex = hit?.x ?? x1;
+      const ey = hit?.y ?? y1;
+      if (hit) this.carve(ex, ey, l.beamRadius + 1, 100, l.maxDurability);
+      this.beams.push({ x0: p.x, y0: p.y, x1: ex, y1: ey, color: l.color, radius: l.beamRadius });
+      for (const act of this.actors) {
+        if (act.id === 'player' && p.spareShooter) continue;
+        const b = this.actorBox(act, l.beamRadius);
+        if (segmentHitsBox(p.x, p.y, ex, ey, b.l, b.t, b.r, b.b)) this.tick(act, l.damage);
+      }
+      if (p.age % 2 === 0) this.spark(ex, ey, l.color, true, randInt(6, 14), 30);
     }
-    if (p.age % 2 === 0) this.spark(ex, ey, l.color, true, randInt(6, 14), 30);
+  }
+
+  /**
+   * EntitySetComponentIsEnabled on the switched-off components that came from `v`: the projectile's own entity
+   * (megalaser_launch.lua enables all of them: sprite, emitters, sprite emitters, light, lasers) or one of its
+   * modifiers (autoaim.lua's autoaim_fx sparks). Motion needs nothing: the disabled Velocity and Projectile values
+   * (Megalaser beams' air_friction -50) are already the projectile's, and it was held still until now.
+   */
+  enableParts(p: Proj, v = p.visual) {
+    if (!v) return;
+    for (const st of p.emit) if (v.emitters?.includes(st.e)) st.on = true;
+    for (const st of p.spriteEmit) if (v.spriteEmitters?.includes(st.e)) st.on = true;
+    // Sprites, lasers and the light are only read from the projectile's own entity.
+    if (v !== p.visual) return;
+    if (v.sprites) p.sprites = v.sprites;
+    for (const l of p.lasers) l.enabled = true;
+    if (v.light && v.light.radius > 0) p.light = v.light;
   }
 
   private updateArea(p: Proj) {
@@ -2377,7 +2402,7 @@ const SCRIPTS: Record<string, (p: Proj, w: RangeWorld, sc: Script) => void> = {
     p.vx = Math.cos(a) * sp;
     p.vy = Math.sin(a) * sp;
   },
-  autoaim: (p, w) => {
+  autoaim: (p, w, sc) => {
     // No enemy at a wall: the shot flies where it was cast.
     if (!w.hasTarget) return;
     const sp = speedOf(p);
@@ -2385,6 +2410,8 @@ const SCRIPTS: Record<string, (p: Proj, w: RangeWorld, sc: Script) => void> = {
     const a = Math.atan2(t.y - p.y, t.x - p.x);
     p.vx = Math.cos(a) * sp;
     p.vy = Math.sin(a) * sp;
+    // EntitySetComponentsWithTagEnabled "autoaim_fx": its burst of white sparks (autoaim.xml's only switched-off part).
+    if (sc.from) w.enableParts(p, sc.from);
   },
 
   // ----- Giga disc: decelerates, reverses and comes back (disc_bullet_big_trajectory.lua) -----
@@ -2469,8 +2496,9 @@ const SCRIPTS: Record<string, (p: Proj, w: RangeWorld, sc: Script) => void> = {
       c.vy = p.vy;
     }
   },
+  // is_emitting on every LaserEmitterComponent; switched-off components stay off (the orbs' sprites too).
   laser_emitter_start: (p) => {
-    if (p.laser) p.laser.on = true;
+    for (const l of p.lasers) l.on = true;
   },
 
   // ----- Bounce effect launchers (spawned at a bounce) -----
@@ -2750,11 +2778,13 @@ const SCRIPTS: Record<string, (p: Proj, w: RangeWorld, sc: Script) => void> = {
     p.explosion = null;
     p.area = undefined;
   },
+  // Every LaserEmitterComponent of the root: beam_radius +2, damage_to_entities +0.025, max_length +36.
   laser_emitter_wider: (p) => {
-    if (!p.laser) return;
-    p.laser.beamRadius += 2;
-    p.laser.damage += 0.025 * 25;
-    p.laser.maxLength += 36;
+    for (const l of p.lasers) {
+      l.beamRadius += 2;
+      l.damage += 0.025 * 25;
+      l.maxLength += 36;
+    }
   },
 
   // ----- Spells that act on every projectile in flight -----
@@ -2853,6 +2883,8 @@ const SCRIPTS: Record<string, (p: Proj, w: RangeWorld, sc: Script) => void> = {
     let offset = -2;
     for (const b of w.projectiles.filter((q) => q.held && !q.dead && Math.hypot(q.x - p.x, q.y - p.y) <= 5).slice(0, 5)) {
       b.held = false;
+      // "enable all components": the sprite and both plasma trails come on.
+      w.enableParts(b);
       b.x = b.px = p.x + ox * offset;
       b.y = b.py = p.y + oy * offset;
       // The outer beams are slower, for an arrowhead.

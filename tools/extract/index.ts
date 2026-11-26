@@ -5,7 +5,8 @@ import { dirname, join } from 'node:path';
 import sharp from 'sharp';
 import type { Enemy, EntityVisual, GameVersion, Item, Legs, Projectile, RangeProp, SpriteLayer } from '../../src/data/types.ts';
 import { collectItems } from './items.ts';
-import { collectVisuals, rangeProps, type LayerOut } from './visuals.ts';
+import { collectVisuals, emitterImageFiles, rangeProps, type LayerOut } from './visuals.ts';
+import { materialGlow } from '../../src/data/glow.ts';
 import { rangeKit } from './kit.ts';
 import { BIOMES } from '../../src/features/range/biomes.ts';
 import { buildWorldMap } from './map.ts';
@@ -115,7 +116,8 @@ function legIcons({ upper, lower, lowerRight, knee, attacker, ...rest }: LegsOut
 const enemies: Enemy[] = bestiary.enemies.map(({ anims, legs, chains, ...e }) => ({
   ...e,
   ...(portraitAtlas.rects.has(e.id) ? { portrait: portraitAtlas.rects.get(e.id)! } : {}),
-  ...(anims ? { anims: anims.map((a) => ({ ...a, layers: a.layers.map((l) => ({ ...l, frames: l.frames.map(frameIcon) })) })) } : {}),
+  // Creature layers keep one variant and no follow-on animation.
+  ...(anims ? { anims: anims.map((a) => ({ ...a, layers: a.layers.map(({ variants: _v, next: _n, ...l }) => ({ ...l, frames: l.frames.map(frameIcon) })) })) } : {}),
   ...(legs ? { legs: legIcons(legs) } : {}),
   ...(chains ? { chains: chains.map((c) => ({ ...c, pieces: c.pieces.map(({ key, ...p }) => ({ icon: frameIcon(key), ...p })) })) } : {}),
 }));
@@ -224,7 +226,7 @@ console.log(`seed tool: ${seedLuaFiles.length} game scripts`);
 await writeJson('data/seed_strings.json', Object.fromEntries([...t].filter(([k]) => k.startsWith('biomemodifierdesc_'))));
 
 // ---------- Test range: projectile/effect visuals, dummy & player sprites ----------
-const materialLook = new Map(materials.map((m) => [m.id, { color: m.color, glow: m.cellType === 'fire', texture: textures.get(m.id) }]));
+const materialLook = new Map(materials.map((m) => [m.id, { color: m.color, ...materialGlow(m), texture: textures.get(m.id) }]));
 const visualFiles = [...new Set([...spells.flatMap((s) => s.projectiles), ...spells.flatMap((s) => [...s.extraEntities, ...String(s.stats.extra_entities ?? '').split(',')])].filter(Boolean))];
 // Physics images mark each pixel's material with its wang_color.
 const wangLook = new Map([...wang].flatMap(([rgb, id]) => (materialLook.has(id) ? [[rgb, materialLook.get(id)!] as const] : [])));
@@ -236,7 +238,13 @@ for (const f of vis.entities) {
   if (p) projectiles[f] = p;
 }
 const projAtlas = await buildPackedAtlas(vis.images, 1024);
-const layer = (l: LayerOut): SpriteLayer => ({ ...l, frames: l.frames.map((k) => projAtlas.rects.get(k)!) });
+const rects = (keys: string[]) => keys.map((k) => projAtlas.rects.get(k)!);
+const layer = ({ variants, next, ...l }: LayerOut): SpriteLayer => ({
+  ...l,
+  frames: rects(l.frames),
+  ...(variants ? { variants: variants.map(rects) } : {}),
+  ...(next ? { next: { ...next, frames: rects(next.frames) } } : {}),
+});
 const visuals: Record<string, EntityVisual> = {};
 for (const [file, v] of Object.entries(vis.visuals)) {
   const { sprites, explosion, spriteEmitters, ...rest } = v;
@@ -340,6 +348,11 @@ await writeFile(join(OUT, 'sprites/items.png'), itemAtlas.png);
 await writeJson('data/items.json', items);
 await writeFile(join(OUT, 'sprites/projectiles.png'), projAtlas.png);
 await writeJson('data/visuals.json', visuals);
+// Image emitters' pictures (Circle and Sea spells): the game's PNGs, read into emission buckets in the range.
+const emitterImages = emitterImageFiles(wak, new Set(Object.values(visuals).flatMap((v) => (v.emitters ?? []).flatMap((e) => (e.image ? [e.image.file] : [])))));
+await mkdir(join(OUT, 'emitters'), { recursive: true });
+for (const [path, png] of emitterImages) await writeFile(join(OUT, path), png);
+console.log(`emitter images: ${emitterImages.size}`);
 await writeJson('data/range_props.json', props);
 await writeJson('data/range_kit.json', kit.kit);
 await writeJson('data/spells.json', spells);

@@ -454,7 +454,9 @@ export class RangeRenderer {
     // projectiles: every sprite layer, animated from the projectile's birth
     let lights = 0;
     for (const p of w.projectiles) {
-      const layers = p.visual?.sprites;
+      // Held projectiles (Megalaser beams before launch) have every component switched off: nothing to see.
+      if (p.held) continue;
+      const layers = p.sprites;
       if (p.beamLike) {
         // Very fast, few-frame projectiles (luminous drill) read as a short laser from where they started.
         const c = p.trails[0] ?? p.visual?.trail?.color ?? p.light?.color ?? '#ffffff';
@@ -509,7 +511,7 @@ export class RangeRenderer {
     ctx.globalCompositeOperation = 'source-over';
 
     // effects: muzzle flashes, explosion sprites, blast leftovers
-    for (const fx of w.effects) for (const l of fx.vis.sprites ?? []) this.layer(l, fx.age, fx.x, fx.y, fx.rot, fx.flip, 1);
+    for (const fx of w.effects) for (const l of fx.vis.sprites ?? []) if (l.enabled !== false) this.layer(l, fx.age, fx.x, fx.y, fx.rot, fx.flip, 1);
     // Sprite particles (glitter clouds, sparkles) on whole game pixels. Only emissive ones glow: the glitter
     // cloud is additive but not emissive, so it tints the scene without blooming.
     for (const fx of w.spriteParticles) for (const l of fx.vis.sprites ?? []) this.layer(l, fx.age, Math.round(fx.x), Math.round(fx.y), fx.rot, 1, 1, l.emissive);

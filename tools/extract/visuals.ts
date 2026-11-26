@@ -1,7 +1,8 @@
 // What the test range needs to draw and move projectiles and modifier effects, read from their entity XML.
 import { basename } from 'node:path';
 import sharp from 'sharp';
-import type { Emitter, EntityVisual, ExplosionVisual, SpriteEmitter, SpriteLayer } from '../../src/data/types.ts';
+import type { Emitter, EntityVisual, ExplosionVisual, Laser, SpriteEmitter, SpriteLayer } from '../../src/data/types.ts';
+import { emitterImagePath } from '../../src/features/range/emitterImages.ts';
 import { comp, comps, num, parseXml, type El, type EntityLoader } from './entity.ts';
 import type { Wak } from './wak.ts';
 import { EXPLOSION_DAMAGE_DEFAULT } from './spells.ts';
@@ -13,27 +14,69 @@ const MAX_FRAMES = 32;
 const HP = 25;
 
 type SpriteFrame = { png: Buffer; ox: number; oy: number };
-/** A material's colour, whether it glows (fire-type cells: sparks, plasma) and its texture's path inside data.wak. */
-export type MaterialLook = { color: string; glow?: boolean; texture?: string };
+/**
+ * A material's colour, its glow (materialGlow: gfx_glow > 0, and gfx_glow / 255) and its texture's path inside
+ * data.wak.
+ */
+export type MaterialLook = { color: string; glow?: boolean; glowStrength?: number; texture?: string };
 
 /** A sprite layer whose frames are keys into the atlas images collected alongside. */
-export type LayerOut = Omit<SpriteLayer, 'frames'> & { frames: string[] };
+export type LayerOut = Omit<SpriteLayer, 'frames' | 'variants' | 'next'> & {
+  frames: string[];
+  variants?: string[][];
+  next?: { frames: string[]; wait: number; loop: boolean };
+};
 export type ExplosionOut = Omit<ExplosionVisual, 'sprite'> & { sprite?: LayerOut };
 export type SpriteEmitterOut = Omit<SpriteEmitter, 'sprite'> & { sprite: LayerOut };
 
-/** Files named like `muzzle_0$[1-5].png` are picked at random by the game; use the first. */
-const variant = (f: string) => f.replace(/\$\[(\d+)-\d+\]/g, '$1');
+const VARIANT = /\$\[(\d+)-(\d+)\]/;
+/** Files named like `muzzle_0$[1-5].png` are picked at random by the game; the first of them. */
+const variant = (f: string) => f.replace(new RegExp(VARIANT.source, 'g'), '$1');
+/** At most this many variants of one sprite are kept. */
+const MAX_VARIANTS = 8;
+/** Every file a `$[a-b]` name stands for, in order (`muzzle_0$[1-5].png` → muzzle_01..05.png). */
+function variantFiles(f: string): string[] {
+  const m = f.match(VARIANT);
+  if (!m) return [f];
+  const out: string[] = [];
+  for (let i = Number(m[1]); i <= Number(m[2]) && out.length < MAX_VARIANTS; i++) out.push(...variantFiles(f.replace(m[0], String(i))));
+  return out.slice(0, MAX_VARIANTS);
+}
+
+type LayerOpts = {
+  anim?: string;
+  /** Only the named animation: no layer when the sprite has none by that name (next_rect_animation). */
+  strictAnim?: boolean;
+  ox?: number;
+  oy?: number;
+  additive?: boolean;
+  emissive?: boolean;
+  alpha?: number;
+  sx?: number;
+  sy?: number;
+  maxFrames?: number;
+  maxFrame?: number;
+  /** Keep every `$[a-b]` variant (projectile sprites); otherwise only the first. */
+  allVariants?: boolean;
+};
 
 /**
  * Every frame of a sprite's animation (the named one, else its default), as atlas images under stable keys,
- * so two entities using the same sprite share frames.
+ * so two entities using the same sprite share frames. With allVariants, a `$[a-b]` name gives every variant's frames.
  */
-export async function spriteLayer(
-  wak: Wak,
-  imageFile: string,
-  opts: { anim?: string; ox?: number; oy?: number; additive?: boolean; emissive?: boolean; alpha?: number; sx?: number; sy?: number; maxFrames?: number; maxFrame?: number },
-  images: Map<string, Buffer>,
-): Promise<LayerOut | null> {
+export async function spriteLayer(wak: Wak, imageFile: string, opts: LayerOpts, images: Map<string, Buffer>): Promise<LayerOut | null> {
+  if (!opts.allVariants) return oneLayer(wak, imageFile, opts, images);
+  const layers: LayerOut[] = [];
+  for (const f of variantFiles(imageFile)) {
+    const l = await oneLayer(wak, f, opts, images);
+    if (l) layers.push(l);
+  }
+  const [first] = layers;
+  if (!first) return null;
+  return layers.length > 1 ? { ...first, variants: layers.map((l) => l.frames) } : first;
+}
+
+async function oneLayer(wak: Wak, imageFile: string, opts: LayerOpts, images: Map<string, Buffer>): Promise<LayerOut | null> {
   const file = variant(imageFile);
   if (!file || !wak.has(file)) return null;
   let ox = opts.ox ?? 0;
@@ -51,6 +94,7 @@ export async function spriteLayer(
     ox = num(sprite.attrs.offset_x, ox);
     oy = num(sprite.attrs.offset_y, oy);
     const anims = comps(sprite, 'RectAnimation');
+    if (opts.strictAnim && !anims.some((a) => a.attrs.name === opts.anim)) return null;
     const rect = (opts.anim && anims.find((a) => a.attrs.name === opts.anim)) || anims.find((a) => a.attrs.name === sprite.attrs.default_animation) || anims[0];
     const sheet = wak.bytes(img);
     if (!rect) {
@@ -118,20 +162,62 @@ export async function spriteLayer(
 
 const pair = (a: Record<string, string>, k: string, fx: number, fy: number): [number, number] => [num(a[`${k}.x`], fx), num(a[`${k}.y`], fy)];
 
-/** ParticleEmitterComponent, with the documented defaults for anything the XML leaves out. */
+/** An engine uint32 colour (AARRGGBB, "0x" optional) as #rrggbbaa; undefined when unset or 0. */
+function argb(v: string | undefined): string | undefined {
+  const s = (v ?? '').trim().replace(/^0x/i, '');
+  if (!/^[0-9a-f]{1,8}$/i.test(s) || parseInt(s, 16) === 0) return undefined;
+  const p = s.padStart(8, '0').toLowerCase();
+  return `#${p.slice(2)}${p.slice(0, 2)}`;
+}
+
+/** The value when it differs from the engine default, for optional fields. */
+const unlessDefault = <K extends string>(key: K, v: number, def: number) => (v !== def ? ({ [key]: v } as Record<K, number>) : {});
+
+/**
+ * ParticleEmitterComponent, with the documented defaults (component_documentation.txt) for anything the XML
+ * leaves out. Switched-off emitters are kept with enabled: false, image emitters with their image.
+ */
 function emitter(p: El, look: (m: string) => MaterialLook | undefined): Emitter | null {
   const a = p.attrs;
   const material = a.emitted_material_name;
-  if (!material || a._enabled === '0' || a.image_animation_file) return null;
+  if (!material) return null;
   const l = look(material);
   const col = l?.color ?? '#ffffffff';
   const customAlpha = num(a.custom_alpha, -1);
   const areaMax = num(a['area_circle_radius.max'], 0);
+  // render_ultrabright: "particles made of a glowing material will be 3x as bright as usually".
+  const ultrabright = a.render_ultrabright === '1';
+  const customColor = argb(a.color);
   return {
     material,
     color: col.slice(0, 7),
     alpha: customAlpha >= 0 ? customAlpha : parseInt(col.slice(7, 9) || 'ff', 16) / 255,
     glow: !!l?.glow,
+    glowStrength: (l?.glowStrength ?? 0) * (ultrabright ? 3 : 1),
+    ...(a._enabled === '0' ? { enabled: false as const } : {}),
+    ...(a.image_animation_file
+      ? {
+          image: {
+            file: a.image_animation_file,
+            ...(a.image_animation_colors_file ? { colorsFile: a.image_animation_colors_file } : {}),
+            speed: num(a.image_animation_speed, 1),
+            loop: a.image_animation_loop !== '0',
+            phase: num(a.image_animation_phase, 0),
+            probability: num(a.image_animation_emission_probability, 1),
+            raytraceFromCenter: a.image_animation_raytrace_from_center === '1',
+            useEntityRotation: a.image_animation_use_entity_rotation === '1',
+          },
+        }
+      : {}),
+    ...unlessDefault('attractorForce', num(a.attractor_force, 0), 0),
+    ...(a.render_back === '0' ? { renderBack: false as const } : {}),
+    ...(ultrabright ? { ultrabright: true as const } : {}),
+    ...(a.collide_with_grid === '0' ? { collideWithGrid: false as const } : {}),
+    ...unlessDefault('directionRandom', num(a.direction_random_deg, 0), 0),
+    ...unlessDefault('areaSector', num(a.area_circle_sector_degrees, 360), 360),
+    ...unlessDefault('airflowScale', num(a.airflow_scale, 1), 1),
+    ...unlessDefault('airflowTime', num(a.airflow_time, 1), 1),
+    ...(customColor ? { customColor } : {}),
     real: a.create_real_particles === '1' || a.emit_real_particles === '1',
     countMin: num(a.count_min, 5),
     countMax: num(a.count_max, num(a.count_min, 5)),
@@ -167,7 +253,11 @@ async function explosionVisual(wak: Wak, ex: El, look: (m: string) => MaterialLo
     : null;
   const sparkMat = a.spark_material || 'spark';
   const sl = look(sparkMat);
-  const sparks = a.sparks_enabled === '0' ? null : { min: num(a.sparks_count_min, 20), max: num(a.sparks_count_max, 30), color: (sl?.color ?? '#ff6024').slice(0, 7), glow: sl?.glow ?? true };
+  // An unknown spark material glows like the default `spark` (gfx_glow 255).
+  const sparks =
+    a.sparks_enabled === '0'
+      ? null
+      : { min: num(a.sparks_count_min, 20), max: num(a.sparks_count_max, 30), color: (sl?.color ?? '#ff6024').slice(0, 7), glow: sl?.glow ?? true, glowStrength: sl ? (sl.glowStrength ?? 0) : 1 };
   const lightOn = a.light_enabled !== '0';
   return {
     ...(sprite ? { sprite } : {}),
@@ -324,31 +414,36 @@ export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLo
     if (vars.orbit_projectile_type && vars.orbit_projectile_type !== 'orbit_larpa') queue.push(`data/entities/misc/${vars.orbit_projectile_type}.xml`);
     if (vars.orbit_projectile_type) v.vars = { orbit_projectile_type: vars.orbit_projectile_type };
 
-    // Sprites: every enabled SpriteComponent (drawn back to front by z_index), or a physics body's material-filled shape.
+    // Sprites: every SpriteComponent (drawn back to front by z_index; switched-off ones kept with enabled: false
+    // for the scripts that turn them on), or a physics body's material-filled shape.
     const layers: { z: number; layer: LayerOut }[] = [];
     for (const sc of comps(e, 'SpriteComponent')) {
       const a = sc.attrs;
-      if (a._enabled === '0' || a.visible === '0' || a.is_text_sprite === '1' || !a.image_file || a.image_file.includes('/ui_gfx/')) continue;
+      if (a.visible === '0' || a.is_text_sprite === '1' || !a.image_file || a.image_file.includes('/ui_gfx/')) continue;
+      const off = a._enabled === '0';
       const special = a.has_special_scale === '1';
-      const layer = await spriteLayer(
-        wak,
-        a.image_file,
-        {
-          anim: a.rect_animation || undefined,
-          ox: num(a.offset_x, 0),
-          oy: num(a.offset_y, 0),
-          additive: a.additive === '1',
-          emissive: a.emissive === '1',
-          alpha: num(a.alpha, 1),
-          ...(special ? { sx: num(a.special_scale_x, 1), sy: num(a.special_scale_y, 1) } : {}),
-        },
-        images,
-      );
-      if (layer) layers.push({ z: num(a.z_index, 0), layer });
-      if (a.kill_entity_after_finished === '1') v.killAfterAnim = true;
+      const opts = {
+        ox: num(a.offset_x, 0),
+        oy: num(a.offset_y, 0),
+        additive: a.additive === '1',
+        emissive: a.emissive === '1',
+        alpha: num(a.alpha, 1),
+        ...(special ? { sx: num(a.special_scale_x, 1), sy: num(a.special_scale_y, 1) } : {}),
+      };
+      if (!off && a.kill_entity_after_finished === '1') v.killAfterAnim = true;
+      const layer = await spriteLayer(wak, a.image_file, { ...opts, anim: a.rect_animation || undefined, allVariants: true }, images);
+      if (!layer) continue;
+      if (off) layer.enabled = false;
+      // next_rect_animation: what plays when a non-looping animation ends (only a real, different animation).
+      const nextAnim = a.next_rect_animation;
+      if (nextAnim && nextAnim !== a.rect_animation && !layer.loop) {
+        const next = await spriteLayer(wak, variant(a.image_file), { ...opts, anim: nextAnim, strictAnim: true }, images);
+        if (next) layer.next = { frames: next.frames, wait: next.wait, loop: next.loop };
+      }
+      layers.push({ z: num(a.z_index, 0), layer });
     }
     const shape = comp(e, 'PhysicsImageShapeComponent');
-    if (!layers.length && shape?.attrs.image_file) {
+    if (!layers.some((l) => l.layer.enabled !== false) && shape?.attrs.image_file) {
       const f = await materialShape(wak, shape.attrs.image_file, materials.get(shape.attrs.material ?? ''), wangLook);
       if (f) {
         images.set(`${file}|shape`, f.png);
@@ -367,12 +462,13 @@ export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLo
     const spriteEmitters: SpriteEmitterOut[] = [];
     for (const sp of comps(e, 'SpriteParticleEmitterComponent')) {
       const a = sp.attrs;
-      if (a._enabled === '0' || a.is_emitting === '0' || !a.sprite_file) continue;
+      if (a.is_emitting === '0' || !a.sprite_file) continue;
       const sprite = await spriteLayer(wak, a.sprite_file, { additive: a.additive === '1', emissive: a.emissive === '1' }, images);
       if (!sprite) continue;
       const life = num(a.lifetime, 0);
       spriteEmitters.push({
         sprite,
+        ...(a._enabled === '0' ? { enabled: false as const } : {}),
         intervalMin: num(a.emission_interval_min_frames, 5),
         intervalMax: num(a.emission_interval_max_frames, 10),
         countMin: num(a.count_min, 0),
@@ -407,13 +503,23 @@ export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLo
         angle: [num(a['randomize_angle.min'], 0), num(a['randomize_angle.max'], 0)],
       };
     }
-    // The main trail colour, for effects that only need one (beams, chain-bolt hops).
-    const trail = emitters.find((p) => p.trail) ?? emitters[0];
+    // The main trail colour, for effects that only need one (beams, chain-bolt hops). Image emitters aren't trails.
+    const plain = emitters.filter((p) => !p.image);
+    const trail = plain.find((p) => p.trail) ?? plain[0];
     if (trail) v.trail = { color: trail.color, count: Math.max(1, trail.countMax) };
 
+    // The first LightComponent, a switched-off one kept with enabled: false.
     const light = comp(e, 'LightComponent');
-    if (light && light.attrs._enabled !== '0') {
-      v.light = { color: `#${hex2(num(light.attrs.r, 255))}${hex2(num(light.attrs.g, 255))}${hex2(num(light.attrs.b, 255))}`, radius: num(light.attrs.radius, 0) };
+    if (light) {
+      const la = light.attrs;
+      v.light = {
+        color: `#${hex2(num(la.r, 255))}${hex2(num(la.g, 255))}${hex2(num(la.b, 255))}`,
+        radius: num(la.radius, 0),
+        ...(la._enabled === '0' ? { enabled: false as const } : {}),
+        ...unlessDefault('fadeOutTime', num(la.fade_out_time, 0), 0),
+        ...unlessDefault('offsetX', num(la.offset_x, 0), 0),
+        ...unlessDefault('offsetY', num(la.offset_y, 0), 0),
+      };
     }
 
     const homing = comp(e, 'HomingComponent');
@@ -450,19 +556,35 @@ export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLo
       }));
     if (scripts.length) v.scripts = scripts;
 
-    const laser = comp(e, 'LaserEmitterComponent');
-    const lc = comp(laser, 'laser');
-    if (laser && lc) {
-      v.laser = {
-        maxLength: num(lc.attrs.max_length, 64),
-        beamRadius: num(lc.attrs.beam_radius, 1),
-        damage: num(lc.attrs.damage_to_entities, 0) * HP,
-        angleAdd: num(laser.attrs.laser_angle_add_rad, 0),
-        digDurability: num(lc.attrs.max_cell_durability_to_destroy, 0),
-        color: color(lc.attrs.beam_particle_type) ?? '#34bfff',
-        emitting: laser.attrs.is_emitting !== '0',
-      };
-    }
+    // Every LaserEmitterComponent with its ConfigLaser (<laser>); orb_laseremitter_four has four, a quarter turn apart.
+    const lasers = comps(e, 'LaserEmitterComponent').flatMap((le): Laser[] => {
+      const lc = comp(le, 'laser');
+      if (!lc) return [];
+      const la = lc.attrs;
+      const mat = la.beam_particle_type || undefined;
+      const ml = mat ? look(mat) : undefined;
+      const col = ml?.color ?? '#34bfffff';
+      return [
+        {
+          maxLength: num(la.max_length, 64),
+          beamRadius: num(la.beam_radius, 1),
+          damage: num(la.damage_to_entities, 0) * HP,
+          damageToCells: num(la.damage_to_cells, 0),
+          maxDurability: num(la.max_cell_durability_to_destroy, 0),
+          angleAdd: num(le.attrs.laser_angle_add_rad, 0),
+          emitting: le.attrs.is_emitting !== '0',
+          beamParticleChance: num(la.beam_particle_chance, 100),
+          hitParticleChance: num(la.hit_particle_chance, 0),
+          ...(mat ? { material: mat } : {}),
+          color: col.slice(0, 7),
+          alpha: parseInt(col.slice(7, 9) || 'ff', 16) / 255,
+          glow: !!ml?.glow,
+          glowStrength: ml?.glowStrength ?? 0,
+          ...(le.attrs._enabled === '0' ? { enabled: false as const } : {}),
+        },
+      ];
+    });
+    if (lasers.length) v.lasers = lasers;
 
     const area = comp(e, 'AreaDamageComponent');
     if (area) {
@@ -519,6 +641,12 @@ export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLo
       v.muzzle = variant(pc.attrs.muzzle_flash_file);
       follow(v.muzzle);
     }
+    // on_death_emit_particle: on_death_emit_particle_count (default 1) particles of on_death_emit_particle_type.
+    if (pc?.attrs.on_death_emit_particle === '1' && pc.attrs.on_death_emit_particle_type) {
+      const m = pc.attrs.on_death_emit_particle_type;
+      v.deathEmit = { material: m, count: num(pc.attrs.on_death_emit_particle_count, 1), color: color(m) ?? '#ffffff' };
+    }
+    if (pc?.attrs.projectile_type) v.projectileType = pc.attrs.projectile_type;
     const flash = num(pc?.attrs.shoot_light_flash_radius, 0);
     if (pc && flash > 0) {
       v.shootLight = { radius: flash, color: `#${hex2(num(pc.attrs.shoot_light_flash_r, 255))}${hex2(num(pc.attrs.shoot_light_flash_g, 180))}${hex2(num(pc.attrs.shoot_light_flash_b, 150))}` };
@@ -531,6 +659,7 @@ export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLo
         rotate: pc.attrs.velocity_sets_rotation !== '0',
         dieOnLowVelocity: pc.attrs.die_on_low_velocity === '1',
         streak: pc.attrs.velocity_sets_scale === '1',
+        ...unlessDefault('streakCoeff', num(pc.attrs.velocity_sets_scale_coeff, 1), 1),
         shooterGrace: num(pc.attrs.collide_with_shooter_frames, -1),
         spareShooter: pc.attrs.explosion_dont_damage_shooter === '1',
         ...(num(pc.attrs.ground_penetration_coeff, 0) > 0
@@ -549,6 +678,23 @@ export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLo
     if (Object.keys(v).length) visuals[file] = v;
   }
   return { visuals, images: [...images].map(([key, png]) => ({ key, png })), entities: [...seen] };
+}
+
+/**
+ * Image emitters' pictures, as the game's own PNGs (a few KB each; baked into emission buckets where they're used,
+ * by src/features/range/emitterImages.ts). Pictures with the same file name would collide: that throws.
+ */
+export function emitterImageFiles(wak: Wak, files: Iterable<string>): Map<string, Buffer> {
+  const out = new Map<string, Buffer>();
+  const seen = new Map<string, string>();
+  for (const file of [...files].sort()) {
+    if (!wak.has(file)) continue;
+    const path = emitterImagePath(file);
+    if (seen.has(path) && seen.get(path) !== file) throw new Error(`emitter images ${seen.get(path)} and ${file} share a name`);
+    seen.set(path, file);
+    out.set(path, wak.bytes(file));
+  }
+  return out;
 }
 
 /** The game's own target dummy and the player sprite, for the range backdrop. */

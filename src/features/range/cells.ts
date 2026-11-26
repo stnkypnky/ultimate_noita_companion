@@ -6,6 +6,7 @@
 // by fire_hp). Reactions are the game's two-material reactions, matched by id or [tag]. Approximated:
 // temperatures, three-material and lifetime-gated reactions, and the engine's exact spread rules.
 import type { Material, Reaction } from '@/data/types';
+import { materialGlow } from '@/data/glow';
 
 export const K_AIR = 0;
 export const K_STATIC = 1;
@@ -112,7 +113,7 @@ export class Cells {
         burnable: m.burnable,
         fireHp: m.fireHp || 60,
         lifetime: m.lifetime ?? 0,
-        glow: !!m.glow || m.state === 'fire',
+        glow: materialGlow(m).glow,
         durability: m.durability,
         hard: false,
         tags,
