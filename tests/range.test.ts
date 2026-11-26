@@ -1088,7 +1088,8 @@ describe('Plasma beams (LaserEmitterComponent)', () => {
       r.draw(w);
       expect(calls).not.toContain('stroke');
       const b = w.beams[0]!;
-      const img = (r as unknown as { partOver: { img: ImageData } }).partOver.img.data;
+      // Beams are drawn with the particles behind the entities.
+      const img = (r as unknown as { backOver: { img: ImageData } }).backOver.img.data;
       let lit = 0;
       for (let i = 0; i < img.length; i += 4) if (img[i + 3]! > 0 && img[i] === 0x34 && img[i + 1] === 0xbf && img[i + 2] === 0xff) lit++;
       // 161 px × 3 across × 90%.

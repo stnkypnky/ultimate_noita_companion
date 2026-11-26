@@ -342,6 +342,10 @@ export type Emitter = {
   airflowTime?: number;
   /** The `color` attribute (#rrggbbaa): used instead of the material's colour when not 0. */
   customColor?: string;
+  /** cosmetic_force_create="0": no particle where the spawn point is inside a solid cell (default: created anyway). */
+  forceCreate?: false;
+  /** emission_chance: % chance each emission happens (default 100). */
+  emissionChance?: number;
   /** Also puts real material into the world. */
   real: boolean;
   countMin: number;
@@ -396,6 +400,27 @@ export type SpriteEmitter = {
   randomRotation: boolean;
   /** Switched off in the XML (`_enabled="0"`) until a script turns it on. */
   enabled?: false;
+  /** color (r, g, b, a, 0–1) and color_change (per second), when not white / not 0. */
+  color?: [number, number, number, number];
+  colorChange?: [number, number, number, number];
+  /** randomize_alpha: added to the starting alpha. */
+  alphaRandom?: [number, number];
+  /** scale + randomize_scale (min x, max x, min y, max y), when not 1; scale_velocity: added per second. */
+  scale?: [number, number, number, number];
+  scaleVelocity?: [number, number];
+  /** velocity_slowdown: "what percent of the velocity is slowed by *dt". */
+  velocitySlowdown?: number;
+  /** rotation + randomize_rotation and angular_velocity + randomize_angular_velocity (radians, per second). */
+  rotation?: [number, number];
+  angularVelocity?: [number, number];
+  /** use_velocity_as_rotation: the sprite turns to its motion. */
+  velocityRotation?: true;
+  /** randomize_animation_speed_coeff: the animation plays this much faster (a random value in the range). */
+  animSpeed?: [number, number];
+  /** entity_velocity_multiplier: share of the emitting entity's velocity it starts with. */
+  entityVelocity?: number;
+  /** render_back="1": drawn behind entities (default: in front). */
+  renderBack?: true;
 };
 
 /** LaserEmitterComponent and its ConfigLaser (`<laser>`): a beam from the entity (Plasma Beam, laser orbs). */

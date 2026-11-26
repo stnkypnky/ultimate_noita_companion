@@ -38,7 +38,14 @@ export type Particle = {
   /** Drawn as a streak along the velocity. */
   long: boolean;
   friction: number;
+  /** airflow_force, and the field's airflow_scale / airflow_time (default 1; see airflowField). */
   airflow: number;
+  afs?: number;
+  aft?: number;
+  /** render_back="0": drawn in front of entities (default: behind them). */
+  front?: true;
+  /** collide_with_grid="0": passes through the world. */
+  ghost?: true;
   /** Real particles (create_real_particles, trail materials) become this material where they land. */
   material?: string;
   /** attractor_force and the entity it pulls toward (see ATTRACT_K). */
@@ -122,6 +129,12 @@ export const liveEmitters = (vis: EntityVisual | undefined) => (vis?.emitters ??
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
 const randInt = (a: number, b: number) => Math.floor(rand(Math.min(a, b), Math.max(a, b) + 1));
 
+/**
+ * Where a cosmetic particle is drawn: ParticleEmitterComponent render_back defaults to 1 ("for cosmetic particles,
+ * if they are rendered on front or in the back"), behind every entity sprite; render_back="0" in front of them.
+ */
+export const particleLayer = (q: Pick<Particle, 'front'>): 'back' | 'front' => (q.front ? 'front' : 'back');
+
 /** A particle with sensible defaults (sparks from hits, digging dust, explosions). */
 export function simpleParticle(x: number, y: number, color: string, glow: boolean, life: number, speed: number, gravity = 30): Particle {
   const a = Math.random() * Math.PI * 2;
@@ -193,8 +206,15 @@ export function runEmitters(
     }
     if (age < st.next) continue;
     st.next = age + Math.max(1, randInt(e.intervalMin, e.intervalMax));
+    // emission_chance: % chance this emission happens. A skipped trail emission leaves that stretch empty.
+    if (e.emissionChance !== undefined && Math.random() * 100 >= e.emissionChance) {
+      st.lastX = x;
+      st.lastY = y;
+      if (st.via) st.via.length = 0;
+      continue;
+    }
 
-    const make = (bx: number, by: number) => emitOne(e, bx, by, c, s, out, src);
+    const make = (bx: number, by: number) => emitOne(e, bx, by, c, s, out, src, host);
 
     if (e.trail) {
       // The path since the last emission: last emit point → bounce points → here.
@@ -256,12 +276,27 @@ export function runEmitters(
   }
 }
 
-/** One particle from emitter `e` at (bx, by), its offset and velocity turned by (c, s) = cos/sin of the rotation. */
-function emitOne(e: Emitter, bx: number, by: number, c: number, s: number, out: (p: Particle) => void, src: AttractSource | undefined) {
+/**
+ * The colour an emitter's particles take: its `color` attribute when set (not 0), else its material's. Only its
+ * rgb: the alpha stays the material's (or custom_alpha). [inferred: the docs say nothing about `color`]
+ */
+export const emitterColor = (e: Emitter) => (e.customColor ? e.customColor.slice(0, 7) : e.color);
+
+/**
+ * One particle from emitter `e` at (bx, by), its offset and velocity turned by (c, s) = cos/sin of the rotation.
+ * - area_circle_sector_degrees: the ring is that arc, centred on the entity's facing (+x before turning).
+ *   [inferred: the docs give no orientation; Energy Shield's 90° shots are the only users]
+ * - direction_random_deg: the velocity turned by up to ± that many degrees, after velocity_always_away_from_center.
+ *   [inferred: the order]
+ * - cosmetic_force_create (default 1): "cosmetic particles are created inside grid cells"; with 0 a particle whose
+ *   spawn point is in solid terrain isn't made. [inferred: what "inside grid cells" rules out]
+ */
+function emitOne(e: Emitter, bx: number, by: number, c: number, s: number, out: (p: Particle) => void, src: AttractSource | undefined, host?: EmitHost) {
   let ox = e.offset[0] + rand(e.posMin[0], e.posMax[0]);
   let oy = e.offset[1] + rand(e.posMin[1], e.posMax[1]);
   if (e.area) {
-    const a = Math.random() * Math.PI * 2;
+    const sector = e.areaSector !== undefined ? (Math.min(360, e.areaSector) * Math.PI) / 180 : Math.PI * 2;
+    const a = (Math.random() - 0.5) * sector;
     const r = rand(e.area[0], e.area[1]);
     ox += Math.cos(a) * r;
     oy += Math.sin(a) * r;
@@ -274,14 +309,25 @@ function emitOne(e: Emitter, bx: number, by: number, c: number, s: number, out: 
     vx = (ox / d) * sp;
     vy = (oy / d) * sp;
   }
+  if (e.directionRandom) {
+    const t = ((Math.random() * 2 - 1) * e.directionRandom * Math.PI) / 180;
+    const tc = Math.cos(t);
+    const ts = Math.sin(t);
+    const nx = vx * tc - vy * ts;
+    vy = vx * ts + vy * tc;
+    vx = nx;
+  }
+  const x = bx + ox * c - oy * s;
+  const y = by + ox * s + oy * c;
+  if (e.forceCreate === false && host && host.blocks(x, y)) return;
   const q: Particle = {
-    x: bx + ox * c - oy * s,
-    y: by + ox * s + oy * c,
+    x,
+    y,
     vx: vx * c - vy * s,
     vy: vx * s + vy * c,
     life: 0,
     max: Math.max(1, Math.round(rand(e.lifetimeMin, e.lifetimeMax) * 60)),
-    color: e.color,
+    color: emitterColor(e),
     alpha: e.alpha,
     glow: e.glow,
     glowStrength: e.glowStrength,
@@ -291,7 +337,12 @@ function emitOne(e: Emitter, bx: number, by: number, c: number, s: number, out: 
     long: e.long,
     friction: e.friction,
     airflow: e.airflow,
+    afs: e.airflowScale ?? 1,
+    aft: e.airflowTime ?? 1,
   };
+  // render_back (default 1): "for cosmetic particles, if they are rendered on front or in the back".
+  if (e.renderBack === false) q.front = true;
+  if (e.collideWithGrid === false) q.ghost = true;
   if (e.real) q.material = e.material;
   if (e.attractorForce && src) {
     q.attract = e.attractorForce;
@@ -385,7 +436,7 @@ function runImage(st: EmitterState, e: Emitter, age: number, x: number, y: numbe
       }
       if (e.real) host.place(wx, wy, e.material);
       // emitOne adds the offset (and the x/y_pos_offset spread) itself.
-      else emitOne(e, wx - ox, wy - oy, ec, es, out, host.source);
+      else emitOne(e, wx - ox, wy - oy, ec, es, out, host.source, host);
     }
   }
 }
@@ -419,21 +470,51 @@ function imageRays(st: EmitterState, pic: EmitterImage, x: number, y: number, ag
 }
 
 /**
- * Move particles one frame; ones that hit rock stop there and burn out, real ones settling as material.
- * Particles with an attractor are pulled toward its source while it lives. Compacts `ps` in place and returns it.
+ * airflow_force / airflow_scale / airflow_time: the names (and Noita's look: embers drifting in slow, coherent
+ * swirls, not shaking) say particles ride a smooth wind field that changes over space and time; the engine's own
+ * field isn't documented. Here: two sine waves per axis over (x, y) × airflow_scale and seconds × airflow_time,
+ * summing to at most 1, pushing a particle at airflow_force × AIRFLOW_K px/s². K = 30 was tuned by eye: a Spark
+ * Bolt's 0.1–0.2 s trail sparks (force 10.5) drift ~2 px, its 0.7 s embers (1.5) and Energy Orb's (0.5) a few.
+ * The scale 0.05 most spells use gives swirls ~60 px across; the default 1, a few px (close to the old jitter).
+ * [inferred: the field's shape and K]
  */
-export function stepParticles(ps: Particle[], solid: (x: number, y: number) => boolean, settle?: (x: number, y: number, material: string) => void): Particle[] {
+export const AIRFLOW_K = 30;
+/** A sine table: four lookups per particle instead of four Math.sin calls (6000 particles in a busy frame). */
+const SIN_N = 4096;
+const SIN = new Float32Array(SIN_N);
+for (let i = 0; i < SIN_N; i++) SIN[i] = Math.sin((i / SIN_N) * Math.PI * 2);
+const SIN_K = SIN_N / (Math.PI * 2);
+const sinT = (v: number) => SIN[((v * SIN_K) | 0) & (SIN_N - 1)]!;
+/** The field's last sample (no allocation per particle). */
+export const airflowOut = { x: 0, y: 0 };
+
+/** The wind at (x, y) at time `t` seconds, each axis in [-1, 1], into airflowOut. */
+export function airflowField(x: number, y: number, t: number, scale: number, time: number) {
+  const X = x * scale;
+  const Y = y * scale;
+  const T = t * time;
+  airflowOut.x = 0.6 * sinT(1.7 * X + 0.9 * Y + 2.3 * T) + 0.4 * sinT(2.6 * Y - 1.1 * X - 3.1 * T + 1.3);
+  airflowOut.y = 0.6 * sinT(0.8 * X - 1.9 * Y + 2.9 * T + 2.1) + 0.4 * sinT(2.3 * X + 1.2 * Y + 1.7 * T + 4.2);
+  return airflowOut;
+}
+
+/**
+ * Move particles one frame; ones that hit rock stop there and burn out, real ones settling as material.
+ * Particles with an attractor are pulled toward its source while it lives; airflow blows them along the wind
+ * field at time `t` (seconds: the world's frame / 60). Compacts `ps` in place and returns it.
+ */
+export function stepParticles(ps: Particle[], solid: (x: number, y: number) => boolean, settle?: (x: number, y: number, material: string) => void, t = 0): Particle[] {
   let n = 0;
   for (let i = 0; i < ps.length; i++) {
     const q = ps[i]!;
-    if (stepOne(q, solid, settle)) ps[n++] = q;
+    if (stepOne(q, solid, settle, t)) ps[n++] = q;
   }
   ps.length = n;
   return ps;
 }
 
 /** One particle's frame; false once it's gone. */
-function stepOne(q: Particle, solid: (x: number, y: number) => boolean, settle?: (x: number, y: number, material: string) => void) {
+function stepOne(q: Particle, solid: (x: number, y: number) => boolean, settle: ((x: number, y: number, material: string) => void) | undefined, t: number) {
   {
     q.vx += q.gx * DT;
     q.vy += q.gy * DT;
@@ -453,12 +534,14 @@ function stepOne(q: Particle, solid: (x: number, y: number) => boolean, settle?:
       q.vy *= f;
     }
     if (q.airflow > 0) {
-      q.vx += rand(-1, 1) * q.airflow * 4;
-      q.vy += rand(-1, 1) * q.airflow * 4;
+      const f = airflowField(q.x, q.y, t, q.afs ?? 1, q.aft ?? 1);
+      const k = q.airflow * AIRFLOW_K * DT;
+      q.vx += f.x * k;
+      q.vy += f.y * k;
     }
     const nx = q.x + q.vx * DT;
     const ny = q.y + q.vy * DT;
-    if (solid(nx, ny)) {
+    if (!q.ghost && solid(nx, ny)) {
       if (q.material && settle) {
         settle(q.x, q.y, q.material);
         q.life = q.max;
@@ -476,11 +559,38 @@ function stepOne(q: Particle, solid: (x: number, y: number) => boolean, settle?:
   return q.life < q.max;
 }
 
-/** Frame of a sprite layer `age` frames after the entity appeared. */
-export function layerFrame(l: SpriteLayer, age: number) {
-  const i = Math.floor(age / 60 / Math.max(0.001, l.wait));
-  return l.frames[l.loop ? i % l.frames.length : Math.min(i, l.frames.length - 1)]!;
+/**
+ * Which of a layer's `$[a-b]` variants an entity shows: the game picks one at random per entity. `seed` is a random
+ * 32-bit number the entity drew when it was made, `k` the layer's index, so each layer picks on its own.
+ */
+export function pickVariant(l: SpriteLayer, seed: number, k = 0) {
+  const n = l.variants?.length ?? 0;
+  if (n < 2) return 0;
+  let h = Math.imul((seed ^ Math.imul(k + 1, 0x9e3779b1)) >>> 0, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) % n;
 }
 
-/** Frames a non-looping sprite takes to play through. */
-export const layerFrames = (l: SpriteLayer) => Math.ceil(l.frames.length * l.wait * 60);
+/** A fresh variant seed for an entity. */
+export const variantSeed = () => (Math.random() * 0x100000000) >>> 0;
+
+/**
+ * Frame of a sprite layer `age` frames after the entity appeared, in variant `v`. A non-looping animation with a
+ * next_rect_animation goes on with that one when it ends (looping or holding its last frame as its own loop says).
+ */
+export function layerFrame(l: SpriteLayer, age: number, v = 0) {
+  const frames = (v && l.variants?.[v]) || l.frames;
+  const wait = Math.max(0.001, l.wait);
+  // (The epsilon keeps a frame boundary that lands exactly on a game frame from rounding down a frame early.)
+  const i = Math.floor(age / 60 / wait + 1e-9);
+  if (l.loop) return frames[i % frames.length]!;
+  if (i < frames.length || !l.next?.frames.length) return frames[Math.min(i, frames.length - 1)]!;
+  const nx = l.next;
+  const j = Math.floor((age / 60 - frames.length * wait) / Math.max(0.001, nx.wait) + 1e-9);
+  return nx.frames[nx.loop ? j % nx.frames.length : Math.min(j, nx.frames.length - 1)]!;
+}
+
+/** Frames a non-looping sprite takes to play through (with a non-looping next animation, both). */
+export const layerFrames = (l: SpriteLayer) => Math.ceil((l.frames.length * l.wait + (l.next && !l.next.loop ? l.next.frames.length * l.next.wait : 0)) * 60);

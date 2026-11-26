@@ -218,6 +218,11 @@ function emitter(p: El, look: (m: string) => MaterialLook | undefined): Emitter 
     ...unlessDefault('airflowScale', num(a.airflow_scale, 1), 1),
     ...unlessDefault('airflowTime', num(a.airflow_time, 1), 1),
     ...(customColor ? { customColor } : {}),
+    // cosmetic_force_create (default 1): "cosmetic particles are created inside grid cells".
+    ...(a.cosmetic_force_create === '0' ? { forceCreate: false as const } : {}),
+    ...unlessDefault('emissionChance', num(a.emission_chance, 100), 100),
+    // render_on_grid (default 0, "particle render positions will be snapped to cell grid") isn't kept: the range
+    // draws one canvas pixel per cell, so every particle lands on the grid either way.
     real: a.create_real_particles === '1' || a.emit_real_particles === '1',
     countMin: num(a.count_min, 5),
     countMax: num(a.count_max, num(a.count_min, 5)),
@@ -249,7 +254,7 @@ function emitter(p: El, look: (m: string) => MaterialLook | undefined): Emitter 
 async function explosionVisual(wak: Wak, ex: El, look: (m: string) => MaterialLook | undefined, images: Map<string, Buffer>): Promise<ExplosionOut> {
   const a = ex.attrs;
   const sprite = a.explosion_sprite
-    ? await spriteLayer(wak, a.explosion_sprite, { additive: a.explosion_sprite_additive === '1', emissive: a.explosion_sprite_emissive === '1' }, images)
+    ? await spriteLayer(wak, a.explosion_sprite, { additive: a.explosion_sprite_additive === '1', emissive: a.explosion_sprite_emissive === '1', allVariants: true }, images)
     : null;
   const sparkMat = a.spark_material || 'spark';
   const sl = look(sparkMat);
@@ -491,9 +496,38 @@ export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLo
     for (const sp of comps(e, 'SpriteParticleEmitterComponent')) {
       const a = sp.attrs;
       if (a.is_emitting === '0' || !a.sprite_file) continue;
-      const sprite = await spriteLayer(wak, a.sprite_file, { additive: a.additive === '1', emissive: a.emissive === '1' }, images);
+      // sprite_file "supports the $[0-3] syntax": every variant is kept, one picked per particle.
+      const sprite = await spriteLayer(wak, a.sprite_file, { additive: a.additive === '1', emissive: a.emissive === '1', allVariants: true }, images);
       if (!sprite) continue;
+      // sprite_centered: "sets the offset to the center of the image".
+      if (a.sprite_centered === '1') {
+        const m = await sharp(images.get(sprite.frames[0]!)!).metadata();
+        sprite.ox = ((m.width ?? 0) * sprite.scale) / 2;
+        sprite.oy = ((m.height ?? 0) * sprite.scale) / 2;
+      }
       const life = num(a.lifetime, 0);
+      // The fcolor and vec2 defaults aren't printed in component_documentation.txt; white and 1 are assumed (the
+      // Glitter bomb's shards set neither and show their sprites' own colours at full size). [inferred]
+      const color: [number, number, number, number] = [num(a['color.r'], 1), num(a['color.g'], 1), num(a['color.b'], 1), num(a['color.a'], 1)];
+      const colorChange: [number, number, number, number] = [num(a['color_change.r'], 0), num(a['color_change.g'], 0), num(a['color_change.b'], 0), num(a['color_change.a'], 0)];
+      const sx = num(a['scale.x'], 1);
+      const sy = num(a['scale.y'], 1);
+      const scale: [number, number, number, number] = [
+        sx + num(a['randomize_scale.min_x'], 0),
+        sx + num(a['randomize_scale.max_x'], 0),
+        sy + num(a['randomize_scale.min_y'], 0),
+        sy + num(a['randomize_scale.max_y'], 0),
+      ];
+      const scaleVelocity: [number, number] = [num(a['scale_velocity.x'], 0), num(a['scale_velocity.y'], 0)];
+      const rot0 = num(a.rotation, 0);
+      const rotation: [number, number] = [rot0 + num(a['randomize_rotation.min'], 0), rot0 + num(a['randomize_rotation.max'], 0)];
+      const av0 = num(a.angular_velocity, 0);
+      const angularVelocity: [number, number] = [av0 + num(a['randomize_angular_velocity.min'], 0), av0 + num(a['randomize_angular_velocity.max'], 0)];
+      const alphaRandom: [number, number] = [num(a['randomize_alpha.min'], 0), num(a['randomize_alpha.max'], 0)];
+      const animSpeed: [number, number] = [num(a['randomize_animation_speed_coeff.min'], 1), num(a['randomize_animation_speed_coeff.max'], 1)];
+      const slow = num(a.velocity_slowdown, 0);
+      const entityVelocity = num(a.entity_velocity_multiplier, 0);
+      const not = (v: number[], d: number) => v.some((x) => x !== d);
       spriteEmitters.push({
         sprite,
         ...(a._enabled === '0' ? { enabled: false as const } : {}),
@@ -509,6 +543,18 @@ export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLo
         posMax: [num(a['randomize_position.max_x'], 0), num(a['randomize_position.max_y'], 0)],
         gravity: [num(a['gravity.x'], 0), num(a['gravity.y'], 0)],
         randomRotation: a.sprite_random_rotation === '1',
+        ...(not(color, 1) ? { color } : {}),
+        ...(not(colorChange, 0) ? { colorChange } : {}),
+        ...(not(alphaRandom, 0) ? { alphaRandom } : {}),
+        ...(not(scale, 1) ? { scale } : {}),
+        ...(not(scaleVelocity, 0) ? { scaleVelocity } : {}),
+        ...(slow ? { velocitySlowdown: slow } : {}),
+        ...(not(rotation, 0) ? { rotation } : {}),
+        ...(not(angularVelocity, 0) ? { angularVelocity } : {}),
+        ...(a.use_velocity_as_rotation === '1' ? { velocityRotation: true as const } : {}),
+        ...(not(animSpeed, 1) ? { animSpeed } : {}),
+        ...(entityVelocity ? { entityVelocity } : {}),
+        ...(a.render_back === '1' ? { renderBack: true as const } : {}),
       });
     }
     if (spriteEmitters.length) v.spriteEmitters = spriteEmitters;

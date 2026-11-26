@@ -1,9 +1,9 @@
 import type { Icon, RangeProp, SpriteLayer } from '@/data/types';
 import { gameUrl } from '@/data/store';
-import { boltStretch, layerFrame } from './particles';
+import { boltStretch, layerFrame, particleLayer, pickVariant } from './particles';
 import { animFrame } from './player';
 import { K_FIRE, K_POWDER, K_STATIC } from './cells';
-import { H, W, type RangeWorld } from './world';
+import { H, W, type RangeWorld, type SpriteFx } from './world';
 import { LIGHTNING, type Cell, type Crackle } from './lightning';
 import { CELL_GAIN, CELL_HDR, GLOW_DOWN, GlowBuffer, PARTICLE_GAIN } from './glow';
 import { fillBeam } from './beam';
@@ -176,9 +176,16 @@ export class RangeRenderer {
   /** A pixel takes the glow of the first glowing particle drawn on it in a frame (stamped with `drawId`). */
   private stamp = new Uint32Array(W * H);
   private drawId = 0;
-  /** Particles: normally blended, and (performance mode only) additive glowing ones. */
-  private partOver = new PixelLayer();
-  private partAdd = new PixelLayer();
+  /**
+   * Particles: normally blended, and (performance mode only) additive glowing ones; each behind the entities
+   * (render_back, the default) and in front of them (render_back="0"). An empty layer costs nothing a frame.
+   */
+  private backOver = new PixelLayer();
+  private backAdd = new PixelLayer();
+  private frontOver = new PixelLayer();
+  private frontAdd = new PixelLayer();
+  /** Sprite-particle frames tinted by their colour (rgb quantised to 1/15), made once each. */
+  private tints = new Map<number, HTMLCanvasElement>();
   private stillCamera = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   /** Light mode for slow devices: no glow and no light halos (the scene and the game stay the same). */
   lite = false;
@@ -319,14 +326,21 @@ export class RangeRenderer {
    * colour × alpha × gfx_glow/255 × 2.5 into the glow source (the first one on a pixel each frame, as the
    * particles overlap rather than add up in the game's glow texture). In performance mode there is no glow, so
    * glowing particles add their light instead ('lighter'). Streaks are plotted along their last frame of motion.
+   * Each goes to the back or front layers by its render_back (particleLayer); laser beams go behind.
    */
   private drawParticles(w: RangeWorld, glowOn: boolean) {
-    const over = this.partOver;
-    const add = this.partAdd;
-    over.clear();
-    add.clear();
-    const od = over.img.data;
-    const ad = add.img.data;
+    const bo = this.backOver;
+    const ba = this.backAdd;
+    const fo = this.frontOver;
+    const fa = this.frontAdd;
+    bo.clear();
+    ba.clear();
+    fo.clear();
+    fa.clear();
+    const bod = bo.img.data;
+    const bad = ba.img.data;
+    const fod = fo.img.data;
+    const fad = fa.img.data;
     const src = this.glowBuf.src;
     const stamp = this.stamp;
     const id = (this.drawId = (this.drawId + 1) >>> 0 || 1);
@@ -334,6 +348,11 @@ export class RangeRenderer {
     for (const q of w.particles) {
       const a = Math.min(1, q.alpha * (q.fade ? 1 - q.life / q.max : 1));
       if (a <= 0.02) continue;
+      const front = particleLayer(q) === 'front';
+      const over = front ? fo : bo;
+      const add = front ? fa : ba;
+      const od = front ? fod : bod;
+      const ad = front ? fad : bad;
       const c = rgbOf(q.color);
       const r = c >> 16;
       const g = (c >> 8) & 255;
@@ -383,14 +402,67 @@ export class RangeRenderer {
     // glowing like the particles they are in the game (beam.ts). No line, no core.
     for (const b of w.beams) {
       const additive = b.glow && !glowOn;
-      const lit = fillBeam(b, rgbOf(b.color), additive ? ad : od, W, H, additive, glowOn ? src : null, GW, partK, stamp, id);
+      const lit = fillBeam(b, rgbOf(b.color), additive ? bad : bod, W, H, additive, glowOn ? src : null, GW, partK, stamp, id);
       if (!lit) continue;
-      if (additive) add.dirty = true;
-      else over.dirty = true;
+      if (additive) ba.dirty = true;
+      else bo.dirty = true;
       if (b.glow && glowOn) this.glowBuf.fed = true;
     }
-    over.flush();
-    add.flush();
+    bo.flush();
+    ba.flush();
+    fo.flush();
+    fa.flush();
+  }
+
+  /** One pair of particle layers onto the scene (the additive one only in performance mode, when it's used). */
+  private paintParticles(over: PixelLayer, add: PixelLayer, bloom: boolean) {
+    const ctx = this.ctx;
+    ctx.globalCompositeOperation = 'source-over';
+    if (over.dirty) ctx.drawImage(over.canvas, 0, 0);
+    if (!bloom && add.dirty) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.drawImage(add.canvas, 0, 0);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /** Sprite particles on whole game pixels: those behind entities (render_back) or the ones in front. */
+  private drawSpriteParticles(w: RangeWorld, back: boolean) {
+    for (const fx of w.spriteParticles) {
+      if (!!fx.sp?.back !== back) continue;
+      const ls = fx.vis.sprites ?? [];
+      // Only emissive ones glow (the glitter cloud is additive but not emissive, so it tints without blooming);
+      // render_back ones "won't emit light".
+      for (let k = 0; k < ls.length; k++) {
+        const l = ls[k]!;
+        this.layer(l, fx.age, Math.round(fx.x), Math.round(fx.y), fx.rot, 1, 1, l.emissive && !back, pickVariant(l, fx.seed ?? 0, k), undefined, fx.sp);
+      }
+    }
+  }
+
+  /** A frame multiplied by an rgb tint (0–1 each), its alpha kept; cached per frame and tint. */
+  private tinted(f: Icon, r: number, g: number, b: number) {
+    const q = (v: number) => Math.round(Math.max(0, Math.min(1, v)) * 15);
+    const qr = q(r);
+    const qg = q(g);
+    const qb = q(b);
+    const key = (f.y * 4096 + f.x) * 4096 + ((qr << 8) | (qg << 4) | qb);
+    let c = this.tints.get(key);
+    if (!c) {
+      c = document.createElement('canvas');
+      c.width = f.w;
+      c.height = f.h;
+      const t = context2d(c);
+      t.drawImage(this.img.projectiles, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h);
+      t.globalCompositeOperation = 'multiply';
+      t.fillStyle = `rgb(${(qr * 17) | 0},${(qg * 17) | 0},${(qb * 17) | 0})`;
+      t.fillRect(0, 0, f.w, f.h);
+      t.globalCompositeOperation = 'destination-in';
+      t.drawImage(this.img.projectiles, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h);
+      this.tints.set(key, c);
+    }
+    return c;
   }
 
   /** A biome's background, tiled from the world's top left as in the game; null until it has loaded. */
@@ -439,21 +511,6 @@ export class RangeRenderer {
     }
     ctx.drawImage(this.terrain, 0, 0);
 
-    // the target (a statue or the dummy; nothing when a wall stands there), then the player with arm and wand
-    const { props } = this.img;
-    if (w.hasTarget) {
-      const look =
-        w.target === 'statue' && this.img.statue && props.statue
-          ? ([this.img.statue, props.statue] as const)
-          : w.target === 'statue_staff' && this.img.statueStaff && props.statue_staff
-            ? ([this.img.statueStaff, props.statue_staff] as const)
-            : props.dummy
-              ? ([this.img.dummy, props.dummy] as const)
-              : null;
-      if (look) this.actorSprite(look[0], look[1], w.dummy.x, w.dummy.y, 1, w.dummy.flash);
-    }
-    this.drawPlayer(w);
-
     // Glowing things are drawn into the scene and into the glow source, which lingers and spreads (not in lite mode).
     const bloom = !this.lite;
     const g = this.glowCtx;
@@ -481,14 +538,28 @@ export class RangeRenderer {
       }
     };
 
-    // particles: fades follow fade_based_on_lifetime; glowing materials (sparks, plasma) also feed the glow
+    // Particles: fades follow fade_based_on_lifetime; glowing materials (sparks, plasma) also feed the glow. Those
+    // with render_back (the default) and render_back sprite particles go behind every entity: the black hole's
+    // core stays black over its sparks.
     this.drawParticles(w, bloom);
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.drawImage(this.partOver.canvas, 0, 0);
-    if (!bloom) {
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.drawImage(this.partAdd.canvas, 0, 0);
+    this.paintParticles(this.backOver, this.backAdd, bloom);
+    this.drawSpriteParticles(w, true);
+
+    // the target (a statue or the dummy; nothing when a wall stands there), then the player with arm and wand
+    const { props } = this.img;
+    if (w.hasTarget) {
+      const look =
+        w.target === 'statue' && this.img.statue && props.statue
+          ? ([this.img.statue, props.statue] as const)
+          : w.target === 'statue_staff' && this.img.statueStaff && props.statue_staff
+            ? ([this.img.statueStaff, props.statue_staff] as const)
+            : props.dummy
+              ? ([this.img.dummy, props.dummy] as const)
+              : null;
+      if (look) this.actorSprite(look[0], look[1], w.dummy.x, w.dummy.y, 1, w.dummy.flash);
     }
+    this.drawPlayer(w);
+    ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
 
     // fading lines: drill beams, chain-bolt hops
@@ -575,14 +646,18 @@ export class RangeRenderer {
         };
         for (let k = layers.length - 1; k >= 0; k--) {
           const s = k === 0 ? { x: p.x, y: p.y, rot: p.rot } : at(k * 16);
-          this.layer(layers[k]!, p.age, s.x, s.y, s.rot, 1, 1);
+          this.layer(layers[k]!, p.age, s.x, s.y, s.rot, 1, 1, undefined, pickVariant(layers[k]!, p.seed ?? 0, k));
         }
       } else if (layers?.length) {
         const rot = p.physicsBody ? p.spin : p.rotate || p.parent ? p.rot : 0;
         // velocity_sets_scale: as long as the distance it moved this frame, like the game's spark bolts
         const f0 = layers[0]!.frames[0]!;
         const stretch = p.streak ? boltStretch(Math.hypot(p.x - p.px, p.y - p.py), p.visual?.physics?.streakCoeff ?? 1, f0.w, layers[0]!.scale) : 1;
-        for (const l of layers) this.layer(l, p.age, p.x, p.y, rot, 1, stretch);
+        // MATERIAL_* spells (projectile_type MATERIAL_PARTICLE) are a stretched pixel of the material they leave
+        // (on_death_emit_particle_type), not their placeholder dirt.xml sprite. [inferred: check in game]
+        const v = p.visual;
+        const solid = v?.projectileType === 'MATERIAL_PARTICLE' ? v.deathEmit?.color : undefined;
+        for (let k = 0; k < layers.length; k++) this.layer(layers[k]!, p.age, p.x, p.y, rot, 1, stretch, undefined, pickVariant(layers[k]!, p.seed ?? 0, k), solid);
       } else if (p.streak && (p.x !== p.px || p.y !== p.py)) {
         both((c) => line(c, p.px, p.py, p.x, p.y, p.visual?.trail?.color ?? p.light?.color ?? '#ffffff', 1.2, 0.9));
       } else {
@@ -594,10 +669,13 @@ export class RangeRenderer {
     ctx.globalCompositeOperation = 'source-over';
 
     // effects: muzzle flashes, explosion sprites, blast leftovers
-    for (const fx of w.effects) for (const l of fx.vis.sprites ?? []) if (l.enabled !== false) this.layer(l, fx.age, fx.x, fx.y, fx.rot, fx.flip, 1);
-    // Sprite particles (glitter clouds, sparkles) on whole game pixels. Only emissive ones glow: the glitter
-    // cloud is additive but not emissive, so it tints the scene without blooming.
-    for (const fx of w.spriteParticles) for (const l of fx.vis.sprites ?? []) this.layer(l, fx.age, Math.round(fx.x), Math.round(fx.y), fx.rot, 1, 1, l.emissive);
+    for (const fx of w.effects) {
+      const ls = fx.vis.sprites ?? [];
+      for (let k = 0; k < ls.length; k++) if (ls[k]!.enabled !== false) this.layer(ls[k]!, fx.age, fx.x, fx.y, fx.rot, fx.flip, 1, undefined, pickVariant(ls[k]!, fx.seed ?? 0, k));
+    }
+    // Sprite particles (glitter clouds, sparkles) in front, then particles with render_back="0".
+    this.drawSpriteParticles(w, false);
+    this.paintParticles(this.frontOver, this.frontAdd, bloom);
 
     if (bloom) this.composeGlow(w);
     else {
@@ -726,18 +804,31 @@ export class RangeRenderer {
    * stretched along x for streaks. Additive layers add light in place; only emissive ones feed the glow (the
    * game's emissive render target), as in sprites.xml: additive alone brightens without blooming.
    */
-  /** `bloom` overrides whether it feeds the glow (by default: emissive sprites do). */
-  private layer(l: SpriteLayer, age: number, x: number, y: number, rot: number, flip: number, stretch: number, bloom?: boolean) {
-    const f = layerFrame(l, age);
+  /**
+   * `bloom` overrides whether it feeds the glow (by default: emissive sprites do); `v` is the `$[a-b]` variant;
+   * `solid` fills the frame's box with a colour instead (MATERIAL_* pixels); `sp` is a sprite particle's colour
+   * (rgb tints, alpha multiplies), scale and animation speed.
+   */
+  private layer(l: SpriteLayer, age: number, x: number, y: number, rot: number, flip: number, stretch: number, bloom?: boolean, v = 0, solid?: string, sp?: SpriteFx) {
+    const f = layerFrame(l, sp ? age * sp.anim : age, v);
     if (!f?.w) return;
+    const alpha = sp ? l.alpha * Math.min(1, sp.a) : l.alpha;
+    if (alpha <= 0.004) return;
+    const tint = sp && (sp.r < 0.97 || sp.g < 0.97 || sp.b < 0.97) ? this.tinted(f, sp.r, sp.g, sp.b) : null;
+    const ssx = sp ? sp.sx : 1;
+    const ssy = sp ? sp.sy : 1;
     const draw = (c: CanvasRenderingContext2D) => {
       c.save();
       c.translate(x, y);
       if (rot) c.rotate(rot);
-      c.scale((l.sx ?? 1) * stretch, (l.sy ?? 1) * (flip < 0 ? -1 : 1));
-      c.globalAlpha = l.alpha;
+      c.scale((l.sx ?? 1) * stretch * ssx, (l.sy ?? 1) * ssy * (flip < 0 ? -1 : 1));
+      c.globalAlpha = alpha;
       c.globalCompositeOperation = l.additive ? 'lighter' : 'source-over';
-      c.drawImage(this.img.projectiles, f.x, f.y, f.w, f.h, -l.ox, -l.oy, f.w * l.scale, f.h * l.scale);
+      if (solid) {
+        c.fillStyle = solid;
+        c.fillRect(-l.ox, -l.oy, f.w * l.scale, f.h * l.scale);
+      } else if (tint) c.drawImage(tint, 0, 0, f.w, f.h, -l.ox, -l.oy, f.w * l.scale, f.h * l.scale);
+      else c.drawImage(this.img.projectiles, f.x, f.y, f.w, f.h, -l.ox, -l.oy, f.w * l.scale, f.h * l.scale);
       c.restore();
     };
     draw(this.ctx);

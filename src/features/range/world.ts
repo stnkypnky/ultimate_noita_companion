@@ -20,6 +20,7 @@ import {
   simpleParticle,
   stepParticles,
   trailBend,
+  variantSeed,
   type EmitHost,
   type EmitterState,
   type Particle,
@@ -198,6 +199,8 @@ export type Proj = {
   lasers: ProjLaser[];
   /** Sprite layers drawn now: switched-off ones join when a script turns them on (enableParts). */
   sprites?: SpriteLayer[];
+  /** Picks its sprites' `$[a-b]` variants (pickVariant). */
+  seed?: number;
   area?: NonNullable<EntityVisual['areaDamage']>;
   arc?: NonNullable<EntityVisual['arc']> & { target?: Proj };
   teleport: boolean;
@@ -251,6 +254,34 @@ export type Effect = {
   vy?: number;
   gx?: number;
   gy?: number;
+  /** Picks its sprites' `$[a-b]` variants (pickVariant). */
+  seed?: number;
+  /** A sprite particle's colour, scale, spin and slowdown (SpriteParticleEmitterComponent). */
+  sp?: SpriteFx;
+};
+/**
+ * A sprite particle's changing look: colour (0–1, rgb tints the sprite) and its change per second, scale and
+ * scale_velocity, velocity_slowdown, angular velocity, use_velocity_as_rotation, the animation speed factor, and
+ * render_back.
+ */
+export type SpriteFx = {
+  r: number;
+  g: number;
+  b: number;
+  a: number;
+  dr: number;
+  dg: number;
+  db: number;
+  da: number;
+  sx: number;
+  sy: number;
+  dsx: number;
+  dsy: number;
+  slow: number;
+  spin: number;
+  velRot: boolean;
+  anim: number;
+  back: boolean;
 };
 type SpriteEmitState = { e: SpriteEmitter; next: number; on: boolean };
 /** A projectile's beam: its LaserEmitterComponent, whether it emits (is_emitting) and is switched on at all. */
@@ -355,6 +386,51 @@ function hitDamage(p: Proj) {
   return fixed + (p.hit - fixed) * (speedOf(p) / ref);
 }
 const num = (s: ShotState, k: string) => (typeof s[k] === 'number' ? (s[k] as number) : 0);
+
+/** A new sprite particle's look from its emitter: colour + randomize_alpha, scale + randomize_scale, spin. */
+export function spriteFx(e: SpriteEmitter): SpriteFx {
+  const c = e.color;
+  const cc = e.colorChange;
+  const sc = e.scale;
+  return {
+    r: c ? c[0] : 1,
+    g: c ? c[1] : 1,
+    b: c ? c[2] : 1,
+    a: (c ? c[3] : 1) + (e.alphaRandom ? rand(e.alphaRandom[0], e.alphaRandom[1]) : 0),
+    dr: cc ? cc[0] : 0,
+    dg: cc ? cc[1] : 0,
+    db: cc ? cc[2] : 0,
+    da: cc ? cc[3] : 0,
+    sx: sc ? rand(sc[0], sc[1]) : 1,
+    sy: sc ? rand(sc[2], sc[3]) : 1,
+    dsx: e.scaleVelocity ? e.scaleVelocity[0] : 0,
+    dsy: e.scaleVelocity ? e.scaleVelocity[1] : 0,
+    slow: e.velocitySlowdown ?? 0,
+    spin: e.angularVelocity ? rand(e.angularVelocity[0], e.angularVelocity[1]) : 0,
+    velRot: !!e.velocityRotation,
+    anim: e.animSpeed ? rand(e.animSpeed[0], e.animSpeed[1]) : 1,
+    back: !!e.renderBack,
+  };
+}
+
+/**
+ * One frame of a sprite particle's look: color_change ("how much the color changes in a second"), scale_velocity
+ * ("scale velocity per second"), angular_velocity ("how much rotation there is in a second"), or turned to its
+ * motion with use_velocity_as_rotation. Once it has faded out for good it's gone.
+ */
+export function stepSpriteFx(fx: Effect) {
+  const s = fx.sp!;
+  s.r += s.dr * DT;
+  s.g += s.dg * DT;
+  s.b += s.db * DT;
+  s.a += s.da * DT;
+  s.sx += s.dsx * DT;
+  s.sy += s.dsy * DT;
+  if (s.velRot) {
+    if (fx.vx || fx.vy) fx.rot = Math.atan2(fx.vy ?? 0, fx.vx ?? 0);
+  } else fx.rot += s.spin * DT;
+  if (s.a <= 0 && s.da <= 0) fx.life = fx.age;
+}
 
 function segmentHitsBox(x0: number, y0: number, x1: number, y1: number, l: number, t: number, r: number, b: number) {
   const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 2));
@@ -1087,6 +1163,7 @@ export class RangeWorld {
       spin: 0,
       lasers: (vis?.lasers ?? []).map((l) => ({ ...l, on: l.emitting, enabled: l.enabled !== false })),
       ...(sprites ? { sprites } : {}),
+      seed: variantSeed(),
       ...(vis?.areaDamage ? { area: { ...vis.areaDamage } } : {}),
       ...(arc ? { arc: { ...arc, target: this.lastArc && !this.lastArc.dead ? this.lastArc : undefined } } : {}),
       teleport: !!vis?.teleport,
@@ -1159,7 +1236,7 @@ export class RangeWorld {
     if (this.hasTarget) this.updateActor(this.dummy);
 
     this.updateEffects();
-    this.particles = stepParticles(this.particles, (x, y) => this.cell(x, y) !== AIR || this.isLiquid(x, y), (x, y, m) => this.cells.place(x, y, this.cells.index(m)));
+    this.particles = stepParticles(this.particles, this.particleSolid, this.particleSettle, this.frame / 60);
     this.cells.step();
     for (const f of this.flashes) f.age++;
     this.flashes = this.flashes.filter((f) => f.age < f.life);
@@ -1237,6 +1314,8 @@ export class RangeWorld {
         [p.vx, p.vy] = [p.vx * c - p.vy * s, p.vx * s + p.vy * c];
       }
       p.vy += p.gravity * DT;
+      // VelocityComponent air_friction. ProjectileComponent's own `friction` (MATERIAL_* spells: 3) isn't modelled:
+      // component_documentation.txt gives it no description, so what it does in game is unknown.
       const f = Math.max(0, 1 - p.airFriction * DT);
       p.vx *= f;
       p.vy *= f;
@@ -1280,7 +1359,7 @@ export class RangeWorld {
     this.emitHost.source = p;
     runEmitters(p.emit, p.age, p.x, p.y, p.px, p.py, p.rot, this.addParticle, this.trailCap, this.emitHost);
     if (p.sea) this.fillSea(p, p.sea);
-    this.runSpriteEmitters(p.spriteEmit, p.age, p.x, p.y);
+    this.runSpriteEmitters(p.spriteEmit, p.age, p.x, p.y, p.vx, p.vy);
     // Trail modifiers lay real material along the path (trail_material_amount, taken as cells per 10 frames).
     if (p.trail) {
       const m = this.cells.index(p.trail.material);
@@ -1330,9 +1409,16 @@ export class RangeWorld {
       if (fx.vx !== undefined) {
         fx.vx += (fx.gx ?? 0) * DT;
         fx.vy = (fx.vy ?? 0) + (fx.gy ?? 0) * DT;
+        if (fx.sp?.slow) {
+          // velocity_slowdown: "what percent of the velocity is slowed by *dt".
+          const k = Math.max(0, 1 - fx.sp.slow * DT);
+          fx.vx *= k;
+          fx.vy *= k;
+        }
         fx.x += fx.vx * DT;
         fx.y += fx.vy * DT;
       }
+      if (fx.sp) stepSpriteFx(fx);
       this.emitHost.source = fx;
       runEmitters(fx.emit, fx.age, fx.x, fx.y, fx.x, fx.y, fx.rot, this.addParticle, this.trailCap, this.emitHost);
     }
@@ -1342,9 +1428,10 @@ export class RangeWorld {
 
   /**
    * SpriteParticleEmitterComponent: every few frames, 0–1 (count_min..count_max) animated sprites at a random
-   * offset with a random velocity. They live for lifetime + randomize_lifetime, or play their animation once.
+   * offset with a random velocity (plus entity_velocity_multiplier of the emitter's own). They live for lifetime +
+   * randomize_lifetime, or play their animation once, and take one of the sprite's `$[a-b]` variants.
    */
-  private runSpriteEmitters(states: SpriteEmitState[], age: number, x: number, y: number) {
+  private runSpriteEmitters(states: SpriteEmitState[], age: number, x: number, y: number, evx = 0, evy = 0) {
     for (const st of states) {
       if (!st.on || age < st.next) continue;
       const e = st.e;
@@ -1352,20 +1439,28 @@ export class RangeWorld {
       const n = randInt(e.countMin, e.countMax);
       for (let i = 0; i < n && this.spriteParticles.length < MAX_SPRITE_PARTICLES; i++) {
         const secs = rand(e.lifetime[0], e.lifetime[1]);
-        const life = secs > 0 ? Math.round(secs * 60) : e.sprite.loop ? 30 : layerFrames(e.sprite);
+        const sp = spriteFx(e);
+        const life = secs > 0 ? Math.round(secs * 60) : e.sprite.loop ? 30 : Math.ceil(layerFrames(e.sprite) / sp.anim);
+        const ev = e.entityVelocity ?? 0;
+        const vx = e.velocity[0] + rand(e.velMin[0], e.velMax[0]) + evx * ev;
+        const vy = e.velocity[1] + rand(e.velMin[1], e.velMax[1]) + evy * ev;
+        // rotation + randomize_rotation, then sprite_random_rotation's quarter turns on top. [inferred: they add]
+        const rot = (e.rotation ? rand(e.rotation[0], e.rotation[1]) : 0) + (e.randomRotation ? randInt(0, 3) * (Math.PI / 2) : 0);
         this.spriteParticles.push({
           x: x + rand(e.posMin[0], e.posMax[0]),
           y: y + rand(e.posMin[1], e.posMax[1]),
-          rot: e.randomRotation ? randInt(0, 3) * (Math.PI / 2) : 0,
+          rot: sp.velRot ? Math.atan2(vy, vx) : rot,
           vis: { sprites: [e.sprite] },
           age: 0,
           life: Math.max(1, life),
           emit: [],
           flip: 1,
-          vx: e.velocity[0] + rand(e.velMin[0], e.velMax[0]),
-          vy: e.velocity[1] + rand(e.velMin[1], e.velMax[1]),
+          vx,
+          vy,
           gx: e.gravity[0],
           gy: e.gravity[1],
+          seed: variantSeed(),
+          sp,
         });
       }
     }
@@ -1387,6 +1482,7 @@ export class RangeWorld {
   /**
    * Show an effect entity (muzzle flash, blast leftovers) at a point. It lasts for its LifetimeComponent,
    * else its sprite's play-through (kill_entity_after_finished) or the longest emitter, else half a second.
+   * Muzzle flashes and blasts named `$[1-5]` show one variant, picked here.
    */
   addEffect(file: string, x: number, y: number, rot = 0, flip = 1, vis = this.data.visuals[file]) {
     if (!vis || this.effects.length >= MAX_EFFECTS) return;
@@ -1394,7 +1490,7 @@ export class RangeWorld {
     const sprite = vis.sprites?.find((l) => l.enabled !== false);
     const emitLife = Math.max(0, ...liveEmitters(vis).map((e) => (e.lifetimeFrames >= 0 ? e.delayFrames + e.lifetimeFrames + e.lifetimeMax * 60 : 0)));
     const life = vis.lifetime ?? (sprite && (vis.killAfterAnim || !sprite.loop) ? layerFrames(sprite) : emitLife || 30);
-    this.effects.push({ x, y, rot, vis, age: 0, life: Math.max(1, life), emit: emitterStates(vis), flip });
+    this.effects.push({ x, y, rot, vis, age: 0, life: Math.max(1, life), emit: emitterStates(vis), flip, seed: variantSeed() });
   }
 
   /** Start loading the pictures an entity's image emitters need (once each); they emit from when one arrives. */
@@ -1413,6 +1509,11 @@ export class RangeWorld {
 
   addParticle = (q: Particle) => {
     if (this.particles.length < this.particleBudget) this.particles.push(q);
+  };
+  /** What cosmetic particles stop on (rock, powders, liquids), and where real ones turn into their material. */
+  private particleSolid = (x: number, y: number) => this.cell(x, y) !== AIR || this.isLiquid(x, y);
+  private particleSettle = (x: number, y: number, m: string) => {
+    this.cells.place(x, y, this.cells.index(m));
   };
 
   private heading(p: Proj) {
