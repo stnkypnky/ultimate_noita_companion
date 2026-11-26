@@ -3,10 +3,11 @@ import { gameUrl } from '@/data/store';
 import { boltStretch, layerFrame, particleLayer, pickVariant } from './particles';
 import { animFrame } from './player';
 import { K_FIRE, K_POWDER, K_STATIC } from './cells';
-import { H, W, type RangeWorld, type SpriteFx } from './world';
+import { DEATH_FRAMES, H, W, type RangeWorld, type SpriteFx } from './world';
 import { LIGHTNING, type Cell, type Crackle } from './lightning';
 import { CELL_GAIN, CELL_HDR, GLOW_DOWN, GlowBuffer, PARTICLE_GAIN } from './glow';
 import { fillBeam } from './beam';
+import { LightMap } from './light';
 
 /**
  * Drawing scale over world pixels. 1, like the game's own 427×242 frame: CSS scales the canvas up with crisp
@@ -21,12 +22,18 @@ const GH = Math.ceil(H / GLOW_DOWN);
 /** One world pixel's share of its glow texel (the glow source is the average over each 4×4 block). */
 const PER_TEXEL = 1 / (GLOW_DOWN * GLOW_DOWN);
 /**
- * Lights until the light-and-dark model (Phase 7): post_final.frag lights the scene with (light × 0.8)^1.5, so a
- * LightComponent's deliberately dark colour (Concentrated Light's rgb(30,90,30)) becomes a faint wide tint. Here
- * that is added over the picture with the glow, scaled by this (tuned by eye: a wide soft halo that doesn't wash
- * out the scene).
+ * Lights on fully lit maps (the test cave). In the game open sky lights everything to 1, so LightComponents add
+ * nothing there; the range has always shown them as a halo instead, kept for its lit map: post_final.frag lights
+ * the scene with (light × 0.8)^1.5, so a LightComponent's deliberately dark colour (Concentrated Light's
+ * rgb(30,90,30)) becomes a faint wide tint, added over the picture with the glow and scaled by this (tuned by
+ * eye). Cave maps use the real light map instead (light.ts).
  */
 const LIGHT_GAIN = 0.7;
+/**
+ * The player's own LightComponent (data/entities/player_base.xml): white, radius 350, fading over
+ * fade_out_time 5 s once she dies. It lights most of the screen around her in a cave.
+ */
+const PLAYER_LIGHT = { radius: 350, rgb: 0xffffff, fadeFrames: 5 * 60 };
 
 const HUD_ICONS = ['health', 'flying', 'mana', 'reload', 'delay'] as const;
 type HudIcon = (typeof HUD_ICONS)[number];
@@ -171,6 +178,11 @@ export class RangeRenderer {
   private glowOut = document.createElement('canvas');
   private glowOutCtx: CanvasRenderingContext2D;
   private glowImg = new ImageData(GW, GH);
+  /** Cave maps: the light texture and the lights map built from it (light.ts), multiplied into the picture. */
+  private lightMap = new LightMap(GW, GH, GLOW_DOWN);
+  private lightCv = document.createElement('canvas');
+  private lightCtx: CanvasRenderingContext2D;
+  private lightImg = new ImageData(GW, GH);
   /** Sim frame the glow was last stepped at: it advances once per simulated frame, whatever the display rate. */
   private glowFrame = -1;
   /** A pixel takes the glow of the first glowing particle drawn on it in a frame (stamped with `drawId`). */
@@ -187,7 +199,10 @@ export class RangeRenderer {
   /** Sprite-particle frames tinted by their colour (rgb quantised to 1/15), made once each. */
   private tints = new Map<number, HTMLCanvasElement>();
   private stillCamera = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  /** Light mode for slow devices: no glow and no light halos (the scene and the game stay the same). */
+  /**
+   * Light mode for slow devices: no glow, no light halos and no cave darkness (every map drawn fully lit; the
+   * scene and the game stay the same).
+   */
   lite = false;
 
   constructor(
@@ -202,6 +217,9 @@ export class RangeRenderer {
     this.glowCtx.imageSmoothingEnabled = true;
     this.glowOutCtx = context2d(this.glowOut, true);
     this.glowOutCtx.imageSmoothingEnabled = true;
+    this.lightCv.width = GW;
+    this.lightCv.height = GH;
+    this.lightCtx = context2d(this.lightCv, true);
     this.terrainCtx = context2d(this.terrain);
     ctx.imageSmoothingEnabled = false;
     const bg = document.createElement('canvas');
@@ -677,6 +695,8 @@ export class RangeRenderer {
     this.drawSpriteParticles(w, false);
     this.paintParticles(this.frontOver, this.frontAdd, bloom);
 
+    // Everything so far is the game's foreground (the world layer, biome backdrop included), lit on cave maps;
+    // status icons, damage numbers, HUD and cursor come after, unlit like the game's UI.
     if (bloom) this.composeGlow(w);
     else {
       // Performance mode: explosions and casts flash a small soft light, nothing lingers.
@@ -739,8 +759,12 @@ export class RangeRenderer {
 
   /**
    * The glow for this frame: what was drawn into glowCv joins the source (×2.5, as post_glow2 weights emissive
-   * sprites and particles), the buffer steps once per simulated frame, and the result plus the lights is
-   * stretched back over the scene with smoothing and screen-blended (post_final.frag: c + g − c·g).
+   * sprites and particles), the buffer steps once per simulated frame; on a cave map the picture is lit by the
+   * light map (shade), and the glow is stretched back over the scene with smoothing and screen-blended.
+   *
+   * post_final.frag line 480 blends the glow as max(c + 0.6·glow − 0.6·lights, clamp(c + glow − c·m·glow)),
+   * with m = max(1 − sky, sky_light_color) = 1 by day or underground: a screen blend. The first term never wins
+   * there: lights ≥ glow^(1/2.2) ≥ glow while glow ≤ 1 (and past 1 both are white), so 'screen' is exact.
    */
   private composeGlow(w: RangeWorld) {
     const gb = this.glowBuf;
@@ -763,6 +787,16 @@ export class RangeRenderer {
     const steps = this.glowFrame < 0 || w.frame < this.glowFrame ? 1 : Math.min(3, w.frame - this.glowFrame);
     this.glowFrame = w.frame;
     for (let i = 0; i < steps; i++) gb.step();
+
+    const sky = w.biome.sky ?? 0;
+    if (sky < 1) {
+      this.shade(w, sky);
+      if (gb.idle) return;
+      gb.toRGBA(this.glowImg.data);
+      this.glowOutCtx.putImageData(this.glowImg, 0, 0);
+      this.screenGlow();
+      return;
+    }
 
     let lit = w.flashes.length > 0;
     for (let i = 0; !lit && i < w.projectiles.length; i++) lit = !!w.projectiles[i]!.light && !w.projectiles[i]!.held;
@@ -791,11 +825,60 @@ export class RangeRenderer {
       oc.globalCompositeOperation = 'source-over';
       oc.setTransform(1, 0, 0, 1, 0, 0);
     }
+    this.screenGlow();
+  }
+
+  /** glowOut stretched over the scene, smoothed, screen-blended (post_final.frag line 480: c + g − c·g). */
+  private screenGlow() {
     const ctx = this.ctx;
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(this.glowOut, 0, 0, GW * GLOW_DOWN, GH * GLOW_DOWN);
+    ctx.restore();
+  }
+
+  /**
+   * Light the picture as post_final.frag lights the foreground (light.ts): the player's light, each
+   * LightComponent and flash go into the light texture, the glow joins them, and the picture is multiplied by
+   * the result, stretched smoothly from the glow's quarter resolution. The map holds lights ÷ 2 so that the
+   * brightening next to a light (up to ×1.35) survives a 'multiply': the picture is then added to itself.
+   * Glowing things light themselves through the glow, as in the game.
+   */
+  private shade(w: RangeWorld, sky: number) {
+    const lm = this.lightMap;
+    lm.clear();
+    const b = w.body;
+    // Her light stays while she lies dead, fading over its fade_out_time.
+    const fade = b.dead > 0 ? 1 - (DEATH_FRAMES - b.dead) / PLAYER_LIGHT.fadeFrames : 1;
+    const k = w.kit?.player;
+    // The entity's position: a few pixels above the feet (as the player's hitbox hangs from it).
+    lm.add(w.player.x, w.player.y - ((k?.feet ?? 17) - (k?.pivot[1] ?? 14)), PLAYER_LIGHT.radius, PLAYER_LIGHT.rgb, fade);
+    let n = 0;
+    for (const p of w.projectiles) {
+      if (!p.light || p.held || n >= MAX_LIGHTS) continue;
+      n++;
+      lm.add(p.x + (p.light.offsetX ?? 0), p.y + (p.light.offsetY ?? 0), p.light.radius, rgbOf(p.light.color));
+    }
+    for (const f of w.flashes) {
+      if (n >= MAX_LIGHTS) break;
+      n++;
+      lm.add(f.x, f.y, f.r, rgbOf(f.color), 1 - f.age / f.life);
+    }
+    const gb = this.glowBuf;
+    lm.build(gb.idle ? null : gb.acc, sky, this.lightImg.data);
+    this.lightCtx.putImageData(this.lightImg, 0, 0);
+    const ctx = this.ctx;
+    ctx.save();
+    // Unshaken: the map covers the whole canvas even while the scene shakes (the light lags a pixel or two).
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(this.lightCv, 0, 0, GW * GLOW_DOWN * SCALE, GH * GLOW_DOWN * SCALE);
+    ctx.imageSmoothingEnabled = false;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.drawImage(ctx.canvas, 0, 0);
     ctx.restore();
   }
 

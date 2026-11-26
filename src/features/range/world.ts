@@ -39,7 +39,7 @@ import type { Beam } from './beam';
 export const W = 427;
 export const H = 242;
 /** Frames the player lies dead before respawning. */
-const DEATH_FRAMES = 90;
+export const DEATH_FRAMES = 90;
 /** Frames without a hit on the dummy that end a run of hits for the DPS meter (longer than most recharges). */
 const BURST_IDLE = 180;
 /** Frames before a shot made friendly-fire by a modifier can hit its caster (clear of the wand). */

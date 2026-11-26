@@ -25,6 +25,13 @@ export type Biome = {
   island: string | null;
   /** The ledge on the right. */
   ledge: string;
+  /**
+   * How much open sky lights it (post_final.frag's sky_ambient_amount): 1 lights everything fully, 0 leaves a
+   * cave dark but for its lights (light.ts). The engine works it out from the world around the camera, and fades
+   * it out 250–350 px below the surface; every game biome here lies far deeper, so they're all 0 (the default).
+   * The test cave isn't a game place and stays fully lit, as the range always was.
+   */
+  sky?: number;
 };
 
 const L = (material: string, index: number, min: number, max: number): BiomeLayer => ({ material, index, min, max });
@@ -32,7 +39,7 @@ const R = (material: string, index: number, min: number, max: number): BiomeLaye
 
 export const BIOMES: Biome[] = [
   // The range as it always was: plain rock, a water pool, an oil puddle, sand and a wooden ledge.
-  { id: 'range', name: 'Test cave', background: null, base: 'rock_static', layers: [], pools: ['water', 'oil'], island: 'sand', ledge: 'wood_static' },
+  { id: 'range', name: 'Test cave', background: null, base: 'rock_static', layers: [], pools: ['water', 'oil'], island: 'sand', ledge: 'wood_static', sky: 1 },
   {
     id: 'coalmine',
     name: 'Mines',
