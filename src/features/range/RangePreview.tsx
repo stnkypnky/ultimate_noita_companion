@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowBigUp, ArrowLeftRight, BatteryCharging, Bot, ChevronLeft, ChevronRight, Dices, Gauge, Maximize2, Minimize2, Mountain, Pause, Play } from 'lucide-react';
-import { fetchJson, useData } from '@/data/store';
+import { fetchJson, gameUrl, useData } from '@/data/store';
 import type { EntityVisual, RangeKit, RangeProp } from '@/data/types';
 import { fmtNum } from '@/data/format';
 import { LiveSession } from '@/sim/client';
@@ -8,11 +8,12 @@ import type { LiveCast } from '@/sim/types';
 import { SpellIcon } from '@/ui/GameIcon';
 import { toSimRequest, type SimOptions, type Wand } from '@/features/wand/model';
 import { perkBoost } from '@/sim/perks';
-import { H, RangeWorld, W, type RangeData, type RangeTarget } from './world';
+import { H, RangeWorld, SEA_CAP, SEA_CAP_LITE, W, type RangeData, type RangeTarget } from './world';
+import { emitterImagePath, loadEmitterImage } from './emitterImages';
 import { BIOMES, biomeById } from './biomes';
 import { RangeRenderer, SCALE, context2d, loadRangeImages, type RangeImages } from './render';
 import { pickWandSprite, type Controls } from './player';
-import { TRAIL_CAP, TRAIL_CAP_LITE } from './particles';
+import { IMAGE_CAP, IMAGE_CAP_LITE, IMAGE_CELLS_FRAME, IMAGE_CELLS_FRAME_LITE, IMAGE_CELL_CAP, IMAGE_CELL_CAP_LITE, TRAIL_CAP, TRAIL_CAP_LITE } from './particles';
 import { WandRuntime } from './wand';
 import { rangeSettings } from './settings';
 
@@ -213,6 +214,7 @@ export function RangePreview({
       w.resetTerrain();
       w.auto = auto;
       w.wandSprite = wandSprite;
+      w.loadImage = (file) => loadEmitterImage(gameUrl(emitterImagePath(file)));
       const world = w;
       w.wand = new WandRuntime(session, (c) => world.fire(c));
     }
@@ -262,6 +264,10 @@ export function RangePreview({
     renderer.lite = settings.performance;
     world.particleBudget = settings.performance ? 1500 : 6000;
     world.trailCap = settings.performance ? TRAIL_CAP_LITE : TRAIL_CAP;
+    world.emitHost.imageCap = settings.performance ? IMAGE_CAP_LITE : IMAGE_CAP;
+    world.emitHost.cellCap = settings.performance ? IMAGE_CELL_CAP_LITE : IMAGE_CELL_CAP;
+    world.seaCap = settings.performance ? SEA_CAP_LITE : SEA_CAP;
+    world.imageCellsPerFrame = settings.performance ? IMAGE_CELLS_FRAME_LITE : IMAGE_CELLS_FRAME;
     renderer.draw(world);
     if (!running) return;
     let raf = 0;

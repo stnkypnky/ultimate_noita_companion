@@ -318,10 +318,15 @@ export type Emitter = {
   glowStrength: number;
   /** Switched off in the XML (`_enabled="0"`): silent until a script turns it on (Megalaser beams). */
   enabled?: false;
-  /** An image emitter (image_animation_file). The range doesn't run these yet. */
+  /** An image emitter (image_animation_file): emits the picture's shape over time (src/features/range/particles.ts). */
   image?: ImageEmitter;
   /** attractor_force: pulls its particles toward the entity (default 0). */
   attractorForce?: number;
+  /**
+   * On a child entity whose InheritTransformComponent has only_position="1" (the Cloud spells' rain and outline):
+   * it follows the entity's position but not its rotation.
+   */
+  noRotate?: true;
   /** render_back="0": cosmetic particles drawn in front (default: behind). */
   renderBack?: false;
   /** render_ultrabright: glowing particles 3× as bright (already in glowStrength). */
@@ -452,6 +457,11 @@ export type EntityVisual = {
   inert?: boolean;
   emitters?: Emitter[];
   spriteEmitters?: SpriteEmitter[];
+  /**
+   * MaterialSeaSpawnerComponent (the Sea spells): fills a size.x × size.y area centred at `offset` from the entity
+   * with real material, `speed` px further out per frame (defaults per component_documentation.txt).
+   */
+  sea?: { material: string; w: number; h: number; ox: number; oy: number; speed: number; sineWavelength: number; sineAmplitude: number; noiseScale: number; noiseThreshold: number };
   /** LoadEntitiesComponent: entities made when this one appears (Glitter bomb's blast makes 12 shards). */
   loads?: { file: string; min: number; max: number }[];
   /** SetStartVelocityComponent: velocity + a random direction and speed, set when it appears. */

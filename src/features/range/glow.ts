@@ -14,6 +14,8 @@
 export const GLOW_DOWN = 4;
 /** post_glow2: glowing cells (tex_glow_source) are weighted ×4, emissive particles and sprites ×2.5. */
 export const CELL_GAIN = 4.0;
+/** Cell blitting's "HDR" remap that the ×4 undoes (gfx_glow up to 1000 squeezed in: 255 → 1/4). */
+export const CELL_HDR = 1 / CELL_GAIN;
 export const PARTICLE_GAIN = 2.5;
 /**
  * Tap spacing in our texels. The shader spaces its taps 1.5 glow texels apart; tex_glow_unfiltered shares the

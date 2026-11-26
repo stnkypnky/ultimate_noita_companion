@@ -5,7 +5,7 @@ import { animFrame } from './player';
 import { K_FIRE, K_POWDER, K_STATIC } from './cells';
 import { H, W, type RangeWorld } from './world';
 import { LIGHTNING, type Cell, type Crackle } from './lightning';
-import { CELL_GAIN, GLOW_DOWN, GlowBuffer, PARTICLE_GAIN } from './glow';
+import { CELL_GAIN, CELL_HDR, GLOW_DOWN, GlowBuffer, PARTICLE_GAIN } from './glow';
 import { fillBeam } from './beam';
 
 /**
@@ -207,8 +207,8 @@ export class RangeRenderer {
   /**
    * Repaint the chunks of the cell world that changed. Materials with a texture use it (world-aligned, as
    * in the game), others their colour with a little per-cell grain; solids exposed to air get a lit top edge;
-   * fire flickers and burning cells glow; glowing materials (gfx_glow) also feed the glow source, ×4 as
-   * post_glow2.frag weights cells, at their gfx_glow / 255 (burning cells as fire, 1).
+   * fire flickers and burning cells glow; glowing materials (gfx_glow) also feed the glow source at their
+   * gfx_glow / 255 (burning cells as fire, 1): post_glow2's ×4 only undoes cell blitting's HDR squeeze.
    */
   private paintTerrain(w: RangeWorld) {
     const c = w.cells;
@@ -222,7 +222,10 @@ export class RangeRenderer {
       this.glowingChunks = 0;
     }
     const chunkGlows = this.chunkGlows;
-    const cellK = (CELL_GAIN * PER_TEXEL) / 255;
+    // post_glow2.frag: "colors are remapped to HDR range in cell blitting. gfx_glow in CellData can go up to 1000,
+    // 255 represents old default brightness". The cells are stored scaled down to fit gfx_glow up to 1000, and the
+    // shader's ×4 scales them back: a cell at gfx_glow 255 enters the glow at its own colour (×1), not ×4.
+    const cellK = (CELL_GAIN * CELL_HDR * PER_TEXEL) / 255;
     for (let cy = 0; cy < c.cy; cy++) {
       for (let cx = 0; cx < c.cx; cx++) {
         const k = cy * c.cx + cx;

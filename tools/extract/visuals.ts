@@ -456,7 +456,35 @@ export async function collectVisuals(roots: string[], wak: Wak, loader: EntityLo
     const emitters = comps(e, 'ParticleEmitterComponent')
       .map((p) => emitter(p, look))
       .filter((p): p is Emitter => !!p);
+    // A child <Entity> with an InheritTransformComponent moves with this one, so its emitters are this entity's
+    // (the Cloud spells keep their rain and outline in one); only_position="1" leaves its rotation alone.
+    for (const child of comps(e, 'Entity')) {
+      const inherit = comp(child, 'InheritTransformComponent');
+      if (!inherit) continue;
+      for (const p of comps(child, 'ParticleEmitterComponent')) {
+        const em = emitter(p, look);
+        if (em) emitters.push(inherit.attrs.only_position === '1' ? { ...em, noRotate: true } : em);
+      }
+    }
     if (emitters.length) v.emitters = emitters;
+
+    // MaterialSeaSpawnerComponent (Sea spells), with the engine defaults for what the XML leaves out.
+    const sea = comp(e, 'MaterialSeaSpawnerComponent');
+    if (sea?.attrs.material) {
+      const a = sea.attrs;
+      v.sea = {
+        material: a.material,
+        w: num(a['size.x'], 0),
+        h: num(a['size.y'], 0),
+        ox: num(a['offset.x'], 0),
+        oy: num(a['offset.y'], 0),
+        speed: num(a.speed, 10),
+        sineWavelength: num(a.sine_wavelength, 10),
+        sineAmplitude: num(a.sine_amplitude, 5),
+        noiseScale: num(a.noise_scale, 0.1),
+        noiseThreshold: num(a.noise_threshold, 0.05),
+      };
+    }
 
     // Animated sprite particles (Glitter bomb shards shed glitter clouds and sparkles). Defaults per the engine docs.
     const spriteEmitters: SpriteEmitterOut[] = [];

@@ -8,7 +8,23 @@
 import type { EntityVisual, ExplosionVisual, Laser, Material, Projectile, RangeKit, Reaction, SpriteEmitter, SpriteLayer, WandSprite } from '@/data/types';
 import { Cells, K_GAS, K_LIQUID, K_POWDER, K_STATIC } from './cells';
 import { BIOMES, biomeById, biomeNoise, biomePolka, noiseValue, type Biome } from './biomes';
-import { TRAIL_CAP, emitterStates, layerFrames, liveEmitters, runEmitters, simpleParticle, stepParticles, trailBend, type EmitterState, type Particle } from './particles';
+import {
+  IMAGE_CAP,
+  IMAGE_CELL_CAP,
+  IMAGE_CELLS_FRAME,
+  TRAIL_CAP,
+  emitterStates,
+  layerFrames,
+  liveEmitters,
+  runEmitters,
+  simpleParticle,
+  stepParticles,
+  trailBend,
+  type EmitHost,
+  type EmitterState,
+  type Particle,
+} from './particles';
+import type { EmitterImage } from './emitterImages';
 import { CRIT_MULT, NO_BOOST, projectileDamage, type DamageBoost } from '@/sim/analyze';
 import { HP_UNIT } from '@/data/format';
 import type { ShotState, SimCast, SimShot } from '@/sim/types';
@@ -41,6 +57,12 @@ const BLAST_PUSH = 15;
 const DT = 1 / 60;
 const MAX_PROJECTILES = 700;
 const MAX_PARTICLES = 6000;
+/**
+ * Most cells a Sea (MaterialSeaSpawnerComponent) lays in one frame. The game lays its whole sweep (up to 20 columns
+ * × 256 rows a frame); capped, the rest follows over the next frames. Performance mode: SEA_CAP_LITE.
+ */
+export const SEA_CAP = 2500;
+export const SEA_CAP_LITE = 800;
 const MAX_EFFECTS = 200;
 /** Animated sprite particles (glitter clouds, sparkles) have their own budget, so they never crowd out blasts. */
 const MAX_SPRITE_PARTICLES = 320;
@@ -206,6 +228,8 @@ export type Proj = {
   wand?: WandSprite;
   /** Where a worm's head has been, newest first; its body segments follow this path. */
   body?: { x: number; y: number }[];
+  /** MaterialSeaSpawnerComponent (Sea spells): its area, material index, and how many columns each side it has filled. */
+  sea?: { v: NonNullable<EntityVisual['sea']>; m: number; filled: number };
   dead: boolean;
 };
 
@@ -387,6 +411,35 @@ export class RangeWorld {
   particleBudget = MAX_PARTICLES;
   /** Most trail particles one emitter lays in a frame (performance mode lowers it). */
   trailCap = TRAIL_CAP;
+  /**
+   * Image emitters' baked pictures by image_animation_file (null while loading). The page fills it through
+   * `loadImage`; tests set pictures directly.
+   */
+  readonly emitterImages = new Map<string, EmitterImage | null>();
+  loadImage?: (file: string) => Promise<EmitterImage>;
+  /** Most real cells a Sea lays in a frame (performance mode lowers it). */
+  seaCap = SEA_CAP;
+  /** Real cells all image emitters may place in a frame (performance mode lowers it), and what's left of it. */
+  imageCellsPerFrame = IMAGE_CELLS_FRAME;
+  private imageCellsLeft = IMAGE_CELLS_FRAME;
+  /** What emitters borrow from the world; `source` is set to the entity being run. */
+  readonly emitHost: EmitHost = {
+    image: (file) => this.emitterImages.get(file) ?? undefined,
+    place: (x, y, material) => {
+      if (this.cells.place(x, y, this.cells.index(material))) this.imageCellsLeft--;
+    },
+    cellRoom: () => this.imageCellsLeft,
+    // Image rays stop at what a projectile stops at: rock and powders, not liquids, gases or fire.
+    blocks: (x, y) => {
+      const k = this.cells.kindAt(x, y);
+      return k === K_STATIC || k === K_POWDER;
+    },
+    w: W,
+    h: H,
+    imageCap: IMAGE_CAP,
+    cellCap: IMAGE_CELL_CAP,
+    room: () => this.particleBudget - this.particles.length,
+  };
   damageEvents: { frame: number; amount: number }[] = [];
   totalDamage = 0;
   /** The caster's perks beyond the shot state: damage multiplier and extra crit (src/sim/perks.ts). */
@@ -959,6 +1012,7 @@ export class RangeWorld {
       .map((f) => this.data.visuals[f])
       .filter((v): v is EntityVisual => !!v);
     const all = [vis, ...extras].filter((v): v is EntityVisual => !!v);
+    for (const v of all) this.wantImages(v);
     const trailId = typeof s.trail_material === 'string' && s.trail_material ? s.trail_material.split(',')[0]! : '';
     const trailMat = trailId ? this.data.materialColor.get(trailId)?.slice(0, 7) : undefined;
     const arc = all.find((v) => v.arc)?.arc;
@@ -1040,6 +1094,7 @@ export class RangeWorld {
       trails: trailMat ? [trailMat] : [],
       ...(trailId ? { trail: { material: trailId, amount: num(s, 'trail_material_amount') } } : {}),
       emit: all.flatMap((v) => emitterStates(v)),
+      ...(vis?.sea ? { sea: { v: vis.sea, m: this.cells.index(vis.sea.material), filled: 0 } } : {}),
       spriteEmit: all.flatMap((v) => (v.spriteEmitters ?? []).map((e) => ({ e, next: 0, on: e.enabled !== false }))),
       light: all.find((v) => v.light && v.light.radius > 0 && v.light.enabled !== false)?.light,
       scripts: all.flatMap((v) => (v.scripts ?? []).map((sc) => ({ ...sc, runs: 0, from: v }))),
@@ -1091,6 +1146,7 @@ export class RangeWorld {
 
   step() {
     this.frame++;
+    this.imageCellsLeft = this.imageCellsPerFrame;
     this.wand?.tick(this.frame, (this.auto || this.trigger || this.tapped) && !this.polymorphed);
     this.tapped = false;
 
@@ -1221,7 +1277,9 @@ export class RangeWorld {
     if (p.lifetime > 0 && p.age >= p.lifetime) return this.die(p, 'timeout');
 
     // Particle emitters of the projectile and its modifiers, and material trails from trail modifiers.
-    runEmitters(p.emit, p.age, p.x, p.y, p.px, p.py, p.rot, this.addParticle, this.trailCap);
+    this.emitHost.source = p;
+    runEmitters(p.emit, p.age, p.x, p.y, p.px, p.py, p.rot, this.addParticle, this.trailCap, this.emitHost);
+    if (p.sea) this.fillSea(p, p.sea);
     this.runSpriteEmitters(p.spriteEmit, p.age, p.x, p.y);
     // Trail modifiers lay real material along the path (trail_material_amount, taken as cells per 10 frames).
     if (p.trail) {
@@ -1237,6 +1295,34 @@ export class RangeWorld {
     }
   }
 
+  /**
+   * MaterialSeaSpawnerComponent: "speed: How many pixels to cover per one direction per one frame" over a size.x ×
+   * size.y area centred `offset` from the entity (the Seas: 300 × 256, 158 px below, so the sea's top is 30 px under
+   * where it was cast). Taken as columns filled outward from the centre, `speed` each way per frame, each from its
+   * top to the area's bottom, into air only; the top follows sine_amplitude × sin(x / sine_wavelength).
+   * noise_threshold is 0 on every Sea, so the noise pattern isn't modelled. [inferred: the sweep order, the sine's
+   * form, and that only air is filled]
+   */
+  private fillSea(p: Proj, sea: NonNullable<Proj['sea']>) {
+    const v = sea.v;
+    const half = Math.floor(v.w / 2);
+    if (sea.m <= 0 || sea.filled > half) return;
+    const cx = Math.round(p.x + v.ox);
+    const cy = Math.round(p.y + v.oy);
+    const top = cy - Math.floor(v.h / 2);
+    const bottom = Math.min(H, top + v.h);
+    let laid = 0;
+    for (let n = 0; n < v.speed && sea.filled <= half && laid < this.seaCap; n++, sea.filled++) {
+      const d = sea.filled;
+      for (let side = d ? -1 : 1; side <= 1; side += 2) {
+        const x = cx + side * d;
+        if (x < 0 || x >= W) continue;
+        const y0 = Math.max(0, Math.round(top + v.sineAmplitude * Math.sin(x / Math.max(0.001, v.sineWavelength))));
+        for (let y = y0; y < bottom; y++) if (this.cells.place(x, y, sea.m)) laid++;
+      }
+    }
+  }
+
   /** Effects: play their sprite, run their emitters, drift if they move (sprite particles), then go. */
   private updateEffects() {
     for (const fx of [...this.effects, ...this.spriteParticles]) {
@@ -1247,7 +1333,8 @@ export class RangeWorld {
         fx.x += fx.vx * DT;
         fx.y += fx.vy * DT;
       }
-      runEmitters(fx.emit, fx.age, fx.x, fx.y, fx.x, fx.y, fx.rot, this.addParticle, this.trailCap);
+      this.emitHost.source = fx;
+      runEmitters(fx.emit, fx.age, fx.x, fx.y, fx.x, fx.y, fx.rot, this.addParticle, this.trailCap, this.emitHost);
     }
     this.effects = this.effects.filter((fx) => fx.age < fx.life);
     this.spriteParticles = this.spriteParticles.filter((fx) => fx.age < fx.life);
@@ -1303,10 +1390,25 @@ export class RangeWorld {
    */
   addEffect(file: string, x: number, y: number, rot = 0, flip = 1, vis = this.data.visuals[file]) {
     if (!vis || this.effects.length >= MAX_EFFECTS) return;
+    this.wantImages(vis);
     const sprite = vis.sprites?.find((l) => l.enabled !== false);
     const emitLife = Math.max(0, ...liveEmitters(vis).map((e) => (e.lifetimeFrames >= 0 ? e.delayFrames + e.lifetimeFrames + e.lifetimeMax * 60 : 0)));
     const life = vis.lifetime ?? (sprite && (vis.killAfterAnim || !sprite.loop) ? layerFrames(sprite) : emitLife || 30);
     this.effects.push({ x, y, rot, vis, age: 0, life: Math.max(1, life), emit: emitterStates(vis), flip });
+  }
+
+  /** Start loading the pictures an entity's image emitters need (once each); they emit from when one arrives. */
+  private wantImages(vis: EntityVisual) {
+    if (!this.loadImage || !vis.emitters) return;
+    for (const e of vis.emitters) {
+      const f = e.image?.file;
+      if (!f || this.emitterImages.has(f)) continue;
+      this.emitterImages.set(f, null);
+      this.loadImage(f).then(
+        (img) => this.emitterImages.set(f, img),
+        () => this.emitterImages.delete(f),
+      );
+    }
   }
 
   addParticle = (q: Particle) => {
