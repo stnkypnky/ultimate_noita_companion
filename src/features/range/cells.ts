@@ -37,6 +37,10 @@ export type CellMat = {
   /** Frames the cell lasts (gases); 0 = forever. */
   lifetime: number;
   glow: boolean;
+  /** gfx_glow / 255: how strongly its cells feed the glow (fire 1, acid 100/255). */
+  glowStrength: number;
+  /** gfx_glow_color as 0xrrggbb, when set: the glow's colour instead of the cell's. */
+  glowColor?: number;
   durability: number;
   /** Never removed (the range's bedrock walls). */
   hard: boolean;
@@ -93,7 +97,7 @@ export class Cells {
     this.active = new Uint8Array(this.cx * this.cy);
     this.nextActive = new Uint8Array(this.cx * this.cy);
     this.dirty = new Uint8Array(this.cx * this.cy).fill(1);
-    const air: CellMat = { id: 'air', kind: K_AIR, density: 0, r: 0, g: 0, b: 0, a: 0, burnable: false, fireHp: 0, lifetime: 0, glow: false, durability: 0, hard: false, tags: new Set(), stains: [], hot: false };
+    const air: CellMat = { id: 'air', kind: K_AIR, density: 0, r: 0, g: 0, b: 0, a: 0, burnable: false, fireHp: 0, lifetime: 0, glow: false, glowStrength: 0, durability: 0, hard: false, tags: new Set(), stains: [], hot: false };
     this.mats = [air];
     this.byId.set('air', 0);
     for (const m of materials) {
@@ -114,6 +118,8 @@ export class Cells {
         fireHp: m.fireHp || 60,
         lifetime: m.lifetime ?? 0,
         glow: materialGlow(m).glow,
+        glowStrength: materialGlow(m).glowStrength,
+        ...(m.glowColor ? { glowColor: parseInt(m.glowColor.slice(1, 7), 16) } : {}),
         durability: m.durability,
         hard: false,
         tags,

@@ -29,8 +29,17 @@ export type Particle = {
   material?: string;
 };
 
-/** Per-entity bookkeeping for one emitter. `on`: switched on (emitters off in the XML wait for a script). */
-export type EmitterState = { e: Emitter; next: number; on: boolean };
+/**
+ * Per-entity bookkeeping for one emitter. `on`: switched on (emitters off in the XML wait for a script).
+ * Trails: `lastX/lastY` is where the emitter last emitted, and `via` the bounce points passed since (x, y pairs).
+ */
+export type EmitterState = { e: Emitter; next: number; on: boolean; lastX?: number; lastY?: number; via?: number[] };
+
+/** Most trail particles one emitter lays in a frame (performance mode: TRAIL_CAP_LITE). */
+export const TRAIL_CAP = 120;
+export const TRAIL_CAP_LITE = 40;
+/** A trail longer than this in one go is a teleport, not motion: it restarts instead of drawing a line across. */
+const TRAIL_JUMP = 400;
 
 export const emitterStates = (vis: EntityVisual | undefined): EmitterState[] => (vis?.emitters ?? []).map((e) => ({ e, next: e.delayFrames, on: e.enabled !== false }));
 
@@ -48,18 +57,47 @@ export function simpleParticle(x: number, y: number, color: string, glow: boolea
 }
 
 /**
- * Run an entity's emitters for this frame. `age` is the entity's age in frames, (px, py) where it was
- * last frame (for trails) and `rot` its rotation: offsets and velocities turn with the entity, which
- * is what makes muzzle flashes spray forward.
+ * velocity_sets_scale: the sprite is stretched along its motion so its length is the distance moved this frame
+ * × velocity_sets_scale_coeff (Concentrated Light's 8 px laser_green: ~2 px at launch, ~17 px at full speed).
+ * It can shrink below its own size; the floor keeps a still bolt visible, the cap stops teleport-length spikes.
  */
-export function runEmitters(states: EmitterState[], age: number, x: number, y: number, px: number, py: number, rot: number, out: (p: Particle) => void) {
+export function boltStretch(moved: number, coeff: number, frameW: number, scale: number) {
+  return Math.min(8, Math.max(0.1, (moved * coeff) / Math.max(1, frameW * scale)));
+}
+
+/** A bounce: trail emitters that haven't emitted since run their next trail through the bounce point. */
+export function trailBend(states: EmitterState[], x: number, y: number) {
+  for (const st of states) {
+    if (!st.e.trail || st.lastX === undefined) continue;
+    (st.via ??= []).push(x, y);
+  }
+}
+
+/**
+ * Run an entity's emitters for this frame. `age` is the entity's age in frames, (px, py) where it was
+ * last frame and `rot` its rotation: offsets and velocities turn with the entity, which is what makes
+ * muzzle flashes spray forward. Trails run from where the emitter last emitted (through any bounce
+ * since), so an emitter that fires every 2 frames still lays an unbroken line; `trailCap` limits the
+ * particles one emitter lays per frame.
+ */
+export function runEmitters(states: EmitterState[], age: number, x: number, y: number, px: number, py: number, rot: number, out: (p: Particle) => void, trailCap = TRAIL_CAP) {
   const c = Math.cos(rot);
   const s = Math.sin(rot);
   for (const st of states) {
     const e = st.e;
     // Image emitters (Circle and Sea spells) emit an image's shape; they're not run as plain emitters.
-    if (!st.on || e.image || !e.emitting || age < e.delayFrames) continue;
-    if (e.lifetimeFrames >= 0 && age > e.delayFrames + e.lifetimeFrames) continue;
+    // While an emitter is silent (off, not started, or done), its trail start follows the entity.
+    if (!st.on || e.image || !e.emitting || age < e.delayFrames || (e.lifetimeFrames >= 0 && age > e.delayFrames + e.lifetimeFrames)) {
+      st.lastX = x;
+      st.lastY = y;
+      if (st.via) st.via.length = 0;
+      continue;
+    }
+    // First run: the trail starts where the entity was last frame (its spawn point on its first frame).
+    if (st.lastX === undefined) {
+      st.lastX = px;
+      st.lastY = py;
+    }
     if (age < st.next) continue;
     st.next = age + Math.max(1, randInt(e.intervalMin, e.intervalMax));
 
@@ -102,18 +140,58 @@ export function runEmitters(states: EmitterState[], age: number, x: number, y: n
     };
 
     if (e.trail) {
-      const dist = Math.hypot(x - px, y - py);
+      // The path since the last emission: last emit point → bounce points → here.
+      const via = st.via;
+      const pts = via && via.length ? via : null;
+      let fx = st.lastX!;
+      let fy = st.lastY!;
+      let dist = 0;
+      if (pts) {
+        let ax = fx;
+        let ay = fy;
+        for (let k = 0; k < pts.length; k += 2) {
+          dist += Math.hypot(pts[k]! - ax, pts[k + 1]! - ay);
+          ax = pts[k]!;
+          ay = pts[k + 1]!;
+        }
+        dist += Math.hypot(x - ax, y - ay);
+      } else dist = Math.hypot(x - fx, y - fy);
+      if (dist > TRAIL_JUMP) {
+        fx = px;
+        fy = py;
+        dist = Math.hypot(x - fx, y - fy);
+        if (via) via.length = 0;
+      }
+      // A point `d` px along the path.
+      const along = (d: number) => {
+        let ax = fx;
+        let ay = fy;
+        const n = via ? via.length : 0;
+        for (let k = 0; k <= n; k += 2) {
+          const bx = k < n ? via![k]! : x;
+          const by = k < n ? via![k + 1]! : y;
+          const len = Math.hypot(bx - ax, by - ay);
+          if (d <= len || k === n) {
+            const t = len > 0 ? Math.min(1, d / len) : 1;
+            make(ax + (bx - ax) * t, ay + (by - ay) * t);
+            return;
+          }
+          d -= len;
+          ax = bx;
+          ay = by;
+        }
+      };
       if (e.trailGap > 0) {
-        const n = Math.min(40, Math.floor(dist / e.trailGap));
-        for (let i = 1; i <= n; i++) make(px + ((x - px) * i) / (n + 1), py + ((y - py) * i) / (n + 1));
-        make(x, y);
+        // One particle every trail_gap px, ending here (at least one, so a slow emitter still sheds).
+        const n = Math.min(trailCap, Math.max(1, Math.floor(dist / e.trailGap)));
+        for (let i = 1; i <= n; i++) along((dist * i) / n);
       } else {
         const n = randInt(e.countMin, e.countMax);
-        for (let i = 0; i < n; i++) {
-          const t = Math.random();
-          make(px + (x - px) * t, py + (y - py) * t);
-        }
+        for (let i = 0; i < n; i++) along(dist * Math.random());
       }
+      st.lastX = x;
+      st.lastY = y;
+      if (via) via.length = 0;
     } else {
       const n = randInt(e.countMin, e.countMax);
       for (let i = 0; i < n; i++) make(x, y);

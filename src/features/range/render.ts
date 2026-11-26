@@ -1,19 +1,31 @@
 import type { Icon, RangeProp, SpriteLayer } from '@/data/types';
 import { gameUrl } from '@/data/store';
-import { layerFrame } from './particles';
+import { boltStretch, layerFrame } from './particles';
 import { animFrame } from './player';
 import { K_FIRE, K_POWDER, K_STATIC } from './cells';
 import { H, W, type RangeWorld } from './world';
 import { LIGHTNING, type Cell, type Crackle } from './lightning';
+import { CELL_GAIN, GLOW_DOWN, GlowBuffer, PARTICLE_GAIN } from './glow';
 
 /**
  * Drawing scale over world pixels. 1, like the game's own 427×242 frame: CSS scales the canvas up with crisp
  * pixels. (Drawing at 2× cost four times the fill and made the range crawl on slow tablets.)
  */
 export const SCALE = 1;
-const MAX_LIGHTS = 160;
-/** The bloom layer is shrunk this much and stretched back (a cheap, soft blur). */
-const BLOOM_SHRINK = 4;
+/** Lights (LightComponents, flashes) drawn per frame; each is one small scaled sprite at glow resolution. */
+const MAX_LIGHTS = 64;
+/** The glow buffer's size: the world at a quarter resolution (107×61). */
+const GW = Math.ceil(W / GLOW_DOWN);
+const GH = Math.ceil(H / GLOW_DOWN);
+/** One world pixel's share of its glow texel (the glow source is the average over each 4×4 block). */
+const PER_TEXEL = 1 / (GLOW_DOWN * GLOW_DOWN);
+/**
+ * Lights until the light-and-dark model (Phase 7): post_final.frag lights the scene with (light × 0.8)^1.5, so a
+ * LightComponent's deliberately dark colour (Concentrated Light's rgb(30,90,30)) becomes a faint wide tint. Here
+ * that is added over the picture with the glow, scaled by this (tuned by eye: a wide soft halo that doesn't wash
+ * out the scene).
+ */
+const LIGHT_GAIN = 0.7;
 
 const HUD_ICONS = ['health', 'flying', 'mana', 'reload', 'delay'] as const;
 type HudIcon = (typeof HUD_ICONS)[number];
@@ -136,43 +148,53 @@ export function loadRangeImages(props: Record<string, RangeProp>): Promise<Range
 
 export class RangeRenderer {
   private terrain = document.createElement('canvas');
-  private terrainGlow = document.createElement('canvas');
   private terrainCtx: CanvasRenderingContext2D;
-  private terrainGlowCtx: CanvasRenderingContext2D;
   private terrainImg = new ImageData(W, H);
-  private terrainGlowImg = new ImageData(W, H);
   private textures = new Map<string, ImageData | 'loading'>();
   private backdrop: CanvasPattern | null = null;
   private backdrops = new Map<string, CanvasPattern | 'loading'>();
-  /** Bloom layer: glowing particles, emissive sprites and lights, blurred over the scene. */
-  private glow = document.createElement('canvas');
+  /**
+   * Noita's glow (src/features/range/glow.ts). Its source each frame: glowing cells (kept per chunk in
+   * `cellGlow`), glowing particles (written straight in), and what's drawn into `glowCv`: emissive sprites,
+   * beams, lightning. The result, plus the lights, is screen-blended over the scene from `glowOut`.
+   */
+  private glowBuf = new GlowBuffer(GW, GH);
+  private cellGlow = new Float32Array(GW * GH * 3);
+  /** Chunks of the cell world that hold glowing cells (none: the terrain adds nothing). */
+  private chunkGlows: Uint8Array | null = null;
+  private glowingChunks = 0;
+  private glowCv = document.createElement('canvas');
   private glowCtx: CanvasRenderingContext2D;
-  /** Particles: normally blended, and additive (glowing materials). */
+  /** Something was drawn into glowCv this frame. */
+  private glowDrawn = false;
+  private glowOut = document.createElement('canvas');
+  private glowOutCtx: CanvasRenderingContext2D;
+  private glowImg = new ImageData(GW, GH);
+  /** Sim frame the glow was last stepped at: it advances once per simulated frame, whatever the display rate. */
+  private glowFrame = -1;
+  /** A pixel takes the glow of the first glowing particle drawn on it in a frame (stamped with `drawId`). */
+  private stamp = new Uint32Array(W * H);
+  private drawId = 0;
+  /** Particles: normally blended, and (performance mode only) additive glowing ones. */
   private partOver = new PixelLayer();
   private partAdd = new PixelLayer();
-  /** The bloom, shrunk: stretched back with smoothing it blurs for a fraction of a blur filter's cost. */
-  private bloomSmall = document.createElement('canvas');
-  private bloomCtx: CanvasRenderingContext2D;
   private stillCamera = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  /** Light mode for slow devices: no bloom and no light halos (the scene and the game stay the same). */
+  /** Light mode for slow devices: no glow and no light halos (the scene and the game stay the same). */
   lite = false;
 
   constructor(
     private ctx: CanvasRenderingContext2D,
     private img: RangeImages,
   ) {
-    this.terrain.width = this.terrainGlow.width = W;
-    this.terrain.height = this.terrainGlow.height = H;
-    this.glow.width = W;
-    this.glow.height = H;
-    this.glowCtx = context2d(this.glow);
-    this.glowCtx.imageSmoothingEnabled = false;
-    this.bloomSmall.width = Math.ceil(W / BLOOM_SHRINK);
-    this.bloomSmall.height = Math.ceil(H / BLOOM_SHRINK);
-    this.bloomCtx = context2d(this.bloomSmall);
-    this.bloomCtx.imageSmoothingEnabled = true;
+    this.terrain.width = W;
+    this.terrain.height = H;
+    this.glowCv.width = this.glowOut.width = GW;
+    this.glowCv.height = this.glowOut.height = GH;
+    this.glowCtx = context2d(this.glowCv);
+    this.glowCtx.imageSmoothingEnabled = true;
+    this.glowOutCtx = context2d(this.glowOut, true);
+    this.glowOutCtx.imageSmoothingEnabled = true;
     this.terrainCtx = context2d(this.terrain);
-    this.terrainGlowCtx = context2d(this.terrainGlow);
     ctx.imageSmoothingEnabled = false;
     const bg = document.createElement('canvas');
     bg.width = img.rock.width;
@@ -184,16 +206,22 @@ export class RangeRenderer {
   /**
    * Repaint the chunks of the cell world that changed. Materials with a texture use it (world-aligned, as
    * in the game), others their colour with a little per-cell grain; solids exposed to air get a lit top edge;
-   * fire flickers and burning cells glow; glowing materials also go to the bloom layer.
+   * fire flickers and burning cells glow; glowing materials (gfx_glow) also feed the glow source, ×4 as
+   * post_glow2.frag weights cells, at their gfx_glow / 255 (burning cells as fire, 1).
    */
   private paintTerrain(w: RangeWorld) {
     const c = w.cells;
     const mats = c.mats;
     for (const m of mats) if (m.texture && !this.textures.has(m.texture)) this.loadTexture(m.texture, c);
     const img = this.terrainImg;
-    const glow = this.terrainGlowImg;
     const tctx = this.terrainCtx;
-    const gctx = this.terrainGlowCtx;
+    const cg = this.cellGlow;
+    if (!this.chunkGlows || this.chunkGlows.length !== c.cx * c.cy) {
+      this.chunkGlows = new Uint8Array(c.cx * c.cy);
+      this.glowingChunks = 0;
+    }
+    const chunkGlows = this.chunkGlows;
+    const cellK = (CELL_GAIN * PER_TEXEL) / 255;
     for (let cy = 0; cy < c.cy; cy++) {
       for (let cx = 0; cx < c.cx; cx++) {
         const k = cy * c.cx + cx;
@@ -203,6 +231,12 @@ export class RangeRenderer {
         const y0 = cy * 32;
         const x1 = Math.min(W, x0 + 32);
         const y1 = Math.min(H, y0 + 32);
+        // The chunk's glow texels (32 px chunks are whole 4 px texels) are summed afresh.
+        const tx0 = x0 / GLOW_DOWN;
+        const tx1 = Math.ceil(x1 / GLOW_DOWN);
+        const ty1 = Math.ceil(y1 / GLOW_DOWN);
+        for (let ty = y0 / GLOW_DOWN; ty < ty1; ty++) cg.fill(0, (ty * GW + tx0) * 3, (ty * GW + tx1) * 3);
+        let glowing = false;
         for (let y = y0; y < y1; y++) {
           for (let x = x0; x < x1; x++) {
             const i = y * W + x;
@@ -210,7 +244,6 @@ export class RangeRenderer {
             const m = c.mat[i]!;
             if (!m) {
               img.data[di + 3] = 0;
-              glow.data[di + 3] = 0;
               continue;
             }
             const info = mats[m]!;
@@ -249,30 +282,51 @@ export class RangeRenderer {
             img.data[di + 1] = Math.min(255, Math.max(0, g * edge));
             img.data[di + 2] = Math.min(255, Math.max(0, b * edge));
             img.data[di + 3] = solid ? 255 : a;
-            const glows = info.glow || c.burning[i];
-            glow.data[di] = img.data[di]!;
-            glow.data[di + 1] = img.data[di + 1]!;
-            glow.data[di + 2] = img.data[di + 2]!;
-            glow.data[di + 3] = glows ? 255 : 0;
+            const burning = c.burning[i];
+            if (info.glow || burning) {
+              glowing = true;
+              const s = (burning ? Math.max(1, info.glowStrength) : info.glowStrength) * cellK;
+              const t = ((y >> 2) * GW + (x >> 2)) * 3;
+              const gc = burning ? undefined : info.glowColor;
+              if (gc !== undefined) {
+                cg[t] += (gc >> 16) * s;
+                cg[t + 1] += ((gc >> 8) & 255) * s;
+                cg[t + 2] += (gc & 255) * s;
+              } else {
+                cg[t] += img.data[di]! * s;
+                cg[t + 1] += img.data[di + 1]! * s;
+                cg[t + 2] += img.data[di + 2]! * s;
+              }
+            }
           }
         }
+        if (glowing !== !!chunkGlows[k]) {
+          chunkGlows[k] = glowing ? 1 : 0;
+          this.glowingChunks += glowing ? 1 : -1;
+        }
         tctx.putImageData(img, 0, 0, x0, y0, x1 - x0, y1 - y0);
-        gctx.putImageData(glow, 0, 0, x0, y0, x1 - x0, y1 - y0);
       }
     }
   }
 
   /**
-   * Particles into the two pixel layers: glowing ones add their light, the rest blend over (as 'lighter' and
-   * 'source-over' did per particle). Streaks are plotted along their last frame of motion.
+   * Particles into the pixel layers, blended over at their colour and alpha (as 'source-over' did per particle).
+   * Glowing ones are drawn the same way, as in the game, and get their brightness from the glow: each also puts
+   * colour × alpha × gfx_glow/255 × 2.5 into the glow source (the first one on a pixel each frame, as the
+   * particles overlap rather than add up in the game's glow texture). In performance mode there is no glow, so
+   * glowing particles add their light instead ('lighter'). Streaks are plotted along their last frame of motion.
    */
-  private drawParticles(w: RangeWorld) {
+  private drawParticles(w: RangeWorld, glowOn: boolean) {
     const over = this.partOver;
     const add = this.partAdd;
     over.clear();
     add.clear();
     const od = over.img.data;
     const ad = add.img.data;
+    const src = this.glowBuf.src;
+    const stamp = this.stamp;
+    const id = (this.drawId = (this.drawId + 1) >>> 0 || 1);
+    const partK = (PARTICLE_GAIN * PER_TEXEL) / 255;
     for (const q of w.particles) {
       const a = Math.min(1, q.alpha * (q.fade ? 1 - q.life / q.max : 1));
       if (a <= 0.02) continue;
@@ -294,7 +348,16 @@ export class RangeRenderer {
         const yi = Math.round(y0 + (q.y - y0) * t);
         if (xi < 0 || yi < 0 || xi >= W || yi >= H) continue;
         const i = (yi * W + xi) * 4;
-        if (q.glow) {
+        if (q.glow && glowOn && stamp[i >> 2] !== id) {
+          stamp[i >> 2] = id;
+          const s = a * (q.glowStrength ?? 1) * partK;
+          const t = ((yi >> 2) * GW + (xi >> 2)) * 3;
+          src[t] += r * s;
+          src[t + 1] += g * s;
+          src[t + 2] += b * s;
+          this.glowBuf.fed = true;
+        }
+        if (q.glow && !glowOn) {
           ad[i] = Math.min(255, ad[i]! + r * a);
           ad[i + 1] = Math.min(255, ad[i + 1]! + g * a);
           ad[i + 2] = Math.min(255, ad[i + 2]! + b * a);
@@ -377,32 +440,40 @@ export class RangeRenderer {
     }
     this.drawPlayer(w);
 
-    // Glowing things are drawn twice: into the scene and into a bloom layer that's blurred on top (not in lite mode).
+    // Glowing things are drawn into the scene and into the glow source, which lingers and spreads (not in lite mode).
     const bloom = !this.lite;
     const g = this.glowCtx;
+    const gb = this.glowBuf;
     if (bloom) {
+      gb.clear();
+      // fire, lava, burning cells and other glowing materials
+      if (this.glowingChunks > 0) {
+        gb.src.set(this.cellGlow);
+        gb.fed = true;
+      }
       g.setTransform(1, 0, 0, 1, 0, 0);
       g.globalCompositeOperation = 'source-over';
       g.globalAlpha = 1;
-      g.clearRect(0, 0, W, H);
-      // fire, lava, burning cells and other glowing materials
-      g.drawImage(this.terrainGlow, 0, 0);
+      if (this.glowDrawn) g.clearRect(0, 0, GW, GH);
+      this.glowDrawn = false;
+      // drawn in world coordinates, a quarter the size (smoothing averages each texel)
+      g.setTransform(1 / GLOW_DOWN, 0, 0, 1 / GLOW_DOWN, 0, 0);
     }
     const both = (draw: (c: CanvasRenderingContext2D) => void) => {
       draw(ctx);
-      if (bloom) draw(g);
+      if (bloom) {
+        draw(g);
+        this.glowDrawn = true;
+      }
     };
 
-    // particles: glowing materials (sparks, plasma) add light; fades follow fade_based_on_lifetime
-    this.drawParticles(w);
+    // particles: fades follow fade_based_on_lifetime; glowing materials (sparks, plasma) also feed the glow
+    this.drawParticles(w, bloom);
     ctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(this.partOver.canvas, 0, 0);
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.drawImage(this.partAdd.canvas, 0, 0);
-    if (bloom) {
-      g.globalCompositeOperation = 'lighter';
-      g.drawImage(this.partAdd.canvas, 0, 0);
-      g.globalAlpha = 1;
+    if (!bloom) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.drawImage(this.partAdd.canvas, 0, 0);
     }
     ctx.globalAlpha = 1;
 
@@ -438,6 +509,7 @@ export class RangeRenderer {
         g.fillStyle = LIGHTNING.glow;
         g.fill(path);
         g.globalAlpha = 1;
+        this.glowDrawn = true;
       }
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
@@ -448,11 +520,14 @@ export class RangeRenderer {
       const k = b.age / b.life;
       const a = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4;
       drawBolt(ctx, b.shape, a);
-      if (bloom) cells(g, [b.shape.core, b.shape.thick, b.shape.forks], 0, LIGHTNING.glow, 0.8 * a);
+      if (bloom) {
+        g.globalCompositeOperation = 'lighter';
+        cells(g, [b.shape.core, b.shape.thick, b.shape.forks], 0, LIGHTNING.glow, 0.8 * a);
+        this.glowDrawn = true;
+      }
     }
 
     // projectiles: every sprite layer, animated from the projectile's birth
-    let lights = 0;
     for (const p of w.projectiles) {
       // Held projectiles (Megalaser beams before launch) have every component switched off: nothing to see.
       if (p.held) continue;
@@ -472,7 +547,10 @@ export class RangeRenderer {
         ctx.globalAlpha = 0.85 + 0.15 * Math.sin(p.age / 6);
         ctx.drawImage(this.img.wands, ws.icon.x, ws.icon.y, ws.icon.w, ws.icon.h, -ws.grip[0], -ws.grip[1], ws.icon.w, ws.icon.h);
         ctx.restore();
-        if (bloom) glow(g, p.x, p.y, 10, '#9fd8ff', 0.45);
+        if (bloom) {
+          glow(g, p.x, p.y, 10, '#9fd8ff', 0.45);
+          this.glowDrawn = true;
+        }
       } else if (p.body && layers?.length) {
         // A worm: the head, then each body part 16 px further back along the path it took (part_distance).
         const at = (dist: number) => {
@@ -492,9 +570,9 @@ export class RangeRenderer {
         }
       } else if (layers?.length) {
         const rot = p.physicsBody ? p.spin : p.rotate || p.parent ? p.rot : 0;
-        // velocity_sets_scale: stretched along the motion, like the game's spark bolts
+        // velocity_sets_scale: as long as the distance it moved this frame, like the game's spark bolts
         const f0 = layers[0]!.frames[0]!;
-        const stretch = p.streak ? Math.max(1, Math.min(3, Math.hypot(p.x - p.px, p.y - p.py) / Math.max(1, f0.w * layers[0]!.scale))) : 1;
+        const stretch = p.streak ? boltStretch(Math.hypot(p.x - p.px, p.y - p.py), p.visual?.physics?.streakCoeff ?? 1, f0.w, layers[0]!.scale) : 1;
         for (const l of layers) this.layer(l, p.age, p.x, p.y, rot, 1, stretch);
       } else if (p.streak && (p.x !== p.px || p.y !== p.py)) {
         both((c) => line(c, p.px, p.py, p.x, p.y, p.visual?.trail?.color ?? p.light?.color ?? '#ffffff', 1.2, 0.9));
@@ -502,10 +580,6 @@ export class RangeRenderer {
         ctx.globalCompositeOperation = 'lighter';
         ctx.fillStyle = p.light?.color ?? p.visual?.trail?.color ?? '#ffffff';
         ctx.fillRect(Math.round(p.x) - 1, Math.round(p.y) - 1, 2, 2);
-      }
-      if (bloom && p.light && lights < MAX_LIGHTS) {
-        lights++;
-        glow(g, p.x, p.y, Math.min(28, p.light.radius * 0.45), p.light.color, 0.5);
       }
     }
     ctx.globalCompositeOperation = 'source-over';
@@ -516,24 +590,13 @@ export class RangeRenderer {
     // cloud is additive but not emissive, so it tints the scene without blooming.
     for (const fx of w.spriteParticles) for (const l of fx.vis.sprites ?? []) this.layer(l, fx.age, Math.round(fx.x), Math.round(fx.y), fx.rot, 1, 1, l.emissive);
 
-    // light from explosions and casts
-    for (const f of w.flashes) {
-      const t = f.age / f.life;
-      glow(ctx, f.x, f.y, f.r * (0.7 + t * 0.6), f.color, 0.6 * (1 - t));
-      if (bloom) glow(g, f.x, f.y, f.r * (0.7 + t * 0.6), f.color, 0.8 * (1 - t));
-    }
-
-    // bloom: the glow layer shrunk and stretched back smoothly, added over the scene
-    if (!this.lite) {
-      const bc = this.bloomCtx;
-      bc.globalCompositeOperation = 'copy';
-      bc.drawImage(this.glow, 0, 0, this.bloomSmall.width, this.bloomSmall.height);
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = 0.9;
-      ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(this.bloomSmall, 0, 0, W, H);
-      ctx.restore();
+    if (bloom) this.composeGlow(w);
+    else {
+      // Performance mode: explosions and casts flash a small soft light, nothing lingers.
+      for (const f of w.flashes) {
+        const t = f.age / f.life;
+        glow(ctx, f.x, f.y, Math.min(40, f.r) * (0.7 + t * 0.6), f.color, 0.6 * (1 - t));
+      }
     }
 
     // status effects: the game's indicator icons over each actor, frozen ones iced over
@@ -588,10 +651,73 @@ export class RangeRenderer {
   }
 
   /**
-   * One sprite layer of an entity `age` frames old: rotated, mirrored vertically when `flip` < 0 (aimed left),
-   * stretched along x for streaks. Additive layers add light; additive and emissive ones also bloom.
+   * The glow for this frame: what was drawn into glowCv joins the source (×2.5, as post_glow2 weights emissive
+   * sprites and particles), the buffer steps once per simulated frame, and the result plus the lights is
+   * stretched back over the scene with smoothing and screen-blended (post_final.frag: c + g − c·g).
    */
-  /** `bloom` overrides whether it feeds the glow layer (by default: additive or emissive sprites do). */
+  private composeGlow(w: RangeWorld) {
+    const gb = this.glowBuf;
+    if (this.glowDrawn) {
+      // One read of the small canvas a frame. Its colours come back unpremultiplied: × alpha is the light added.
+      const d = this.glowCtx.getImageData(0, 0, GW, GH).data;
+      const src = gb.src;
+      const k = PARTICLE_GAIN / (255 * 255);
+      for (let i = 0, n = GW * GH; i < n; i++) {
+        const a = d[i * 4 + 3]!;
+        if (!a) continue;
+        const s = a * k;
+        src[i * 3] += d[i * 4]! * s;
+        src[i * 3 + 1] += d[i * 4 + 1]! * s;
+        src[i * 3 + 2] += d[i * 4 + 2]! * s;
+      }
+      gb.fed = true;
+    }
+    // Once per sim frame (a 120 Hz screen doesn't fade it twice as fast; a slow one catches up, at most 3).
+    const steps = this.glowFrame < 0 || w.frame < this.glowFrame ? 1 : Math.min(3, w.frame - this.glowFrame);
+    this.glowFrame = w.frame;
+    for (let i = 0; i < steps; i++) gb.step();
+
+    let lit = w.flashes.length > 0;
+    for (let i = 0; !lit && i < w.projectiles.length; i++) lit = !!w.projectiles[i]!.light && !w.projectiles[i]!.held;
+    if (gb.idle && !lit) return;
+    const oc = this.glowOutCtx;
+    gb.toRGBA(this.glowImg.data);
+    oc.putImageData(this.glowImg, 0, 0);
+    if (lit) {
+      // Lights: each LightComponent at its real radius, flashes fading out over their life. Overlapping lights
+      // take the brighter ('lighten'), not the sum: the game's light map is clamped and lights the rock rather
+      // than the air, so ten bolts cast together mustn't stack into a white ball.
+      oc.setTransform(1 / GLOW_DOWN, 0, 0, 1 / GLOW_DOWN, 0, 0);
+      oc.globalCompositeOperation = 'lighten';
+      let n = 0;
+      for (const p of w.projectiles) {
+        if (!p.light || p.held || n >= MAX_LIGHTS) continue;
+        n++;
+        light(oc, p.x + (p.light.offsetX ?? 0), p.y + (p.light.offsetY ?? 0), p.light.radius, p.light.color, 1);
+      }
+      for (const f of w.flashes) {
+        if (n >= MAX_LIGHTS) break;
+        n++;
+        light(oc, f.x, f.y, f.r, f.color, 1 - f.age / f.life);
+      }
+      oc.globalAlpha = 1;
+      oc.globalCompositeOperation = 'source-over';
+      oc.setTransform(1, 0, 0, 1, 0, 0);
+    }
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(this.glowOut, 0, 0, GW * GLOW_DOWN, GH * GLOW_DOWN);
+    ctx.restore();
+  }
+
+  /**
+   * One sprite layer of an entity `age` frames old: rotated, mirrored vertically when `flip` < 0 (aimed left),
+   * stretched along x for streaks. Additive layers add light in place; only emissive ones feed the glow (the
+   * game's emissive render target), as in sprites.xml: additive alone brightens without blooming.
+   */
+  /** `bloom` overrides whether it feeds the glow (by default: emissive sprites do). */
   private layer(l: SpriteLayer, age: number, x: number, y: number, rot: number, flip: number, stretch: number, bloom?: boolean) {
     const f = layerFrame(l, age);
     if (!f?.w) return;
@@ -606,7 +732,10 @@ export class RangeRenderer {
       c.restore();
     };
     draw(this.ctx);
-    if (!this.lite && (bloom ?? (l.additive || l.emissive))) draw(this.glowCtx);
+    if (!this.lite && (bloom ?? l.emissive)) {
+      draw(this.glowCtx);
+      this.glowDrawn = true;
+    }
   }
 
   /** Mina: the animation frame for what she's doing, mirrored to face the aim, with arm and wand rotated to it. */
@@ -768,6 +897,46 @@ function glowSprite(color: string) {
     glowSprites.set(color, c);
   }
   return c;
+}
+
+/**
+ * A light's shape, per colour: post_final.frag lights the scene with (light × 0.8)^1.5, so a light texture
+ * falling off linearly from the centre gives c' × (1 − d/r)^1.5 with c' = (0.8·c)^1.5, here × LIGHT_GAIN.
+ */
+const lightSprites = new Map<string, HTMLCanvasElement>();
+const LIGHT_SPRITE = 64;
+function lightSprite(color: string) {
+  let c = lightSprites.get(color);
+  if (!c) {
+    c = document.createElement('canvas');
+    c.width = c.height = LIGHT_SPRITE;
+    const g = context2d(c);
+    const im = g.createImageData(LIGHT_SPRITE, LIGHT_SPRITE);
+    const v = rgbOf(color);
+    const ch = [v >> 16, (v >> 8) & 255, v & 255].map((x) => Math.pow((0.8 * x) / 255, 1.5) * LIGHT_GAIN * 255);
+    const h = LIGHT_SPRITE / 2;
+    for (let y = 0; y < LIGHT_SPRITE; y++) {
+      for (let x = 0; x < LIGHT_SPRITE; x++) {
+        const d = Math.hypot(x + 0.5 - h, y + 0.5 - h) / h;
+        const f = d < 1 ? Math.pow(1 - d, 1.5) : 0;
+        const o = (y * LIGHT_SPRITE + x) * 4;
+        im.data[o] = ch[0]! * f;
+        im.data[o + 1] = ch[1]! * f;
+        im.data[o + 2] = ch[2]! * f;
+        im.data[o + 3] = 255;
+      }
+    }
+    g.putImageData(im, 0, 0);
+    lightSprites.set(color, c);
+  }
+  return c;
+}
+
+/** Add a light of radius `r` at (x, y); `fade` (0–1) dims the light before the 1.5 power, as the shader does. */
+function light(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string, fade: number) {
+  if (r < 1 || fade <= 0) return;
+  ctx.globalAlpha = Math.min(1, Math.pow(fade, 1.5));
+  ctx.drawImage(lightSprite(color), x - r, y - r, r * 2, r * 2);
 }
 
 function glow(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string, alpha: number) {

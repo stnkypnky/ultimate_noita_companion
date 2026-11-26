@@ -8,7 +8,7 @@
 import type { EntityVisual, ExplosionVisual, Laser, Material, Projectile, RangeKit, Reaction, SpriteEmitter, SpriteLayer, WandSprite } from '@/data/types';
 import { Cells, K_GAS, K_LIQUID, K_POWDER, K_STATIC } from './cells';
 import { BIOMES, biomeById, biomeNoise, biomePolka, noiseValue, type Biome } from './biomes';
-import { emitterStates, layerFrames, liveEmitters, runEmitters, simpleParticle, stepParticles, type EmitterState, type Particle } from './particles';
+import { TRAIL_CAP, emitterStates, layerFrames, liveEmitters, runEmitters, simpleParticle, stepParticles, trailBend, type EmitterState, type Particle } from './particles';
 import { CRIT_MULT, NO_BOOST, projectileDamage, type DamageBoost } from '@/sim/analyze';
 import { HP_UNIT } from '@/data/format';
 import type { ShotState, SimCast, SimShot } from '@/sim/types';
@@ -187,7 +187,7 @@ export type Proj = {
   emit: EmitterState[];
   /** Animated sprite particles it sheds (SpriteParticleEmitterComponent). */
   spriteEmit: SpriteEmitState[];
-  light?: { color: string; radius: number };
+  light?: { color: string; radius: number; fadeOutTime?: number; offsetX?: number; offsetY?: number };
   scripts: Script[];
   vars: Record<string, number>;
   /** on_collision_spawn_entity: what it leaves where it hits (Random Explosion). */
@@ -385,6 +385,8 @@ export class RangeWorld {
   readonly unsupported = new Set<string>();
   /** Most cosmetic particles alive at once (performance mode lowers it). */
   particleBudget = MAX_PARTICLES;
+  /** Most trail particles one emitter lays in a frame (performance mode lowers it). */
+  trailCap = TRAIL_CAP;
   damageEvents: { frame: number; amount: number }[] = [];
   totalDamage = 0;
   /** The caster's perks beyond the shot state: damage multiplier and extra crit (src/sim/perks.ts). */
@@ -903,7 +905,8 @@ export class RangeWorld {
       }
       if (vis?.shootLight && !seen.has(`light:${sp.file}`)) {
         seen.add(`light:${sp.file}`);
-        this.flashes.push({ x: tip.x, y: tip.y, r: Math.min(40, vis.shootLight.radius * 0.5), age: 0, life: 6, color: vis.shootLight.color });
+        // shoot_light_flash_radius, in world pixels (Concentrated Light: 180). How long it lasts isn't in the files.
+        this.flashes.push({ x: tip.x, y: tip.y, r: vis.shootLight.radius, age: 0, life: 6, color: vis.shootLight.color });
       }
     }
     // shot_effects.recoil_knockback pushes the caster away from the aim; c.screenshake shakes the camera.
@@ -1218,7 +1221,7 @@ export class RangeWorld {
     if (p.lifetime > 0 && p.age >= p.lifetime) return this.die(p, 'timeout');
 
     // Particle emitters of the projectile and its modifiers, and material trails from trail modifiers.
-    runEmitters(p.emit, p.age, p.x, p.y, p.px, p.py, p.rot, this.addParticle);
+    runEmitters(p.emit, p.age, p.x, p.y, p.px, p.py, p.rot, this.addParticle, this.trailCap);
     this.runSpriteEmitters(p.spriteEmit, p.age, p.x, p.y);
     // Trail modifiers lay real material along the path (trail_material_amount, taken as cells per 10 frames).
     if (p.trail) {
@@ -1244,7 +1247,7 @@ export class RangeWorld {
         fx.x += fx.vx * DT;
         fx.y += fx.vy * DT;
       }
-      runEmitters(fx.emit, fx.age, fx.x, fx.y, fx.x, fx.y, fx.rot, this.addParticle);
+      runEmitters(fx.emit, fx.age, fx.x, fx.y, fx.x, fx.y, fx.rot, this.addParticle, this.trailCap);
     }
     this.effects = this.effects.filter((fx) => fx.age < fx.life);
     this.spriteParticles = this.spriteParticles.filter((fx) => fx.age < fx.life);
@@ -1476,6 +1479,8 @@ export class RangeWorld {
 
   /** Bounce off the surface: reflect the velocity over its normal, keeping bounce_energy of it. */
   private bounce(p: Proj, nx: number, ny: number, energy: number, counts: boolean) {
+    // Its trail turns the corner here instead of cutting across (emitters that wait a frame or two between emits).
+    trailBend(p.emit, p.x, p.y);
     const n = this.normalAt(nx, ny);
     const into = n ? p.vx * n.x + p.vy * n.y : 0;
     if (n && into < 0) {
@@ -1599,6 +1604,9 @@ export class RangeWorld {
     if (p.dead) return;
     p.dead = true;
     for (const c of p.children) c.dead = true;
+    // LightComponent fade_out_time: its light lingers that many seconds after the entity goes.
+    const fade = p.light?.fadeOutTime ?? 0;
+    if (p.light && fade > 0) this.flashes.push({ x: p.x + (p.light.offsetX ?? 0), y: p.y + (p.light.offsetY ?? 0), r: p.light.radius, age: 0, life: Math.round(fade * 60), color: p.light.color });
     if (p.beamLike) {
       const color = p.trails[0] ?? p.visual?.trail?.color ?? p.light?.color ?? '#ffffff';
       this.segments.push({ x0: p.spawnX, y0: p.spawnY, x1: p.x, y1: p.y, age: 0, life: 8, color, width: 1.5 });
@@ -1639,7 +1647,7 @@ export class RangeWorld {
     if (vis) {
       if (vis.sprite) this.addEffect('', x, y, vis.randomRotation ? Math.random() * Math.PI * 2 : 0, 1, { sprites: [vis.sprite], killAfterAnim: true });
       const sparks = vis.sparks ? randInt(vis.sparks.min, vis.sparks.max) : 0;
-      for (let i = 0; i < Math.min(80, sparks); i++) this.spark(x, y, vis.sparks!.color, vis.sparks!.glow, randInt(10, 30), 60 + r * 5);
+      for (let i = 0; i < Math.min(80, sparks); i++) this.spark(x, y, vis.sparks!.color, vis.sparks!.glow, randInt(10, 30), 60 + r * 5, vis.sparks!.glowStrength);
       if (vis.light) this.flashes.push({ x, y, r: Math.max(6, r * 1.6), age: 0, life: Math.max(8, Math.round(vis.light.fadeTime * 60)), color: vis.light.color });
       this.shake = Math.min(6, this.shake + vis.cameraShake / 12);
       for (const f of vis.entities) {
@@ -2013,8 +2021,11 @@ export class RangeWorld {
     if (fx) fx.vars.source = p.id;
   }
 
-  spark(x: number, y: number, color: string, glow: boolean, life: number, speed = 20) {
-    this.addParticle(simpleParticle(x, y, color, glow, life, speed));
+  /** `glowStrength`: the spark material's gfx_glow / 255 when known (explosion sparks); 1 otherwise. */
+  spark(x: number, y: number, color: string, glow: boolean, life: number, speed = 20, glowStrength?: number) {
+    const q = simpleParticle(x, y, color, glow, life, speed);
+    if (glowStrength !== undefined) q.glowStrength = glowStrength;
+    this.addParticle(q);
   }
 
   private puff(x: number, y: number, color: string) {

@@ -12,6 +12,7 @@ import { H, RangeWorld, W, type RangeData, type RangeTarget } from './world';
 import { BIOMES, biomeById } from './biomes';
 import { RangeRenderer, SCALE, context2d, loadRangeImages, type RangeImages } from './render';
 import { pickWandSprite, type Controls } from './player';
+import { TRAIL_CAP, TRAIL_CAP_LITE } from './particles';
 import { WandRuntime } from './wand';
 import { rangeSettings } from './settings';
 
@@ -256,9 +257,11 @@ export function RangePreview({
     if (!ready || !canvas || !world) return;
     // Opaque (every frame paints the whole scene), so the browser needn't blend it with the page behind.
     const renderer = new RangeRenderer(context2d(canvas, true), ready.images);
-    // Performance mode: no glow, a quarter of the particles, and the picture redrawn about 30 times a second.
+    // Performance mode: no glow, a quarter of the particles, shorter trail bursts, and the picture redrawn about
+    // 30 times a second.
     renderer.lite = settings.performance;
     world.particleBudget = settings.performance ? 1500 : 6000;
+    world.trailCap = settings.performance ? TRAIL_CAP_LITE : TRAIL_CAP;
     renderer.draw(world);
     if (!running) return;
     let raf = 0;
