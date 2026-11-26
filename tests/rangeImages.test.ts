@@ -125,7 +125,10 @@ describe('image emitters (image_animation_file)', () => {
     expect(cells.length).toBe(0);
     loaded = true;
     for (let age = 31; age <= 40; age++) runEmitters(states, age, 300, 300, 300, 300, 0, () => {}, undefined, h);
-    expect(meanDist(cells)).toBeLessThan(10);
+    // Levels 0–9: the first rings, near the centre. (A mean would wobble: the first rings hold only a few dozen
+    // pixels, and circle_256.png has a few stray ones far out.)
+    expect(cells.length).toBeGreaterThan(20);
+    expect(cells.filter((c) => Math.hypot(c.x - 300, c.y - 300) < 12).length / cells.length).toBeGreaterThan(0.85);
   });
 });
 

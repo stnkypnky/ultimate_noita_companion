@@ -376,9 +376,12 @@ function runImage(st: EmitterState, e: Emitter, age: number, x: number, y: numbe
       const wy = y + dy;
       if (wx < 0 || wy < 0 || wx >= W || wy >= H || Math.random() >= b[k + 2]! * chance) continue;
       if (rays) {
-        let i = Math.round((Math.atan2(dy, dx) / (Math.PI * 2)) * RAYS);
-        if (i < 0) i += RAYS;
-        if (Math.hypot(dx, dy) > rays[i % RAYS]!) continue;
+        // The pixel lies between two rays: the shorter of them bounds it, so nothing lands inside the wall that
+        // either ray stopped at (the nearest ray alone lets grazing pixels a pixel or two past it).
+        let a = (Math.atan2(dy, dx) / (Math.PI * 2)) * RAYS;
+        if (a < 0) a += RAYS;
+        const i = Math.floor(a) % RAYS;
+        if (Math.hypot(dx, dy) > Math.min(rays[i]!, rays[(i + 1) % RAYS]!)) continue;
       }
       if (e.real) host.place(wx, wy, e.material);
       // emitOne adds the offset (and the x/y_pos_offset spread) itself.
