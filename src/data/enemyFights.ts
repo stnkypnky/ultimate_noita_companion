@@ -152,7 +152,7 @@ export const FIGHTS: Record<string, FightOverride> = {
 export const MOVES: Record<string, { moves: string; source: string }> = {
   boss_dragon: { moves: 'Flies, digs', source: `${WIKI}Suomuhauki` },
   boss_pit: { moves: 'Flies, digs', source: `${WIKI}Sauvojen_tuntija` },
-  boss_centipede: { moves: 'Crawls', source: `${WIKI}Kolmisilm%C3%A4` },
+  boss_centipede: { moves: 'Flies', source: `${WIKI}Kolmisilm%C3%A4` },
   maggot_tiny: { moves: 'Flies', source: `${WIKI}Limatoukka` },
   // These two pages don't say; the user confirmed from play (2026-11-25).
   boss_ghost_polyp: { moves: 'Flies', source: `${WIKI}H%C3%A4ive` },
