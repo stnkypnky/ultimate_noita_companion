@@ -68,15 +68,57 @@ describe('creature motion', () => {
     }
   });
 
-  it('keeps leg segments their length and knees above the line to the foot', () => {
-    const legs = { count: 8, reach: 80 };
-    for (let s = 0; s < 30; s++) {
-      for (const { hip, knee, foot } of legsAt(legs, s * 0.07)) {
-        close(Math.hypot(knee[0] - hip[0], knee[1] - hip[1]), 40);
-        close(Math.hypot(foot[0] - knee[0], foot[1] - knee[1]), 40);
-        expect(knee[1]).toBeLessThan(Math.max(hip[1], foot[1]));
+  const times = Array.from({ length: 120 }, (_, s) => s * 0.05);
+
+  it('keeps leg segments their length, whichever way they hold on', () => {
+    for (const grip of ['cling', 'walk'] as const)
+      for (const t of times)
+        for (const { hip, knee, foot } of legsAt({ count: 8, reach: 80, grip, attacker: { reach: 80, radius: 80 } }, t, 'attack')) {
+          close(Math.hypot(knee[0] - hip[0], knee[1] - hip[1]), 40);
+          close(Math.hypot(foot[0] - knee[0], foot[1] - knee[1]), 40);
+        }
+  });
+
+  it('spreads clinging legs all around the body', () => {
+    const quadrants = new Set(legsAt({ count: 8, reach: 40, grip: 'cling' }, 0).map(({ hip, foot }) => `${Math.sign(foot[0] - hip[0])}${Math.sign(foot[1] - hip[1])}`));
+    expect(quadrants).toEqual(new Set(['11', '1-1', '-11', '-1-1']));
+  });
+
+  it('stands walking legs on the ground below, within their angle', () => {
+    const legs = { count: 7, reach: 40, grip: 'walk' as const, maxAngle: 0.8, hips: [-6, -4, -2, 2, 4, 6], attacker: { reach: 40, radius: 40 } };
+    for (const t of times) {
+      const walking = legsAt(legs, t).filter((l) => !l.strike);
+      expect(walking).toHaveLength(6);
+      for (const { hip, foot } of walking) {
+        expect(foot[1]).toBeGreaterThan(hip[1]);
+        // A lifted foot swings a little wider than where it stands.
+        expect(Math.abs(Math.atan2(foot[0] - hip[0], foot[1] - hip[1]))).toBeLessThan(0.8 + 0.15);
       }
+      // Right legs bend right, left legs left: knees outward.
+      for (const { hip, knee, side } of walking) expect(Math.sign(knee[0] - hip[0])).toBe(side);
     }
+  });
+
+  it('lifts one leg at a time', () => {
+    const legs = { count: 8, reach: 40, grip: 'cling' as const };
+    for (const t of times) {
+      const moved = legsAt(legs, t).filter((l, i) => {
+        // A foot is down where it was a moment ago.
+        const before = legsAt(legs, t - 0.02)[i]!.foot;
+        return Math.hypot(l.foot[0] - before[0], l.foot[1] - before[1]) > 1e-6;
+      });
+      expect(moved.length).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('strikes with the attacking limb out to its radius, and keeps it folded otherwise', () => {
+    const legs = { count: 8, reach: 40, grip: 'cling' as const, attacker: { reach: 40, radius: 40 } };
+    const far = (mode: 'idle' | 'attack') => Math.max(...times.map((t) => {
+      const a = legsAt(legs, t, mode).find((l) => l.strike)!;
+      return Math.hypot(a.foot[0] - a.hip[0], a.foot[1] - a.hip[1]);
+    }));
+    expect(far('attack')).toBeGreaterThan(40 * 0.9);
+    expect(far('idle')).toBeLessThan(40 * 0.7);
   });
 
   it('reaches as far as it can toward a foot out of range', () => {

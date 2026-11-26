@@ -100,6 +100,23 @@ describe('bestiary', () => {
     expect(enemies.filter((e) => e.portrait).length).toBeGreaterThan(150);
   });
 
+  it('names creatures as the Progress screen does', () => {
+    // chest_leggy.xml calls itself $animal_lukki; the Progress screen's key says Jalkamatkatavara.
+    expect(byId.get('chest_leggy')!.name).toBe('Jalkamatkatavara');
+    expect(byId.get('lukki')!.name).toBe('Hämähäkki');
+    // Only the turret, facing either way, has two entries under one name.
+    const seen = new Map<string, string[]>();
+    for (const e of enemies) seen.set(e.name, [...(seen.get(e.name) ?? []), e.id]);
+    expect([...seen.values()].filter((ids) => ids.length > 1)).toEqual([['turret_left', 'turret_right']]);
+  });
+
+  it('drops what an entity removes from its base', () => {
+    // Kivi takes base_enemy_flying.xml without its Hurtta sprite: only the stone is drawn.
+    const kivi = byId.get('boss_sky')!;
+    expect(kivi.anims).toHaveLength(1);
+    expect(kivi.anims![0]!.layers).toHaveLength(1);
+  });
+
   it('animates creatures from their sprite files', () => {
     const hiisi = byId.get('shotgunner_weak')!;
     expect(hiisi.anims?.map((a) => a.name).slice(0, 2)).toEqual(['stand', 'walk']);
@@ -136,6 +153,17 @@ describe('bestiary', () => {
     // Lukki walk on IK legs: 7 walkers and the one that attacks, 80 px long.
     expect(motion('lukki_longleg')).toBe('scuttle');
     expect(byId.get('lukki_longleg')!.legs).toMatchObject({ count: 8, reach: 80 });
+    // The big lukki's legs grab walls and ceilings all round (IKLimbsAnimatorComponent); the small ones stand.
+    expect(byId.get('lukki')!.legs).toMatchObject({ grip: 'cling', attacker: { radius: 40 } });
+    expect(byId.get('lukki_tiny')!.legs).toMatchObject({ grip: 'walk' });
+    expect(byId.get('lukki')!.anims!.map((a) => a.name)).toContain('attack');
+    // Its glowing eyes are drawn, on top.
+    expect(byId.get('lukki')!.anims![0]!.layers.at(-1)!.additive).toBe(true);
+    // Jalkamatkatavara stands on six hips under the chest, feet pointing outward, and punches with an arm.
+    const chest = byId.get('chest_leggy')!.legs!;
+    expect(chest).toMatchObject({ grip: 'walk', hips: [-6, -4, -2, 2, 4, 6] });
+    expect(chest.lowerRight).toBeDefined();
+    expect(chest.attacker!.lower).not.toEqual(chest.lower);
     // The Leviathan's eye, on a child entity, opens.
     expect(byId.get('fish_giga')!.anims![0]!.layers.some((l) => l.frames.length > 1)).toBe(true);
     // Hirvi stands still: it opens on its walk.

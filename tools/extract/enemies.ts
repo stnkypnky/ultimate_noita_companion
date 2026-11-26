@@ -71,7 +71,13 @@ const PROTECTION: Record<string, string> = {
 };
 
 /** An enemy as built here: its animation frames and leg images are still image keys (packed into the atlas afterwards). */
-export type LegsOut = Omit<Legs, 'upper' | 'lower' | 'knee'> & { upper: string; lower: string; knee?: string };
+export type LegsOut = Omit<Legs, 'upper' | 'lower' | 'lowerRight' | 'knee' | 'attacker'> & {
+  upper: string;
+  lower: string;
+  lowerRight?: string;
+  knee?: string;
+  attacker?: { reach: number; radius: number; upper: string; lower: string; joint?: string };
+};
 export type EnemyOut = Omit<Enemy, 'anims' | 'legs'> & { anims?: { name: string; layers: LayerOut[]; motion?: Motion }[]; legs?: LegsOut };
 export type EnemyBuild = { enemies: EnemyOut[]; portraits: AtlasInput[]; images: Map<string, Buffer>; scripts: Map<string, string[]> };
 
@@ -98,7 +104,8 @@ export async function buildEnemies(
 
     const enemy: EnemyOut = {
       id,
-      name: NAMES[id] ?? tr(t, e?.attrs.name, humanize(id)),
+      // The Progress screen's own name first: chest_leggy.xml calls itself $animal_lukki (Hämähäkki), but it's Jalkamatkatavara.
+      name: NAMES[id] ?? t.get(`animal_${id}`) ?? tr(t, e?.attrs.name, humanize(id)),
       icon: icons.get(icon) ?? { x: 0, y: 0, w: 0, h: 0 },
       ...(dm ? { hp: round(hp * HP) } : {}),
       ...(tags.length ? { tags } : {}),
@@ -282,7 +289,9 @@ async function animations(wak: Wak, e: El, main: El, images: Map<string, Buffer>
       // Things it holds (Märkiäinen's lantern) hang from a hotspot on its sprite, which moves with the animation.
       const hand = await Promise.all(held.map(async (h) => ({ ...h, at: (await hotspotAt(wak, file, h.hotspot, name || undefined)) ?? h.fallback })));
       const all = [...sprites.map((s) => ({ s, at: [0, 0] as [number, number] })), ...hand, ...parts];
-      for (const { s, at } of all.sort((a, b) => z(b.s) - z(a.s))) {
+      // Emissive sprites are drawn in their own pass over everything else (eyes, lamps).
+      const glow = (s: El) => (s.attrs.emissive === '1' || /_emissive/.test(s.attrs.image_file ?? '') ? 1 : 0);
+      for (const { s, at } of all.sort((a, b) => glow(a.s) - glow(b.s) || z(b.s) - z(a.s))) {
         const f = String(s.attrs.image_file);
         const isMain = s === main;
         // Other layers join only if they're still images or animate with the same name.
@@ -392,16 +401,23 @@ async function stillBody(wak: Wak, e: El, tags: string[], images: Map<string, Bu
 }
 const WAND_GHOST_WAND = 'data/items_gfx/wands/wand_0000.png';
 
-/** Its IK legs: the walking limb's two segments (and knee), how many it has and how far they reach. */
+/**
+ * Its IK legs: the walking limb's two segments (and knee), how many it has and how far they reach, where their hips
+ * sit, how they hold on (all around, or standing on the ground), and the limb it strikes with.
+ */
 async function legsOf(wak: Wak, e: El, loader: EntityLoader, images: Map<string, Buffer>): Promise<LegsOut | undefined> {
   const limbs = comps(e, 'Entity')
     .map((c) => resolveChild(c, loader))
     .filter((c) => comp(c, 'IKLimbComponent'));
-  const walker = limbs.find((l) => !comp(l, 'IKLimbAttackerComponent')) ?? limbs[0];
+  const walkers = limbs.filter((l) => !comp(l, 'IKLimbAttackerComponent'));
+  const walker = walkers[0] ?? limbs[0];
   if (!walker) return undefined;
-  const sprites = comps(walker, 'SpriteComponent').filter((s) => s.attrs._enabled !== '0' && s.attrs.image_file);
   const joint = (s: El) => /knee|elbow/.test(s.attrs.image_file!);
-  const seg = sprites.filter((s) => !joint(s));
+  const parts = (limb: El) => {
+    const sprites = comps(limb, 'SpriteComponent').filter((s) => s.attrs._enabled !== '0' && s.attrs.image_file);
+    const seg = sprites.filter((s) => !joint(s));
+    return { seg, joint: sprites.find(joint) };
+  };
   const key = (s: El | undefined) => {
     const f = s && realPath(wak, s.attrs.image_file!);
     if (!f || !f.endsWith('.png')) return undefined;
@@ -409,11 +425,59 @@ async function legsOf(wak: Wak, e: El, loader: EntityLoader, images: Map<string,
     if (!images.has(k)) images.set(k, wak.bytes(f));
     return k;
   };
+  const { seg, joint: kneeSprite } = parts(walker);
   const upper = key(seg[0]);
   const lower = key(seg[1] ?? seg[0]);
   if (!upper || !lower) return undefined;
-  const knee = key(sprites.find(joint));
-  return { count: limbs.length, reach: num(comp(walker, 'IKLimbComponent')!.attrs.length, 40), upper, lower, pivot: num(seg[0]!.attrs.offset_y, 0), ...(knee ? { knee } : {}) };
+  const knee = key(kneeSprite);
+
+  // Hips placed apart (Jalkamatkatavara's six, under the chest), left to right.
+  const hipX = (l: El) => num(comp(comp(l, 'InheritTransformComponent'), 'Transform')?.attrs['position.x'], 0);
+  const legs = walkers.length ? walkers : [walker];
+  const hips = legs.map(hipX);
+  // Legs on the right whose lower segment differs from the first leg's (feet that point outward).
+  const lowerOf = (l: El) => {
+    const p = parts(l).seg;
+    return key(p[1] ?? p[0]);
+  };
+  const right = legs.find((l) => hipX(l) > 0 && lowerOf(l) !== lower);
+  const lowerRight = right ? lowerOf(right) : undefined;
+
+  // IKLimbsAnimatorComponent moves the legs to any surface (walls first); without it each leg is an
+  // IKLimbWalkerComponent that keeps its foot on the ground below.
+  const walkComp = comp(walker, 'IKLimbWalkerComponent');
+  const grip: LegsOut['grip'] = comp(e, 'IKLimbsAnimatorComponent') || !walkComp ? 'cling' : 'walk';
+
+  const strike = limbs.find((l) => comp(l, 'IKLimbAttackerComponent'));
+  let attacker: LegsOut['attacker'];
+  if (strike) {
+    const p = parts(strike);
+    const au = key(p.seg[0]);
+    const al = key(p.seg[1] ?? p.seg[0]);
+    const aj = key(p.joint);
+    if (au && al)
+      attacker = {
+        reach: num(comp(strike, 'IKLimbComponent')!.attrs.length, 40),
+        radius: num(comp(strike, 'IKLimbAttackerComponent')!.attrs.radius, 54),
+        upper: au,
+        lower: al,
+        ...(aj ? { joint: aj } : {}),
+      };
+  }
+
+  return {
+    count: limbs.length,
+    reach: num(comp(walker, 'IKLimbComponent')!.attrs.length, 40),
+    upper,
+    lower,
+    ...(lowerRight ? { lowerRight } : {}),
+    pivot: num(seg[0]!.attrs.offset_y, 0),
+    ...(knee ? { knee } : {}),
+    grip,
+    ...(grip === 'walk' ? { maxAngle: num(walkComp!.attrs.ground_attachment_max_angle, 0.8) } : {}),
+    ...(hips.some((x) => x !== 0) ? { hips } : {}),
+    ...(attacker ? { attacker } : {}),
+  };
 }
 
 /**
@@ -425,6 +489,8 @@ function withMotion(anims: { name: string; layers: LayerOut[] }[], e: El | null,
   const plays = (a: { layers: LayerOut[] }) => a.layers.some((l) => l.frames.length > 1);
   const first = anims.findIndex(plays);
   if (first > 0) anims.unshift(...anims.splice(first, 1));
+  // A limb that strikes (IKLimbAttackerComponent) gets an Attack to show it in, if the sprite has none of its own.
+  if (legs?.attacker && anims.length && !anims.some((a) => a.name === 'attack')) anims.push({ name: 'attack', layers: anims[0]!.layers });
   // Legs and a worm's trailing body move in code whatever the sprites do.
   const worm = comp(e, 'WormComponent') || comp(e, 'BossDragonComponent');
   if (!legs && !worm && (first >= 0 || b.immobile)) return anims;
@@ -463,7 +529,8 @@ async function hotspotAt(wak: Wak, spriteFile: string, name: string, anim?: stri
 const effects = (e: El | null) => [...comps(e, 'GameEffectComponent'), ...comps(e, 'Entity').flatMap((c) => comps(c, 'GameEffectComponent'))];
 
 // glow/light but not wraith_glowing or a lightning mage: those are the creature.
-const SPRITE_SKIP = /health_bar|shield|glow(?!ing)|light(?!ning)|outline|aura|_emissive|hotspot|fog_of_war|area_indicator/;
+// Glowing _emissive layers (eyes, lamps) are drawn: the game draws them over the body.
+const SPRITE_SKIP = /health_bar|shield|glow(?!ing)|light(?!ning)|outline|aura|hotspot|fog_of_war|area_indicator/;
 /** Sprites that aren't the creature: the hole it punches in the fog of war, and the like. */
 const notBody = (s: El) => s.attrs.fog_of_war_hole === '1' || /fog_of_war/.test(s.attrs.image_file ?? '');
 

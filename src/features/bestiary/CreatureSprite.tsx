@@ -3,7 +3,7 @@ import { Pause, Play } from 'lucide-react';
 import { gameUrl } from '@/data/store';
 import type { Enemy, Icon, Legs, SpriteLayer } from '@/data/types';
 import { AtlasIcon } from '@/ui/GameIcon';
-import { AMPLITUDE, PERIOD, legsAt, motionAt, slitherAt, slitherHeight, slitherReach, wriggleAmplitude, type Point } from './motion';
+import { AMPLITUDE, STRIKE, legCycle, legsAt, motionAt, slitherAt, slitherHeight, slitherReach, wriggleAmplitude, type Point } from './motion';
 
 type Anim = NonNullable<Enemy['anims']>[number];
 
@@ -95,8 +95,14 @@ function bounds(a: Anim, legs?: Legs) {
     add(x1, y1, pad);
   }
   if (legs) {
-    const thick = Math.max(legs.upper.h, legs.lower.h, legs.knee?.h ?? 0) / 2;
-    for (let i = 0; i < 24; i++) for (const leg of legsAt(legs, (i / 24) * PERIOD.scuttle)) for (const pt of [leg.knee, leg.foot]) add(pt[0], pt[1], thick);
+    const a = legs.attacker;
+    const thick = Math.max(legs.upper.h, legs.lower.h, legs.knee?.h ?? 0, a?.upper.h ?? 0, a?.lower.h ?? 0, a?.joint?.h ?? 0) / 2;
+    // Every step of every leg, and the whole strike.
+    const span = Math.max(legCycle(legs), STRIKE);
+    const samples = Math.ceil(span / 0.05);
+    for (let i = 0; i < samples; i++)
+      for (const mode of a ? (['idle', 'attack'] as const) : (['idle'] as const))
+        for (const leg of legsAt(legs, (i / samples) * span, mode)) for (const pt of [leg.knee, leg.foot]) add(pt[0], pt[1], thick);
   }
   return { x0, y0, w: x1 - x0, h: y1 - y0 };
 }
@@ -121,11 +127,18 @@ function segment(ctx: CanvasRenderingContext2D, img: HTMLImageElement, ic: Icon,
   ctx.restore();
 }
 
-function drawLegs(ctx: CanvasRenderingContext2D, img: HTMLImageElement, legs: Legs, t: number) {
-  for (const { hip, knee, foot } of legsAt(legs, t)) {
-    segment(ctx, img, legs.upper, legs.pivot, hip, knee);
-    segment(ctx, img, legs.lower, legs.pivot, knee, foot);
-    if (legs.knee) ctx.drawImage(img, legs.knee.x, legs.knee.y, legs.knee.w, legs.knee.h, knee[0] - legs.knee.w / 2, knee[1] - legs.knee.h / 2, legs.knee.w, legs.knee.h);
+/**
+ * The legs, and the limb that strikes (with its own images: Jalkamatkatavara's is an arm with a fist). Legs on the
+ * right use their own lower segment when they have one, so feet point outward.
+ */
+function drawLegs(ctx: CanvasRenderingContext2D, img: HTMLImageElement, legs: Legs, t: number, mode: 'idle' | 'attack') {
+  for (const { hip, knee, foot, side, strike } of legsAt(legs, t, mode)) {
+    const a = strike ? legs.attacker : undefined;
+    const lower = a ? a.lower : side! > 0 && legs.lowerRight ? legs.lowerRight : legs.lower;
+    const joint = a ? a.joint : legs.knee;
+    segment(ctx, img, a ? a.upper : legs.upper, legs.pivot, hip, knee);
+    segment(ctx, img, lower, legs.pivot, knee, foot);
+    if (joint) ctx.drawImage(img, joint.x, joint.y, joint.w, joint.h, knee[0] - joint.w / 2, knee[1] - joint.h / 2, joint.w, joint.h);
   }
 }
 
@@ -176,7 +189,7 @@ export function CreatureSprite({ enemy: e, box = 168 }: { enemy: Enemy; box?: nu
           // Draw in game pixels around the creature's pivot.
           ctx.setTransform(fit.scale, 0, 0, fit.scale, -fit.b.x0 * fit.scale, -fit.b.y0 * fit.scale);
           // Legs sit behind the body, as in the game.
-          if (legs) drawLegs(ctx, img, legs, t);
+          if (legs) drawLegs(ctx, img, legs, t, anim.name === 'attack' && legs.attacker ? 'attack' : 'idle');
           const swim = behind ? slitherAt(behind, gap, t) : null;
           anim.layers.forEach((l, li) => {
             const f = l.frames[frameAt(l, t)]!;

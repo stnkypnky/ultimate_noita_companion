@@ -73,6 +73,11 @@ export class EntityLoader {
         const base = this.load(child.attrs.file, depth + 1);
         if (base) {
           for (const override of child.children) {
+            // <X _remove_from_base="1"/> drops the base's X (Kivi drops base_enemy_flying's Hurtta sprite).
+            if (override.attrs._remove_from_base === '1') {
+              base.children = base.children.filter((c) => c.tag !== override.tag);
+              continue;
+            }
             const target = base.children.find((c) => c.tag === override.tag);
             if (target) mergeInto(target, override);
             else base.children.push(clone(override));

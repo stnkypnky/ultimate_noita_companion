@@ -180,15 +180,29 @@ export type Motion = 'wriggle' | 'slither' | 'float' | 'hover' | 'scuttle';
 
 /** IKLimbComponent legs: two segments (upper from the hip, lower to the foot), each pivoting at its left end. */
 export type Legs = {
+  /** Every limb, the attacking one included. */
   count: number;
   /** IKLimbComponent length: hip to foot fully stretched, game pixels. */
   reach: number;
   upper: Icon;
   lower: Icon;
+  /** The lower segment of legs on the right, when it differs (Jalkamatkatavara's feet point outward). */
+  lowerRight?: Icon;
   /** Pivot height inside a segment image. */
   pivot: number;
   /** Drawn centred on the knee. */
   knee?: Icon;
+  /**
+   * 'cling': IKLimbsAnimatorComponent, legs grab walls and ceilings all around the body.
+   * 'walk': IKLimbWalkerComponent, feet on the ground within maxAngle of straight down.
+   */
+  grip: 'cling' | 'walk';
+  /** ground_attachment_max_angle, radians from straight down ('walk'). */
+  maxAngle?: number;
+  /** Each walking leg's hip, x from the pivot, when they aren't all on it. */
+  hips?: number[];
+  /** The limb that strikes at prey (IKLimbAttackerComponent), with its own images (Jalkamatkatavara's is an arm). */
+  attacker?: { reach: number; radius: number; upper: Icon; lower: Icon; joint?: Icon };
 };
 
 /** What its game files say about how it behaves (the app words it). */

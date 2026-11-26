@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import sharp from 'sharp';
-import type { Enemy, EntityVisual, GameVersion, Item, Projectile, RangeProp, SpriteLayer } from '../../src/data/types.ts';
+import type { Enemy, EntityVisual, GameVersion, Item, Legs, Projectile, RangeProp, SpriteLayer } from '../../src/data/types.ts';
 import { collectItems } from './items.ts';
 import { collectVisuals, rangeProps, type LayerOut } from './visuals.ts';
 import { rangeKit } from './kit.ts';
@@ -17,7 +17,7 @@ import { parseTranslations } from './translations.ts';
 import { buildProjectile, buildSpells, type RawAction } from './spells.ts';
 import { buildPerks, type RawPerk } from './perks.ts';
 import { buildMaterials } from './materials.ts';
-import { buildEnemies, enemyIconFiles, linkEnemies } from './enemies.ts';
+import { buildEnemies, enemyIconFiles, linkEnemies, type LegsOut } from './enemies.ts';
 import { biomeSpawns } from './spawns.ts';
 import { materialSources } from './materialSources.ts';
 import { perkOdds } from './perkOdds.ts';
@@ -99,11 +99,24 @@ linkEnemies(bestiary.enemies, await biomeSpawns(wak, t), wak.text('data/genome_r
 // Portraits and every animation frame share one atlas.
 const portraitAtlas = await buildPackedAtlas([...bestiary.portraits, ...[...bestiary.images].map(([key, png]) => ({ key: `f:${key}`, png }))], 2048);
 const frameIcon = (k: string) => portraitAtlas.rects.get(`f:${k}`) ?? { x: 0, y: 0, w: 0, h: 0 };
+/** Legs with their image keys swapped for where the images landed in the atlas. */
+function legIcons({ upper, lower, lowerRight, knee, attacker, ...rest }: LegsOut): Legs {
+  return {
+    ...rest,
+    upper: frameIcon(upper),
+    lower: frameIcon(lower),
+    ...(lowerRight ? { lowerRight: frameIcon(lowerRight) } : {}),
+    ...(knee ? { knee: frameIcon(knee) } : {}),
+    ...(attacker
+      ? { attacker: { reach: attacker.reach, radius: attacker.radius, upper: frameIcon(attacker.upper), lower: frameIcon(attacker.lower), ...(attacker.joint ? { joint: frameIcon(attacker.joint) } : {}) } }
+      : {}),
+  };
+}
 const enemies: Enemy[] = bestiary.enemies.map(({ anims, legs, ...e }) => ({
   ...e,
   ...(portraitAtlas.rects.has(e.id) ? { portrait: portraitAtlas.rects.get(e.id)! } : {}),
   ...(anims ? { anims: anims.map((a) => ({ ...a, layers: a.layers.map((l) => ({ ...l, frames: l.frames.map(frameIcon) })) })) } : {}),
-  ...(legs ? { legs: { count: legs.count, reach: legs.reach, pivot: legs.pivot, upper: frameIcon(legs.upper), lower: frameIcon(legs.lower), ...(legs.knee ? { knee: frameIcon(legs.knee) } : {}) } } : {}),
+  ...(legs ? { legs: legIcons(legs) } : {}),
 }));
 console.log(`enemies: ${enemies.length}, ${bestiary.portraits.length} portraits, ${bestiary.images.size} frames, atlas ${portraitAtlas.size.join('x')}`);
 if (process.env.ENEMY_SCRIPTS) for (const [id, s] of bestiary.scripts) console.log(`  ${id}: ${s.join(' ')}`);
