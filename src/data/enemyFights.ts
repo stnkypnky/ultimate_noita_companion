@@ -147,13 +147,16 @@ export const FIGHTS: Record<string, FightOverride> = {
 
 /**
  * The Moves tile when the extracted data has no movement for a creature (it would say "Walks").
- * Only creatures whose wiki page says how they move; checked 2026-11-25.
+ * Creatures whose wiki page says how they move (checked 2026-11-25), plus two the user confirmed.
  */
 export const MOVES: Record<string, { moves: string; source: string }> = {
   boss_dragon: { moves: 'Flies, digs', source: `${WIKI}Suomuhauki` },
   boss_pit: { moves: 'Flies, digs', source: `${WIKI}Sauvojen_tuntija` },
   boss_centipede: { moves: 'Crawls', source: `${WIKI}Kolmisilm%C3%A4` },
   maggot_tiny: { moves: 'Flies', source: `${WIKI}Limatoukka` },
+  // These two pages don't say; the user confirmed from play (2026-11-25).
+  boss_ghost_polyp: { moves: 'Flies', source: `${WIKI}H%C3%A4ive` },
+  parallel_tentacles: { moves: 'Flies', source: `${WIKI}Kolmisilm%C3%A4n_K%C3%A4tyri` },
   ghost: { moves: 'Through walls', source: `${WIKI}Houre` },
   lukki: { moves: 'Climbs, digs', source: `${WIKI}H%C3%A4m%C3%A4h%C3%A4kki` },
   lukki_longleg: { moves: 'Climbs', source: `${WIKI}H%C3%A4m%C3%A4h%C3%A4kki` },
