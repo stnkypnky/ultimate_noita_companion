@@ -190,6 +190,8 @@ describe('bestiary', () => {
     expect(byId.get('boss_ghost')!.anims![0]!.layers).toHaveLength(3);
     // Ground walkers still stand.
     expect(byId.get('lukki_tiny')!.legs!.grip).toBe('walk');
+    // Laser sights stay hidden (visible="0") until the creature aims: Snipuhiisi is just its body.
+    for (const id of ['sniper', 'missilecrab', 'turret_left']) expect(byId.get(id)!.anims![0]!.layers.some((l) => l.frames[0]!.h === 1), id).toBe(false);
   });
 
   it('reads the Hiisi allergy to Toxic sludge from their game effects', () => {

@@ -644,8 +644,11 @@ const effects = (e: El | null) => [...comps(e, 'GameEffectComponent'), ...comps(
 // glow/light but not wraith_glowing or a lightning mage: those are the creature.
 // Glowing _emissive layers (eyes, lamps) are drawn: the game draws them over the body.
 const SPRITE_SKIP = /health_bar|shield|glow(?!ing)|light(?!ning)|outline|aura|hotspot|fog_of_war|area_indicator/;
-/** Sprites that aren't the creature: the hole it punches in the fog of war, and the like. */
-const notBody = (s: El) => s.attrs.fog_of_war_hole === '1' || /fog_of_war/.test(s.attrs.image_file ?? '');
+/**
+ * Sprites that aren't the creature: the hole it punches in the fog of war, and the like. Also ones the game keeps
+ * hidden until a script shows them (visible="0"): Snipuhiisi's red laser sight appears only while it aims.
+ */
+const notBody = (s: El) => s.attrs.fog_of_war_hole === '1' || /fog_of_war/.test(s.attrs.image_file ?? '') || s.attrs.visible === '0';
 
 /** Plain facts from its AI and parts; the app turns them into sentences. */
 function behaviorOf(e: El | null, ai: El | undefined, loader: EntityLoader): EnemyBehavior {
