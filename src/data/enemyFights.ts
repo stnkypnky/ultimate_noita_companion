@@ -144,3 +144,22 @@ export const FIGHTS: Record<string, FightOverride> = {
     source: `${WIKI}Sauvojen_tuntija`,
   },
 };
+
+/**
+ * The Moves tile when the extracted data has no movement for a creature (it would say "Walks").
+ * Only creatures whose wiki page says how they move; checked 2026-11-25.
+ */
+export const MOVES: Record<string, { moves: string; source: string }> = {
+  boss_dragon: { moves: 'Flies, digs', source: `${WIKI}Suomuhauki` },
+  boss_pit: { moves: 'Flies, digs', source: `${WIKI}Sauvojen_tuntija` },
+  boss_centipede: { moves: 'Crawls', source: `${WIKI}Kolmisilm%C3%A4` },
+  maggot_tiny: { moves: 'Flies', source: `${WIKI}Limatoukka` },
+  ghost: { moves: 'Through walls', source: `${WIKI}Houre` },
+  lukki: { moves: 'Climbs, digs', source: `${WIKI}H%C3%A4m%C3%A4h%C3%A4kki` },
+  lukki_longleg: { moves: 'Climbs', source: `${WIKI}H%C3%A4m%C3%A4h%C3%A4kki` },
+  lukki_dark: { moves: 'Climbs, digs', source: `${WIKI}Kammolukki` },
+  fish_giga: { moves: 'Still', source: `${WIKI}Syv%C3%A4olento` },
+  hpcrystal: { moves: 'Still', source: `${WIKI}Elvytyskristalli` },
+  snowcrystal: { moves: 'Still', source: `${WIKI}Haamukivi` },
+  shooterflower: { moves: 'Still', source: `${WIKI}Plasmakukka` },
+};

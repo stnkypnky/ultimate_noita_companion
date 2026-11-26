@@ -15,7 +15,8 @@ import { Runes } from '@/ui/game';
 import { useDebounced } from '@/ui/hooks';
 import { EnemyDetail, enemyKey } from './EnemyDetail';
 import { useBiomeView } from './biomes';
-import { combatStyle } from './fightStyle';
+import { FIGHTS } from '@/data/enemyFights';
+import { combatStyle, movesLabel } from './fightStyle';
 
 type Filter = 'boss' | 'flies' | 'ranged' | 'killedYou' | 'thisRun';
 type Sort = 'game' | 'name' | 'hp' | 'gold' | 'killedYou';
@@ -54,9 +55,9 @@ export function BestiaryPage() {
     let list = q ? search.search(q).map((r) => enemyById.get(r.id as string)!).filter(seen) : enemies;
     if (filter) {
       const test: Record<Filter, (e: Enemy) => boolean> = {
-        boss: (e) => !!e.boss,
-        flies: (e) => !!e.moves?.flies,
-        ranged: (e) => !!e.attacks?.some((a) => a.kind === 'ranged'),
+        boss: (e) => !!e.boss || combatStyle(e).label === 'Boss',
+        flies: (e) => !!e.moves?.flies || movesLabel(e).startsWith('Flies'),
+        ranged: (e) => !!(e.attacks?.length ? e.attacks : FIGHTS[e.id]?.attacks)?.some((a) => a.kind === 'ranged'),
         killedYou: (e) => (stats?.[e.id]?.killedYou ?? 0) > 0,
         thisRun: (e) => metNow.has(e.id),
       };

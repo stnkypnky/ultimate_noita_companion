@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { FIGHTS } from '../src/data/enemyFights.ts';
+import { FIGHTS, MOVES } from '../src/data/enemyFights.ts';
 import type { Enemy } from '../src/data/types.ts';
-import { behaviorLines, combatStyle, effectText } from '../src/features/bestiary/fightStyle.ts';
+import { behaviorLines, combatStyle, effectText, movesLabel } from '../src/features/bestiary/fightStyle.ts';
 import { howToBeat } from '../src/features/bestiary/tactics.ts';
 import { causeLabel, recordOf } from '../src/features/bestiary/record.ts';
 
@@ -39,6 +39,21 @@ describe('combat style', () => {
     }
     // The ones that really don't attack stay harmless.
     for (const id of ['sheep', 'duck', 'deer', 'fish', 'fish_large', 'scorpion']) expect(label(id), id).toBe('Harmless');
+  });
+
+  it('says how creatures with no extracted movement get around', () => {
+    const enemies = JSON.parse(readFileSync(join(import.meta.dirname, '../public/game/data/enemies.json'), 'utf8')) as Enemy[];
+    const byId = new Map(enemies.map((e) => [e.id, e]));
+    for (const [id, m] of Object.entries(MOVES)) {
+      const e = byId.get(id);
+      expect(e, id).toBeDefined();
+      expect(m.source, id).toMatch(/^https:\/\/noita\.wiki\.gg\/wiki\//);
+      // The curated label only fills in when the data says nothing, so it must be what the tile shows.
+      expect(movesLabel(e!), `${id} now has extracted movement`).toBe(m.moves);
+    }
+    expect(movesLabel(byId.get('boss_dragon')!)).toBe('Flies, digs');
+    expect(movesLabel(enemy({ moves: { flies: true } }))).toBe('Flies');
+    expect(movesLabel(enemy({}))).toBe('Walks');
   });
 
   it('describes behavior in sentences', () => {

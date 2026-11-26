@@ -15,7 +15,7 @@ import { Source } from '@/ui/ItemDescription';
 import { HiddenNotice, InlineSpoiler } from '@/ui/Spoiler';
 import { StatIcon, statIconFor } from '@/ui/game';
 import { CreatureSprite } from './CreatureSprite';
-import { behaviorLines, combatStyle } from './fightStyle';
+import { behaviorLines, combatStyle, movesLabel } from './fightStyle';
 import { DAMAGE_LABEL, howToBeat } from './tactics';
 import { recordOf, type Count } from './record';
 import { rarity, useBiomeView } from './biomes';
@@ -53,7 +53,7 @@ export function EnemyDetail({ enemy: e }: { enemy: Enemy }) {
       <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3">
         <Big label="Health" value={e.hp !== undefined ? String(e.hp) : '—'} />
         <Big label="Gold" value={e.gold !== undefined ? String(e.gold) : '—'} />
-        <Big label="Moves" value={e.moves?.digs ? 'Digs' : e.moves?.flies ? 'Flies' : e.behavior?.swims ? 'Swims' : e.moves?.speed && e.moves.speed >= 5 ? `${e.moves.speed} px/s` : e.moves?.speed === 0 ? 'Still' : 'Walks'} />
+        <Big label="Moves" value={movesLabel(e)} />
       </div>
       <p className="mt-1.5 text-xs text-faint">Base values: some areas (The Vault, Temple of the Art…) make creatures tougher and richer.</p>
 

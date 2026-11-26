@@ -1,8 +1,19 @@
 // How a creature fights, in plain words, from its extracted game data. Pure, so it's easy to test.
 import type { Enemy } from '@/data/types';
-import { FIGHTS } from '@/data/enemyFights';
+import { FIGHTS, MOVES } from '@/data/enemyFights';
 
 export type CombatStyle = { label: string; blurb: string };
+
+/** The Moves tile: how it gets around. */
+export function movesLabel(e: Enemy): string {
+  const m = e.moves;
+  if (m?.digs) return 'Digs';
+  if (m?.flies) return 'Flies';
+  if (e.behavior?.swims) return 'Swims';
+  if (m?.speed && m.speed >= 5) return `${m.speed} px/s`;
+  if (m?.speed === 0) return 'Still';
+  return MOVES[e.id]?.moves ?? 'Walks';
+}
 
 const ranged = (e: Enemy) => e.attacks?.find((a) => a.kind === 'ranged');
 const closeIn = (e: Enemy) => e.attacks?.some((a) => a.kind === 'melee' || a.kind === 'dash' || a.kind === 'bite');
