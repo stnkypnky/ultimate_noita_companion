@@ -4,7 +4,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { mergeSurface } from '@/features/map/ground';
 import { Link, Navigate, useParams } from 'react-router';
-import { Check, ClipboardCopy, Clock, Coins, Eye, EyeOff, Heart, Map as MapIcon, MapPin, Skull } from 'lucide-react';
+import { Check, ClipboardCopy, Clock, Coins, Eye, EyeOff, Heart, Map as MapIcon, MapPin, Skull, Trophy } from 'lucide-react';
 import { ALCHEMY_KEY } from '@/data/spoilers';
 import { useProgress, useSpoilers } from '@/store/progress';
 import { Page } from '@/ui/Page';
@@ -347,11 +347,11 @@ function RunTabBar({ tabs, tab, onTab, badges }: { tabs: typeof TABS; tab: Tab; 
 
 function LiveStatus({ run, at, from, active }: { run: LiveRun; at: number; from: string | null; active: boolean }) {
   const now = useNow(10_000);
-  const label = !active ? `Game closed? Last seen ${timeAgo(at, now)}` : run.status === 'dead' ? 'You died' : run.status === 'paused' ? 'Paused' : 'Live';
+  const label = !active ? `Game closed? Last seen ${timeAgo(at, now)}` : run.won ? 'You won!' : run.status === 'dead' ? 'You died' : run.status === 'paused' ? 'Paused' : 'Live';
   return (
     <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
-      <LiveCrystal size={16} off={!active || run.status === 'dead'} />
-      <span className={active && run.status === 'alive' ? 'text-toxic' : run.status === 'dead' ? 'text-blood' : ''}>{label}</span>
+      {run.won ? <Trophy size={15} className="text-gold" /> : <LiveCrystal size={16} off={!active || run.status === 'dead'} />}
+      <span className={run.won ? 'text-gold' : active && run.status === 'alive' ? 'text-toxic' : run.status === 'dead' ? 'text-blood' : ''}>{label}</span>
       {from && <span className="text-faint">· from {from}</span>}
       {run.ngPlus > 0 && <span className="text-faint">· NG+{run.ngPlus > 1 ? run.ngPlus : ''}</span>}
     </span>
@@ -361,15 +361,19 @@ function LiveStatus({ run, at, from, active }: { run: LiveRun; at: number; from:
 function PastStatus({ rec }: { rec: RunRecord }) {
   const now = useNow(60_000);
   const label =
-    rec.outcome === 'died'
-      ? 'Died'
-      : rec.outcome === 'ended'
-        ? 'Ended'
-        : `Game closed · last seen ${timeAgo(rec.updatedAt, now)}`;
+    rec.outcome === 'won'
+      ? rec.ending === 'ngplus'
+        ? 'Won · on into New Game+'
+        : 'Won'
+      : rec.outcome === 'died'
+        ? 'Died'
+        : rec.outcome === 'ended'
+          ? 'Ended'
+          : `Game closed · last seen ${timeAgo(rec.updatedAt, now)}`;
   return (
     <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
-      {rec.outcome === 'died' ? <Skull size={15} className="text-blood" /> : <LiveCrystal size={16} off />}
-      <span className={rec.outcome === 'died' ? 'text-blood' : ''}>
+      {rec.outcome === 'won' ? <Trophy size={15} className="text-gold" /> : rec.outcome === 'died' ? <Skull size={15} className="text-blood" /> : <LiveCrystal size={16} off />}
+      <span className={rec.outcome === 'won' ? 'text-gold' : rec.outcome === 'died' ? 'text-blood' : ''}>
         {label}
         {rec.outcome === 'died' && rec.killedBy && (
           <>
@@ -399,7 +403,7 @@ function Hud({ run, at, past, fungal, oneLine }: { run: LiveRun; at: number; pas
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted">
       {run.hp !== undefined && run.maxHp ? (
         <div className={`flex flex-1 items-center gap-2 ${oneLine ? 'max-w-xs min-w-[140px]' : 'min-w-[220px] lg:max-w-md'}`}>
-          {run.status === 'dead' ? <Skull size={14} className="shrink-0" /> : <Heart size={14} className="shrink-0 text-blood" />}
+          {run.won ? <Trophy size={14} className="shrink-0 text-gold" /> : run.status === 'dead' ? <Skull size={14} className="shrink-0" /> : <Heart size={14} className="shrink-0 text-blood" />}
           <span className="font-game shrink-0 text-[16px] text-ink tabular-nums">
             {Math.max(0, Math.round(run.hp))}/{Math.round(run.maxHp)}
           </span>

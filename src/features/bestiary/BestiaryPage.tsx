@@ -16,7 +16,7 @@ import { useDebounced } from '@/ui/hooks';
 import { EnemyDetail, enemyKey } from './EnemyDetail';
 import { useBiomeView } from './biomes';
 import { FIGHTS } from '@/data/enemyFights';
-import { combatStyle, movesLabel } from './fightStyle';
+import { combatStyle, isBoss, movesLabel } from './fightStyle';
 
 type Filter = 'boss' | 'flies' | 'ranged' | 'killedYou' | 'thisRun';
 type Sort = 'game' | 'name' | 'hp' | 'gold' | 'killedYou';
@@ -55,7 +55,7 @@ export function BestiaryPage() {
     let list = q ? search.search(q).map((r) => enemyById.get(r.id as string)!).filter(seen) : enemies;
     if (filter) {
       const test: Record<Filter, (e: Enemy) => boolean> = {
-        boss: (e) => !!e.boss || combatStyle(e).label === 'Boss',
+        boss: isBoss,
         flies: (e) => !!e.moves?.flies || movesLabel(e).startsWith('Flies'),
         ranged: (e) => !!(e.attacks?.length ? e.attacks : FIGHTS[e.id]?.attacks)?.some((a) => a.kind === 'ranged'),
         killedYou: (e) => (stats?.[e.id]?.killedYou ?? 0) > 0,
@@ -150,21 +150,23 @@ export function BestiaryPage() {
             <ul className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-2">
               {shown.map((e) => {
                 const hidden = !seen(e);
+                // Only once met: a red tile among the ??? would give away which one is a boss.
+                const boss = !hidden && isBoss(e);
                 return (
                   <li key={e.id}>
                     <button
                       onClick={() => navigate(`/bestiary/${e.id}`)}
                       data-active={e.id === id || undefined}
-                      className="slot slot-hover flex w-full items-center gap-3 p-2 text-left"
+                      className={`slot slot-hover flex w-full items-center gap-3 p-2 text-left ${boss ? 'ring-1 ring-blood/50' : ''}`}
                     >
                       <span className="grid h-10 w-10 shrink-0 place-items-center">
                         {hidden ? <span className="font-game text-[16px] text-faint">?</span> : <AtlasIcon atlas="enemies" icon={e.icon} scale={2} />}
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className={`block truncate text-[13px] font-medium ${hidden ? 'text-faint' : ''}`}>{hidden ? '???' : e.name}</span>
+                        <span className={`block truncate text-[13px] font-medium ${hidden ? 'text-faint' : boss ? 'text-blood' : ''}`}>{hidden ? '???' : e.name}</span>
                         {!hidden && (
                           <span className="block truncate text-[11px] text-faint">
-                            {combatStyle(e).label}
+                            {boss ? 'Boss' : combatStyle(e).label}
                             {e.hp !== undefined ? ` · ${e.hp} HP` : ''}
                           </span>
                         )}

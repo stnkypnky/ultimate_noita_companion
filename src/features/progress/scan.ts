@@ -111,10 +111,14 @@ export async function parseSave(files: SaveFile[]): Promise<Progress> {
         const stamp = name.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/);
         const [who, cause] = splitKiller(attr(stats, 'killed_by') ?? '');
         const kills = killsBySession.get(name.replace(/_stats\.xml$/, ''));
+        const ended = attr(stats, 'dead') === '1';
+        // The ending's gold "kills" you with midas damage: that's a win, not a death.
+        const won = ended && !who && cause.toLowerCase() === 'midas';
         return {
           date: stamp ? `${stamp[1]}-${stamp[2]}-${stamp[3]}T${stamp[4]}:${stamp[5]}:${stamp[6]}` : name,
           seed: Number(attr(stats, 'world_seed') ?? 0),
-          dead: attr(stats, 'dead') === '1',
+          dead: ended && !won,
+          won,
           playtimeSec: Math.round(Number(attr(stats, 'playtime') ?? 0)),
           kills: Number(attr(stats, 'enemies_killed') ?? 0),
           gold: Number(attr(stats, 'gold_all') ?? 0),
@@ -143,7 +147,8 @@ export async function parseSave(files: SaveFile[]): Promise<Progress> {
       playtimeSec: parsed.reduce((s, r) => s + r.playtimeSec, 0),
       kills: parsed.reduce((s, r) => s + r.kills, 0),
       bestGold: Math.max(0, ...parsed.map((r) => r.gold)),
-      recent: parsed.slice(0, 5).map(({ seed, date, playtimeSec, killedBy }) => ({ seed, date, playtimeSec, ...(killedBy ? { killedBy } : {}) })),
+      recent: parsed.slice(0, 5).map(({ seed, date, playtimeSec, killedBy, won }) => ({ seed, date, playtimeSec, ...(killedBy && !won ? { killedBy } : {}) })),
+      wins: parsed.filter((r) => r.won).slice(0, MAX_WINS).map(({ seed, date, playtimeSec, kills }) => ({ seed, date, playtimeSec, kills })),
     };
   }
 
@@ -163,6 +168,7 @@ export async function parseSave(files: SaveFile[]): Promise<Progress> {
 }
 
 const MAX_DEATHS = 60;
+const MAX_WINS = 100;
 
 /** `<map><E key="…" value="3">…</map>` entries, in file order. */
 function mapEntries(xml: string, map: string): [string, number][] {

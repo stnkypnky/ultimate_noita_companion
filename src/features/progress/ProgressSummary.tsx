@@ -1,5 +1,9 @@
+import { Link } from 'react-router';
+import { ArrowRight, Trophy } from 'lucide-react';
 import { useData } from '@/data/store';
-import { countedEnemies, type Progress } from '@/store/progress';
+import { countedEnemies, type Progress, type RunWin } from '@/store/progress';
+import { useRuns } from '@/features/live/runs';
+import { clock } from '@/features/live/runMath';
 
 export function useProgressCounts(progress: Progress | null) {
   const { spells, perks, enemies } = useData();
@@ -24,16 +28,58 @@ export function ProgressSummary({ progress }: { progress: Progress }) {
         <Meter label="Perks" value={c.perks[0]} max={c.perks[1]} color="var(--gold)" />
         <Meter label="Creatures" value={c.enemies[0]} max={c.enemies[1]} color="var(--blood)" />
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         <Fact label="Orbs found" value={String(c.orbs)} />
         {progress.runs && (
           <>
             <Fact label="Runs" value={progress.runs.runs.toLocaleString()} />
+            {progress.runs.wins && <Fact label="Wins" value={progress.runs.wins.length.toLocaleString()} gold={progress.runs.wins.length > 0} />}
             <Fact label="Play time" value={hours(progress.runs.playtimeSec)} />
             <Fact label="Kills" value={progress.runs.kills.toLocaleString()} />
           </>
         )}
       </div>
+      {!!progress.runs?.wins?.length && <WinList wins={progress.runs.wins} />}
+    </div>
+  );
+}
+
+/** Every won run in the save, newest first; the ones the companion recorded open on the Run page. */
+function WinList({ wins }: { wins: RunWin[] }) {
+  const records = useRuns((s) => s.records);
+  return (
+    <div className="slot p-3">
+      <h3 className="font-game-caps mb-2 flex items-center gap-1.5 text-[16px] text-gold">
+        <Trophy size={15} /> Wins
+      </h3>
+      <ol className="space-y-1">
+        {wins.map((w) => {
+          const at = Date.parse(w.date);
+          // The record whose start matches the save's session (within a few minutes: the session starts at the menu).
+          const same = records.filter((r) => r.outcome === 'won' && r.seed === w.seed);
+          const rec = same.find((r) => Math.abs(r.startedAt - at) < 15 * 60_000) ?? (same.length === 1 ? same[0] : undefined);
+          const row = (
+            <>
+              <span className="text-ink">{Number.isFinite(at) ? new Date(at).toLocaleDateString(undefined, { dateStyle: 'medium' }) : w.date}</span>
+              <span className="text-faint">
+                Seed {w.seed} · {clock(w.playtimeSec)} · {w.kills.toLocaleString()} kills
+              </span>
+              {rec && <ArrowRight size={14} className="ml-auto text-muted" />}
+            </>
+          );
+          return (
+            <li key={`${w.date}-${w.seed}`}>
+              {rec ? (
+                <Link to={`/run/${encodeURIComponent(rec.id)}`} className="flex flex-wrap items-center gap-x-3 rounded px-1 py-0.5 text-sm hover:bg-surface-2">
+                  {row}
+                </Link>
+              ) : (
+                <div className="flex flex-wrap items-center gap-x-3 px-1 py-0.5 text-sm">{row}</div>
+              )}
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
@@ -56,11 +102,11 @@ function Meter({ label, value, max, color }: { label: string; value: number; max
   );
 }
 
-function Fact({ label, value }: { label: string; value: string }) {
+function Fact({ label, value, gold }: { label: string; value: string; gold?: boolean }) {
   return (
     <div className="slot px-3 py-2">
       <div className="text-[11px] tracking-wide text-faint uppercase">{label}</div>
-      <div className="font-semibold tabular-nums">{value}</div>
+      <div className={`font-semibold tabular-nums ${gold ? 'text-gold' : ''}`}>{value}</div>
     </div>
   );
 }

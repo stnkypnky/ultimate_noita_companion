@@ -111,7 +111,7 @@ describe('companion mod export', () => {
   it('copes with no player (main menu, between runs)', async () => {
     const lua = await host();
     const raw = JSON.parse((await lua.doString('E[1].tags = {}; return companion_json(companion_state())')) as string);
-    expect(raw).toEqual({ v: 1, mod: 5, status: 'no_player', seed: 123456, ngPlus: 1 });
+    expect(raw).toEqual({ v: 1, mod: 6, status: 'no_player', seed: 123456, ngPlus: 1 });
     lua.global.close();
   });
 
@@ -157,6 +157,27 @@ describe('companion mod export', () => {
     expect((await lua.doString('return #written')) as number).toBe(n);
     await lua.doString('companion_tick(60, 1040)'); // heartbeat
     expect(await last()).toMatchObject({ status: 'dead', time: 1040 });
+    lua.global.close();
+  });
+
+  it('reports a win, with the wands you carried when the ending began (the gold takes them)', async () => {
+    const lua = await host();
+    const last = async () => JSON.parse((await lua.doString('return written[#written]')) as string);
+    await lua.doString('companion_tick(15, 1000)');
+    expect((await last()).won).toBeUndefined();
+    // The ending starts: the run flag is set, then the gold turns your wands and flasks to gold.
+    await lua.doString('RUN_FLAGS = { ending_game_completed = true }; function GameHasFlagRun(f) return RUN_FLAGS[f] == true end');
+    await lua.doString('E[2].children = {}; companion_tick(30, 1001)');
+    const ending = await last();
+    expect(ending).toMatchObject({ status: 'alive', won: true });
+    expect(ending.wands).toHaveLength(1);
+    expect(ending.flasks).toHaveLength(1);
+    await lua.doString('function StatsGetValue(k) if k == "world_seed" then return "123456" end if k == "killed_by" then return " | midas" end end');
+    await lua.doString('companion_write("dead", 1002)');
+    const dead = await last();
+    expect(dead).toMatchObject({ status: 'dead', won: true, killedBy: ' | midas' });
+    expect(dead.wands[0].spells).toHaveLength(2);
+    expect(parseLiveRun(JSON.stringify(dead))?.won).toBe(true);
     lua.global.close();
   });
 
@@ -235,7 +256,7 @@ describe('companion mod export', () => {
       C[12].values.mActiveItem = 50
     `);
     const raw = JSON.parse((await lua.doString('return companion_json(companion_state())')) as string);
-    expect(raw).toMatchObject({ mod: 5, x: 100, y: 2400, playtime: 321.5, kills: 17, orbs: 2, seen: ['zombie', 'longleg'] });
+    expect(raw).toMatchObject({ mod: 6, x: 100, y: 2400, playtime: 321.5, kills: 17, orbs: 2, seen: ['zombie', 'longleg'] });
     expect(raw.items).toEqual([{ id: 'evil_eye', name: '$item_evil_eye', held: true }]);
     // Shifted at frame 3000; the 5-minute cooldown (18000 frames) ends at frame 21000, 250 s after frame 6000.
     expect(raw.fungal).toEqual({ count: 1, readyIn: 250 });

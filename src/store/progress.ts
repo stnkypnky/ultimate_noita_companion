@@ -12,7 +12,11 @@ export type RunSummary = {
   bestGold: number;
   /** Most recent runs first. */
   recent: { seed: number; date: string; playtimeSec: number; killedBy?: string }[];
+  /** Won runs, newest first: the ending's gold took you (killed_by " | midas"). Older syncs lack it. */
+  wins?: RunWin[];
 };
+
+export type RunWin = { seed: number; date: string; playtimeSec: number; kills: number };
 
 /** One creature's history from save00/stats/stats_<id>.xml (the maps are only in local progress, not sync codes). */
 export type EnemyStat = {

@@ -1,7 +1,7 @@
 // Home's "Run in progress" strip while a game is running; the full view is on the Run page.
 import { Link } from 'react-router';
 import { motion } from 'motion/react';
-import { ArrowRight, Coins, MapPin, Skull } from 'lucide-react';
+import { ArrowRight, Coins, MapPin, Skull, Trophy } from 'lucide-react';
 import { HudBar } from '@/ui/game';
 import { LiveCrystal } from '@/ui/LiveCrystal';
 import { timeAgo, useNow } from '@/ui/time';
@@ -16,10 +16,10 @@ export function RunBanner() {
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-6">
       <Link to="/run" className="panel group flex flex-wrap items-center gap-x-4 gap-y-2 p-4 ring-1 ring-toxic/30 hover:ring-toxic/60">
-        <LiveCrystal size={28} off={run.status === 'dead'} />
+        {run.won ? <Trophy size={26} className="text-gold" /> : <LiveCrystal size={28} off={run.status === 'dead'} />}
         <span className="min-w-0 flex-1">
           <span className="font-game block text-[16px]">
-            {run.status === 'dead' ? 'You died' : run.status === 'no_player' ? 'Noita is open' : 'Run in progress'}
+            {run.won ? <span className="text-gold">You won!</span> : run.status === 'dead' ? 'You died' :run.status === 'no_player' ? 'Noita is open' : 'Run in progress'}
             {from && <span className="ml-2 text-xs text-faint">from {from}</span>}
           </span>
           <span className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-muted">
@@ -50,13 +50,14 @@ function LastRunBanner() {
   const now = useNow(60_000);
   if (!last) return null;
   const died = last.outcome === 'died';
+  const won = last.outcome === 'won';
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-6">
       <Link to={`/run/${encodeURIComponent(last.id)}`} className="panel group flex flex-wrap items-center gap-x-4 gap-y-2 p-4 hover:ring-1 hover:ring-gold/40">
-        {died ? <Skull size={26} className="text-blood" /> : <LiveCrystal size={28} off />}
+        {won ? <Trophy size={26} className="text-gold" /> : died ? <Skull size={26} className="text-blood" /> : <LiveCrystal size={28} off />}
         <span className="min-w-0 flex-1">
           <span className="font-game block text-[16px]">
-            Last run · {died ? <span className="text-blood">Died</span> : last.outcome === 'ended' ? 'Ended' : 'Game closed'}
+            Last run · {won ? <span className="text-gold">Won</span> : died ? <span className="text-blood">Died</span> : last.outcome === 'ended' ? 'Ended' : 'Game closed'}
             {died && last.killedBy && <span className="ml-1 text-xs text-muted">killed by <KilledBy plain text={last.killedBy} seed={last.seed} at={last.endedAt ?? last.startedAt} /></span>}
           </span>
           <span className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-muted">

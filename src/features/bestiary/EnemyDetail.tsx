@@ -15,7 +15,7 @@ import { Source } from '@/ui/ItemDescription';
 import { HiddenNotice, InlineSpoiler } from '@/ui/Spoiler';
 import { StatIcon, statIconFor } from '@/ui/game';
 import { CreatureSprite } from './CreatureSprite';
-import { behaviorLines, combatStyle, movesLabel } from './fightStyle';
+import { behaviorLines, combatStyle, isBoss, movesLabel } from './fightStyle';
 import { DAMAGE_LABEL, howToBeat } from './tactics';
 import { recordOf, type Count } from './record';
 import { rarity, useBiomeView } from './biomes';
@@ -32,7 +32,7 @@ export function EnemyDetail({ enemy: e }: { enemy: Enemy }) {
   const toxicWeak = !!e.weakTo?.includes('Toxic sludge');
   const style = combatStyle(e);
   const info = ENEMY_INFO[e.id];
-  const boss = e.boss || style.label === 'Boss';
+  const boss = isBoss(e);
   // The game data lists no attacks for creatures whose attacks live in child entities or Lua: use the curated ones.
   const curated = !e.attacks?.length ? FIGHTS[e.id]?.attacks : undefined;
 
@@ -44,7 +44,7 @@ export function EnemyDetail({ enemy: e }: { enemy: Enemy }) {
           <h2 className="font-game text-[24px] leading-tight">{e.name}</h2>
           <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
             {boss && <span className="font-game bg-blood/15 px-2 py-0.5 text-[16px] text-blood">Boss</span>}
-            {!boss && <span className="font-game bg-gold/10 px-2 py-0.5 text-[16px] text-gold">{style.label}</span>}
+            {style.label !== 'Boss' && <span className="font-game bg-gold/10 px-2 py-0.5 text-[16px] text-gold">{style.label}</span>}
             <MetThisRun id={e.id} />
           </div>
           <p className="mt-1.5 text-sm text-muted">{style.blurb}</p>

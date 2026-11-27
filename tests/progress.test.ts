@@ -62,6 +62,23 @@ describe('parseSave', () => {
     expect(p.counted).toEqual(['acidshooter']);
   });
 
+  it('counts the ending gold ("midas") as a win, not a death', async () => {
+    const s = 'Nolla_Games_Noita/save00/stats/sessions/';
+    const p = await parseSave([
+      file('Nolla_Games_Noita/save00/persistent/flags/action_bomb'),
+      file(`${s}20261125-203501_stats.xml`, '<Stats><stats dead="1" enemies_killed="305" killed_by=" | midas" playtime="5537.75" world_seed="1950040951" ></stats></Stats>'),
+      file(`${s}20261124-100000_stats.xml`, '<Stats><stats dead="1" killed_by=" | explosion" world_seed="5" ></stats></Stats>'),
+    ]);
+    expect(p.runs).toMatchObject({ runs: 2, deaths: 1 });
+    expect(p.runs!.wins).toEqual([{ seed: 1950040951, date: '2026-11-25T20:35:01', playtimeSec: 5538, kills: 305 }]);
+    expect(p.deaths!.map((d) => d.seed)).toEqual([5]);
+    expect(p.runs!.recent[0]!.killedBy).toBeUndefined();
+    // And it survives a sync code.
+    const lists = { spells: [{ discoverFlag: 'action_bomb' }], perks: [], enemies: [] };
+    const back = await decodeProgress(await encodeProgress(p, lists, 'abcdefgh'), lists, 'abcdefgh');
+    expect(back.progress.runs!.wins).toEqual(p.runs!.wins);
+  });
+
   it('counts creatures the way the game does: one died, or one killed you', async () => {
     const s = 'Nolla_Games_Noita/save00/stats/';
     const zero = '<Stats deaths="0" kills="0" player_kills="0" ></Stats>';

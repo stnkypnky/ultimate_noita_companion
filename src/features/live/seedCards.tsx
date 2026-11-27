@@ -2,7 +2,7 @@
 // where you are on the map, the next Holy Mountain, the next fungal shift, and the run's numbers.
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { Clock, Crosshair, Hand, Loader2, Package, Skull } from 'lucide-react';
+import { Clock, Crosshair, Hand, Loader2, Package, Skull, Trophy } from 'lucide-react';
 import { useData } from '@/data/store';
 import { KilledBy } from './KilledBy';
 import type { WorldMap } from '@/data/types';
@@ -77,7 +77,7 @@ export function useSeedCards(run: LiveRun, at: number, past: boolean, mapHeight 
   const picks = useMemo(() => (next ? picksBefore(run, next) : []), [run, next]);
   const report = useRunReport(run.seed, picks, map);
   if (run.x === undefined || run.y === undefined) return { map: null, mountain: null, fungal: null };
-  const marker = past ? (run.status === 'dead' ? 'died' : 'last') : 'here';
+  const marker = past ? (run.status === 'dead' && !run.won ? 'died' : 'last') : 'here';
   return {
     map: map && <MiniMap map={map} x={run.x} y={run.y} seed={run.seed} kind={marker} biome={run.biome?.name} height={mapHeight} ground={ground ?? run.surface} report={report} />,
     mountain: past ? <MountainsReached next={next} seed={run.seed} /> : <NextMountain next={next} report={report} />,
@@ -330,7 +330,11 @@ export function RunStats({ run, at, active }: { run: LiveRun; at: number; active
         {run.kills !== undefined && <Stat icon={<Crosshair size={13} />} label="Kills" value={String(run.kills)} />}
         {run.orbs !== undefined && <Stat icon={<span className="text-[11px]">◉</span>} label="Orbs" value={String(run.orbs)} />}
       </div>
-      {run.status === 'dead' && run.killedBy && (
+      {run.won ? (
+        <p className="mt-2 flex items-center gap-1.5 text-sm text-gold">
+          <Trophy size={14} /> You won this run
+        </p>
+      ) : run.status === 'dead' && run.killedBy && (
         <p className="mt-2 flex items-center gap-1.5 text-sm text-blood">
           <Skull size={14} /> Killed by <KilledBy text={run.killedBy} seed={run.seed} at={at} />
         </p>

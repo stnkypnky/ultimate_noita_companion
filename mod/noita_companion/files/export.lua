@@ -252,11 +252,13 @@ function companion_state(status)
   local p = player()
   local state = {
     v = 1,
-    mod = 5,
+    mod = 6,
     status = status or "alive",
     seed = tonumber(StatsGetValue("world_seed") or "") or 0,
     ngPlus = tonumber(SessionNumbersGetValue("NEW_GAME_PLUS_COUNT") or "") or 0,
   }
+  -- Set when an ending starts (sampo_start_ending_sequence.lua), before the gold takes you and your wands.
+  if try(GameHasFlagRun, "ending_game_completed") then state.won = true end
   if status == "dead" then
     local by = try(StatsGetValue, "killed_by")
     if by == nil or by == "" then by = try(StatsGetValue, "killed_by_extra") end
@@ -360,6 +362,15 @@ local function copy(t)
   return o
 end
 
+-- An ending turns everything near you to gold, wands and flasks included: show what you carried when it began.
+local function keep_inventory(state)
+  if not (state.won and last_alive and last_alive.seed == state.seed) then return end
+  state.wands = last_alive.wands
+  state.flasks = last_alive.flasks
+  state.items = last_alive.items
+  state.spells = last_alive.spells
+end
+
 -- The death as it stays on screen: where you fell and what you carried (read from the last living state
 -- when the player entity is already gone), no health left, and what killed you.
 local function death_state()
@@ -369,7 +380,9 @@ local function death_state()
     state = copy(last_alive)
     state.status = "dead"
     state.killedBy = now.killedBy
+    state.won = now.won
   end
+  keep_inventory(state)
   state.hp = 0
   state.playtime = stat("playtime") or state.playtime
   state.kills = stat("enemies_killed") or state.kills
@@ -389,7 +402,11 @@ function companion_write(status, now)
     state = copy(dead_state)
   else
     state = companion_state(status)
-    if state.status == "alive" and state.x then last_alive = copy(state) end
+    if state.won then
+      keep_inventory(state)
+    elseif state.status == "alive" and state.x then
+      last_alive = copy(state)
+    end
   end
   -- Play time and the fungal countdown tick every second: they ride along with real changes and the
   -- heartbeat instead of forcing a write each time.

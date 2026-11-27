@@ -59,6 +59,8 @@ export type LiveRun = {
   killedBy?: string;
   /** Mod 5: the real overworld ground line near where you've been, as [x, y] world pixels (first solid from above). */
   surface?: [number, number][];
+  /** Mod 6: an ending has begun (the run is won). In the normal ending the gold then kills you. */
+  won?: boolean;
 };
 export type LiveItem = { id: string; name: string; held?: boolean };
 
@@ -209,5 +211,6 @@ function v2(o: Record<string, unknown>): Partial<LiveRun> {
       .filter((it): it is LiveItem => !!it);
   const killedBy = str(o.killedBy, 120);
   if (killedBy) out.killedBy = killedBy;
+  if (o.won === true) out.won = true;
   return out;
 }

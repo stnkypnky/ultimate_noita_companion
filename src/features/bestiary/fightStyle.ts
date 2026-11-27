@@ -15,6 +15,15 @@ export function movesLabel(e: Enemy): string {
   return MOVES[e.id]?.moves ?? 'Walks';
 }
 
+/**
+ * Bosses the game doesn't tag `boss` (the wiki's "Bosses & Boss Minions" list, shadow bosses included,
+ * https://noita.wiki.gg/wiki/Creatures). Their minions and helpers (Häive, Olematon…) aren't bosses.
+ */
+export const UNTAGGED_BOSSES = new Set(['boss_dragon', 'maggot_tiny', 'fish_giga', 'gate_monster_a', 'gate_monster_b', 'gate_monster_c', 'gate_monster_d', 'friend', 'parallel_tentacles', 'parallel_alchemist']);
+
+/** A boss: tagged so in its file, labelled so in the curated fights, or on the wiki's boss list. */
+export const isBoss = (e: Enemy) => !!e.boss || UNTAGGED_BOSSES.has(e.id) || FIGHTS[e.id]?.label === 'Boss';
+
 const ranged = (e: Enemy) => e.attacks?.find((a) => a.kind === 'ranged');
 const closeIn = (e: Enemy) => e.attacks?.some((a) => a.kind === 'melee' || a.kind === 'dash' || a.kind === 'bite');
 

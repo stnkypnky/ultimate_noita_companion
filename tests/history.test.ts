@@ -76,6 +76,51 @@ describe('run history', () => {
     expect(next.closed).toBeUndefined();
   });
 
+  it('records a win, keeping the wands the ending gold took (older mod: no won flag)', () => {
+    const first = foldSnapshot(null, snap({ wands: [wand(['LIGHT_BULLET', 'BOMB'])] }), 1000, ctx).current!;
+    // The gold takes the wands a moment before it kills you.
+    const goldTouched = foldSnapshot(first, snap({ wands: [] }), 3000, ctx).current!;
+    const end = foldSnapshot(goldTouched, snap({ status: 'dead', killedBy: ' | midas', hp: 0, wands: [] }), 6000, ctx).current!;
+    expect(end).toMatchObject({ outcome: 'won', endedAt: 6000 });
+    expect(end.killedBy).toBeUndefined();
+    expect(end.wands[0]!.spells.map((s) => s.id)).toEqual(['LIGHT_BULLET', 'BOMB']);
+    expect(snapshotOf(end)).toMatchObject({ won: true });
+    expect(snapshotOf(end).wands).toHaveLength(1);
+    expect(end.events.at(-1)!.k).toBe('won');
+    // The death screen keeps writing; nothing new, and no "died".
+    expect(foldSnapshot(end, snap({ status: 'dead', killedBy: ' | midas', won: true, wands: [] }), 7000, ctx).current!.outcome).toBe('won');
+  });
+
+  it('a win reported by the mod as it begins stays one record', () => {
+    const first = foldSnapshot(null, snap({}), 1000, ctx).current!;
+    const begun = foldSnapshot(first, snap({ won: true, kills: 3 }), 2000, ctx).current!;
+    expect(begun.outcome).toBe('won');
+    const end = foldSnapshot(begun, snap({ status: 'dead', won: true, killedBy: ' | midas', kills: 4 }), 3000, ctx);
+    expect(end.current!.id).toBe(first.id);
+    expect(end.current).toMatchObject({ outcome: 'won', kills: 4 });
+    expect(end.current!.events.filter((e) => e.k === 'won' || e.k === 'died').map((e) => e.k)).toEqual(['won']);
+  });
+
+  it('going on into New Game+ wins the run and starts a new record', () => {
+    const first = foldSnapshot(null, snap({ playtime: 100, ngPlus: 0 }), 200_000, ctx).current!;
+    const { current, closed } = foldSnapshot(first, snap({ playtime: 110, ngPlus: 1 }), 210_000, ctx);
+    expect(closed).toMatchObject({ id: first.id, outcome: 'won', ending: 'ngplus' });
+    expect(current!.id).not.toBe(first.id);
+    expect(current!.ngPlus).toBe(1);
+  });
+
+  it('upgrades old records of a "death" to the gold into wins, and keeps wins past the run cap', () => {
+    const dead = foldSnapshot(foldSnapshot(null, snap({}), 1000, ctx).current!, snap({ status: 'dead', killedBy: 'zombie' }), 2000, ctx).current!;
+    const oldWin = { ...dead, id: 'w', startedAt: 0, killedBy: ' | midas', outcome: 'died' as const, events: [{ t: 2000, k: 'died' as const, text: ' | midas' }] };
+    const parsed = parseRunRecord(JSON.parse(JSON.stringify(oldWin)), parseLiveWand, parseLiveRun)!;
+    expect(parsed.outcome).toBe('won');
+    expect(parsed.events.map((e) => e.k)).toEqual(['won']);
+    const many = Array.from({ length: MAX_RUNS + 3 }, (_, i) => ({ ...dead, id: `r${i}`, startedAt: 1000 + i }));
+    const merged = mergeRuns(many, [parsed]);
+    expect(merged).toHaveLength(MAX_RUNS + 1);
+    expect(merged.at(-1)!.id).toBe('w');
+  });
+
   it('closes an unfinished run when a different seed starts; going quiet or the menu does not', () => {
     const run = foldSnapshot(null, snap({}), 1000, ctx).current!;
     expect(foldSnapshot(run, parseLiveRun({ v: 1, status: 'no_player', seed: 42 })!, 5000, ctx).changed).toBe(false);
@@ -119,11 +164,13 @@ describe('run history', () => {
   });
 
   it('accepts records from other devices only when well-formed, and merges by newest', () => {
-    const rec = foldSnapshot(null, snap({}), 1, ctx).current!;
+    // What was last in hand stays on the recording device.
+    const { held: _held, ...rec } = foldSnapshot(null, snap({}), 1, ctx).current!;
     const back = parseRunRecord(JSON.parse(JSON.stringify(rec)), parseLiveWand, parseLiveRun);
     expect(back).toEqual(JSON.parse(JSON.stringify(rec)));
     expect(back!.last!.wands).toHaveLength(1);
-    expect(parseRunRecord({ ...rec, outcome: 'won' }, parseLiveWand)).toBeNull();
+    expect(parseRunRecord({ ...rec, outcome: 'won' }, parseLiveWand)!.outcome).toBe('won');
+    expect(parseRunRecord({ ...rec, outcome: 'bogus' }, parseLiveWand)).toBeNull();
     expect(parseRunRecord({ ...rec, found: ['<script>', 'enemy:zombie'] }, parseLiveWand)!.found).toEqual(['enemy:zombie']);
 
     const newer: RunRecord = { ...rec, updatedAt: 99, gold: 5 };

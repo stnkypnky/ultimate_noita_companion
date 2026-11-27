@@ -1,7 +1,7 @@
 // Run history on the Run page: what this run discovered, its timeline, and the switcher between runs.
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
-import { Flag, Gem, HeartCrack, MapPin, Package, Play, Skull, Sparkles, Star, Wand2 } from 'lucide-react';
+import { Flag, Gem, HeartCrack, MapPin, Package, Play, Skull, Sparkles, Star, Trophy, Wand2 } from 'lucide-react';
 import { useData } from '@/data/store';
 import { useProgress } from '@/store/progress';
 import { CollapsibleSection } from '@/ui/controls';
@@ -148,6 +148,8 @@ function useEventText(rec?: RunRecord) {
         return { icon: <HeartCrack size={13} className="text-blood" />, text: 'Low health', tone: 'text-blood' };
       case 'died':
         return { icon: <Skull size={13} className="text-blood" />, text: e.text ? `Died, killed by ${killer(e.text)}` : 'Died', tone: 'text-blood' };
+      case 'won':
+        return { icon: <Trophy size={13} className="text-gold" />, text: e.text === 'ngplus' ? 'Won, on into New Game+' : 'Won the run', tone: 'text-gold' };
     }
   };
 }
@@ -217,8 +219,16 @@ export function RunSwitcher({ selected, liveId, active }: { selected: string | '
       )}
       {past.map((r) => (
         <Link key={r.id} to={`/run/${encodeURIComponent(r.id)}`} className={chip(selected === r.id)} aria-current={selected === r.id ? 'page' : undefined}>
-          {r.outcome === 'died' ? <Skull size={13} className="text-blood" /> : r.outcome === 'ongoing' ? <LiveCrystal size={14} off /> : <Flag size={13} className="text-faint" />}
-          <span>{r.deepest ?? `Seed ${r.seed}`}</span>
+          {r.outcome === 'won' ? (
+            <Trophy size={13} className="text-gold" />
+          ) : r.outcome === 'died' ? (
+            <Skull size={13} className="text-blood" />
+          ) : r.outcome === 'ongoing' ? (
+            <LiveCrystal size={14} off />
+          ) : (
+            <Flag size={13} className="text-faint" />
+          )}
+          <span className={r.outcome === 'won' ? 'text-gold' : undefined}>{r.outcome === 'won' ? 'Won' : (r.deepest ?? `Seed ${r.seed}`)}</span>
           {r.playtime !== undefined && <span className="text-faint">{clock(r.playtime)}</span>}
           <span className="text-faint">· {timeAgo(r.endedAt ?? r.updatedAt, now)}</span>
         </Link>

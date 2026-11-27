@@ -5,7 +5,7 @@ import type { LiveRun, LiveWand } from './parse';
 import { liveFlags } from './state';
 import { mergeSurface } from '@/features/map/ground';
 
-export type RunEventKind = 'start' | 'biome' | 'perk' | 'spell' | 'wand' | 'item' | 'found' | 'hp_low' | 'died';
+export type RunEventKind = 'start' | 'biome' | 'perk' | 'spell' | 'wand' | 'item' | 'found' | 'hp_low' | 'died' | 'won';
 /** `id`: a spell, perk or item id, or (for found) a spoiler key; `text`: a biome name or what killed you. */
 export type RunEvent = { t: number; k: RunEventKind; id?: string; text?: string };
 
@@ -20,7 +20,9 @@ export type RunRecord = {
   endedAt?: number;
   /** Last change (ms): newer wins when devices merge. */
   updatedAt: number;
-  outcome: 'ongoing' | 'died' | 'ended';
+  outcome: 'ongoing' | 'died' | 'ended' | 'won';
+  /** For a win: 'ngplus' when it went on into New Game+. */
+  ending?: 'ngplus';
   killedBy?: string;
   maxDepth: number;
   /** Name of the deepest biome reached. */
@@ -40,12 +42,37 @@ export type RunRecord = {
   carried: string[];
   /** The run as it last was (the death screen, for a death): the Run page shows a past run from it. */
   last?: LiveRun;
+  /** What was last in hand (this device only, not synced): an ending's gold takes it all just before the end. */
+  held?: { t: number; wands: LiveWand[]; flasks: LiveRun['flasks']; items?: LiveRun['items'] };
 };
 
 export const MAX_EVENTS = 200;
 export const MAX_HP_SAMPLES = 240;
 /** Runs kept and synced, the ongoing one included. */
 export const MAX_RUNS = 10;
+/** Won runs are kept past MAX_RUNS, up to this many. */
+export const MAX_WON = 30;
+/** Wands that vanish this soon before the end were taken by it (the gold), not dropped. */
+const HELD_MS = 30_000;
+
+/** The ending's gold kills you with "midas" damage: the game records it as killed_by " | midas". */
+export const isMidas = (killedBy?: string) => !!killedBy && /\|\s*midas\s*$/i.test(killedBy);
+const wonRun = (run: LiveRun) => run.won === true || (run.status === 'dead' && isMidas(run.killedBy));
+
+/** Newest first: the latest MAX_RUNS, plus older wins. */
+export function capRuns(recs: RunRecord[]): RunRecord[] {
+  const sorted = [...recs].sort((a, b) => b.startedAt - a.startedAt);
+  const recent = sorted.slice(0, MAX_RUNS);
+  const wins = sorted.slice(MAX_RUNS).filter((r) => r.outcome === 'won').slice(0, MAX_WON);
+  return [...recent, ...wins];
+}
+
+/** Records saved before wins were told apart: a "death" to the ending's gold is a win. */
+export function upgradeRecord(rec: RunRecord): RunRecord {
+  if (rec.outcome !== 'died' || !isMidas(rec.killedBy)) return rec;
+  const { killedBy: _k, ...rest } = rec;
+  return { ...rest, outcome: 'won', events: rec.events.map((e) => (e.k === 'died' && isMidas(e.text) ? { t: e.t, k: 'won' } : e)) };
+}
 
 /** A snapshot as kept on a record: without the creatures-met list (the record's `found` has what matters). */
 const keepSnapshot = (run: LiveRun): LiveRun => {
@@ -93,7 +120,8 @@ export function addFound(rec: RunRecord, keys: string[], at: number, known: Know
 function newRecord(run: LiveRun, at: number, device: string): RunRecord {
   const startedAt = Math.round(at - (run.playtime ?? 0) * 1000);
   return {
-    id: `${run.seed}-${startedAt}`,
+    // New Game+ goes on with the same play time, so it would get the won run's id without the suffix.
+    id: `${run.seed}-${startedAt}${run.ngPlus ? `-ng${run.ngPlus}` : ''}`,
     seed: run.seed,
     ngPlus: run.ngPlus,
     device,
@@ -124,14 +152,24 @@ export function foldSnapshot(
   ctx: { known: Known; device: string; extra?: string[] },
 ): { current: RunRecord | null; closed?: RunRecord; changed: boolean } {
   if (run.status === 'no_player' || !run.seed) return { current: prev, changed: false };
-  const open = prev?.outcome === 'ongoing' ? prev : null;
+  const won = wonRun(run);
+  // A won run keeps taking snapshots while the ending plays out (and the gold kills you).
+  const open = prev?.outcome === 'ongoing' || (prev?.outcome === 'won' && won && !prev.ending) ? prev : null;
   const same = !!open && open.seed === run.seed && open.ngPlus === run.ngPlus;
   let closed: RunRecord | undefined;
-  if (open && !same) closed = { ...open, outcome: 'ended', endedAt: open.updatedAt, updatedAt: at };
+  if (open && !same) {
+    // Same world, one New Game+ further: the run was won on the mountain top.
+    const ngPlus = open.outcome === 'ongoing' && open.seed === run.seed && run.ngPlus === open.ngPlus + 1;
+    closed = ngPlus
+      ? { ...open, outcome: 'won', ending: 'ngplus', endedAt: at, updatedAt: at, events: [...open.events, { t: at, k: 'won', text: 'ngplus' }] }
+      : open.outcome === 'won'
+        ? undefined
+        : { ...open, outcome: 'ended', endedAt: open.updatedAt, updatedAt: at };
+  }
 
   if (!same) {
-    // The death screen keeps reporting "dead": that run is already recorded.
-    if (run.status === 'dead') return { current: closed ? null : prev, closed, changed: !!closed };
+    // The death screen (or a finished ending) keeps reporting: that run is already recorded.
+    if (run.status === 'dead' || won) return { current: closed ? null : prev, closed, changed: !!closed };
   }
   const rec: RunRecord = same ? structuredClone(open!) : newRecord(run, at, ctx.device);
 
@@ -174,12 +212,28 @@ export function foldSnapshot(
   if (run.orbs !== undefined) rec.orbs = run.orbs;
   if (run.playtime !== undefined) rec.playtime = run.playtime;
   rec.perks = run.perks.map((p) => ({ ...p }));
-  rec.wands = run.wands.map((w) => ({ ...w, mana: undefined }));
   // The ground line sampled so far this run: the mod forgets it when the game restarts, the record doesn't.
   const ground = mergeSurface(rec.last?.surface, run.surface);
   rec.last = keepSnapshot(run);
   if (ground.length) rec.last.surface = ground;
-  if (run.status === 'dead') {
+  const ending = run.status === 'dead' || won;
+  if (run.wands.length) {
+    rec.held = { t: at, wands: rec.last.wands, flasks: rec.last.flasks, ...(rec.last.items ? { items: rec.last.items } : {}) };
+  } else if (ending && rec.held && at - rec.held.t <= HELD_MS) {
+    // The end took everything you carried (an older mod reports the inventory after the gold): show it as it was.
+    rec.last.wands = rec.held.wands;
+    rec.last.flasks = rec.held.flasks;
+    if (rec.held.items) rec.last.items = rec.held.items;
+  }
+  rec.wands = rec.last.wands.map((w) => ({ ...w, mana: undefined }));
+  if (won) {
+    if (rec.outcome !== 'won') {
+      rec.outcome = 'won';
+      rec.endedAt = at;
+      delete rec.killedBy;
+      pushEvent(rec, { t: at, k: 'won' });
+    }
+  } else if (run.status === 'dead') {
     rec.outcome = 'died';
     rec.endedAt = at;
     if (run.killedBy) rec.killedBy = run.killedBy;
@@ -191,7 +245,12 @@ export function foldSnapshot(
 
 /** The run to show for a record: its last snapshot, or (records from before snapshots were kept) one rebuilt from it. */
 export function snapshotOf(rec: RunRecord): LiveRun {
+  if (rec.outcome === 'won') return { ...(rec.last ?? rebuilt(rec)), won: true };
   if (rec.last) return rec.outcome === 'died' ? { ...rec.last, status: 'dead', killedBy: rec.last.killedBy ?? rec.killedBy } : rec.last;
+  return rebuilt(rec);
+}
+
+function rebuilt(rec: RunRecord): LiveRun {
   const hp = rec.hp.at(-1);
   return {
     status: rec.outcome === 'died' ? 'dead' : 'alive',
@@ -220,7 +279,7 @@ export const foundKeys = (recs: RunRecord[]) => [...new Set(recs.flatMap((r) => 
 const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
 const isStr = (x: unknown, max: number): x is string => typeof x === 'string' && x.length <= max;
 const KEY = /^[A-Za-z0-9_:$.-]{1,120}$/;
-const EVENT_KINDS = new Set<RunEventKind>(['start', 'biome', 'perk', 'spell', 'wand', 'item', 'found', 'hp_low', 'died']);
+const EVENT_KINDS = new Set<RunEventKind>(['start', 'biome', 'perk', 'spell', 'wand', 'item', 'found', 'hp_low', 'died', 'won']);
 
 /** A run record from another device: checked field by field, capped, or null. */
 export function parseRunRecord(
@@ -231,12 +290,13 @@ export function parseRunRecord(
   if (!x || typeof x !== 'object' || Array.isArray(x)) return null;
   const o = x as Record<string, unknown>;
   if (!isStr(o.id, 64) || !isNum(o.seed) || !isNum(o.startedAt) || !isNum(o.updatedAt)) return null;
-  const outcome = o.outcome === 'died' || o.outcome === 'ended' || o.outcome === 'ongoing' ? o.outcome : null;
+  const outcome = o.outcome === 'died' || o.outcome === 'ended' || o.outcome === 'ongoing' || o.outcome === 'won' ? o.outcome : null;
   if (!outcome) return null;
   const list = (v: unknown, max: number) => (Array.isArray(v) ? v.slice(0, max) : []);
   const lastRaw = o.last && typeof o.last === 'object' && !Array.isArray(o.last) ? { ...(o.last as object), v: 1 } : null;
   const last = lastRaw && parseRun ? parseRun(lastRaw) : null;
-  return {
+  return upgradeRecord({
+    ...(outcome === 'won' && o.ending === 'ngplus' ? { ending: 'ngplus' as const } : {}),
     ...(last && last.seed === o.seed ? { last: keepSnapshot(last) } : {}),
     id: o.id,
     seed: o.seed,
@@ -269,7 +329,7 @@ export function parseRunRecord(
     hp: list(o.hp, MAX_HP_SAMPLES).flatMap((s) => (Array.isArray(s) && s.length === 3 && s.every(isNum) ? [s as [number, number, number]] : [])),
     found: list(o.found, 2000).filter((k): k is string => isStr(k, 120) && KEY.test(k)),
     carried: list(o.carried, 400).filter((k): k is string => isStr(k, 64) && KEY.test(k)),
-  };
+  });
 }
 
 /** Merge records from elsewhere into ours: per run, the newer wins. Returns the merged list, newest first, capped. */
@@ -279,5 +339,5 @@ export function mergeRuns(mine: RunRecord[], theirs: RunRecord[]): RunRecord[] {
     const have = by.get(r.id);
     if (!have || r.updatedAt > have.updatedAt) by.set(r.id, r);
   }
-  return [...by.values()].sort((a, b) => b.startedAt - a.startedAt).slice(0, MAX_RUNS);
+  return capRuns([...by.values()]);
 }

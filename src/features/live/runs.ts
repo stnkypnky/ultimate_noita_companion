@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import { useProgress } from '@/store/progress';
 import { deviceName } from '@/features/sync/device';
 import { registerRuns, runsChanged } from '@/features/sync/sync';
-import { MAX_RUNS, addFound, foldSnapshot, foundKeys, mergeRuns, parseRunRecord, type Known, type RunRecord } from './history';
+import { addFound, capRuns, foldSnapshot, foundKeys, mergeRuns, parseRunRecord, upgradeRecord, type Known, type RunRecord } from './history';
 import { parseLiveRun, parseLiveWand, type LiveRun } from './parse';
 import { useLiveRun } from './state';
 import type { WorldMap } from '@/data/types';
@@ -105,7 +105,8 @@ export async function startRunHistory() {
   if (started) return;
   started = true;
   registerRuns(
-    async () => useRuns.getState().records.map((r) => r as RunRecord),
+    // What was last in hand is only for the recording device.
+    async () => useRuns.getState().records.map(({ held: _held, ...r }) => r as RunRecord),
     async (raw) => {
       const recs = raw.map((r) => parseRunRecord(r, parseLiveWand, parseLiveRun)).filter((r): r is RunRecord => !!r);
       const mine = new Map(useRuns.getState().records.map((r) => [r.id, r.updatedAt]));
@@ -123,7 +124,10 @@ export async function startRunHistory() {
     () => {},
   );
   const { db } = await dexie();
-  const records = (await db.runs.toArray()).sort((a, b) => b.startedAt - a.startedAt).slice(0, MAX_RUNS);
+  const stored = await db.runs.toArray();
+  const records = capRuns(stored.map(upgradeRecord));
+  const upgraded = records.filter((r) => !stored.includes(r));
+  if (upgraded.length) void db.runs.bulkPut(upgraded);
   const me = deviceName();
   current = records.find((r) => r.outcome === 'ongoing' && r.device === me) ?? null;
   publish(records);

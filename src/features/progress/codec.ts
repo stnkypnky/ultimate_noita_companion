@@ -91,7 +91,9 @@ function validRuns(r: unknown): r is RunSummary {
     typeof x === 'object' &&
     (['runs', 'deaths', 'playtimeSec', 'kills', 'bestGold'] as const).every((k) => Number.isFinite(x[k])) &&
     Array.isArray(x.recent) &&
-    x.recent.every((e) => e && Number.isFinite(e.seed) && typeof e.date === 'string' && Number.isFinite(e.playtimeSec) && (e.killedBy === undefined || typeof e.killedBy === 'string'))
+    x.recent.every((e) => e && Number.isFinite(e.seed) && typeof e.date === 'string' && Number.isFinite(e.playtimeSec) && (e.killedBy === undefined || typeof e.killedBy === 'string')) &&
+    (x.wins === undefined ||
+      (Array.isArray(x.wins) && x.wins.length <= 100 && x.wins.every((e) => e && Number.isFinite(e.seed) && typeof e.date === 'string' && Number.isFinite(e.playtimeSec) && Number.isFinite(e.kills))))
   );
 }
 
